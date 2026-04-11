@@ -15,14 +15,16 @@ SSH into your router and run:
 
 ```sh
 wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
-sh /root/qosify-luci.sh install
+chmod +x /root/qosify-luci.sh
+/root/qosify-luci.sh install
 ```
 
 Or with curl:
 
 ```sh
 curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
-sh /root/qosify-luci.sh install
+chmod +x /root/qosify-luci.sh
+/root/qosify-luci.sh install
 ```
 
 The installer will:
