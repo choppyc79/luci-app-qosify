@@ -42,7 +42,7 @@ This removes qosify, all config files, and the LuCI app.
 
 ## Configuration
 
-After install, go to the **Config** tab to set your WAN bandwidth and enable QoS. The default config ships with QoS **disabled** — you must set `disabled` to `0` in the Config tab and adjust `bandwidth_up` / `bandwidth_down` to match your connection. You can also import / upload previous qosify config and 00-defaults.conf
+After install, go to the **Config** tab to set your WAN bandwidth and enable QoS. The default config ships with QoS **disabled** — you must set `disabled` to `0` in the Config tab and adjust `bandwidth_up` / `bandwidth_down` to match your connection. You can also import / upload previous qosify config and 00-defaults.conf files.
 
 ## Files
 
