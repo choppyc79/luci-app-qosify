@@ -14,15 +14,15 @@ Adds a **Network → QoSify** menu with tabs for Status, Stats, Config editing, 
 SSH into your router and run:
 
 ```sh
-wget -O /tmp/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
-sh /tmp/qosify-luci.sh install
+wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
+sh /root/qosify-luci.sh install
 ```
 
 Or with curl:
 
 ```sh
-curl -o /tmp/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
-sh /tmp/qosify-luci.sh install
+curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
+sh /root/qosify-luci.sh install
 ```
 
 The installer will:
@@ -35,15 +35,14 @@ Once complete, navigate to **Network → QoSify** in LuCI.
 ## Uninstall
 
 ```sh
-sh /tmp/qosify-luci.sh uninstall
+sh /root/qosify-luci.sh uninstall
 ```
 
 This removes qosify, all config files, and the LuCI app.
 
 ## Configuration
 
-After install, go to the **config** tab to set your WAN bandwidth and enable QoS. The default config ships with QoS **disabled** — you must set `disabled` to `0` in the Config tab and adjust `bandwidth_up` / `bandwidth_down` to match your connection.
-or you can upload qosify config and 00-defaults.conf files.
+After install, go to the **Status** tab to set your WAN bandwidth and enable QoS. The default config ships with QoS **disabled** — you must set `disabled` to `0` in the Config tab and adjust `bandwidth_up` / `bandwidth_down` to match your connection.
 
 ## Files
 
@@ -53,6 +52,28 @@ or you can upload qosify config and 00-defaults.conf files.
 | `/etc/qosify/00-defaults.conf` | DSCP classification rules |
 | `/usr/lib/lua/luci/controller/qosify.lua` | LuCI controller |
 | `/usr/lib/lua/luci/view/qosify/*.htm` | LuCI view templates |
+
+## Changelog
+
+### v1.1 — 2025-04-11
+- Confirmed ash/busybox compatibility throughout
+- Validated all heredocs use single-quoted delimiters to prevent variable expansion
+- No functional changes from v1.0; codebase verified stable
+
+### v1.0 — Initial Release
+- Single-script installer (`qosify-luci.sh install|uninstall`)
+- Auto-installs `qosify` via opkg or apk if missing
+- LuCI controller with 5 tabs: Status, Stats, Config, Classification Rules, Upload/Reset
+- Status tab: service state, WAN config summary, enable/disable/start/stop/restart/reload controls, 5s auto-refresh
+- Stats tab: live `qosify-status` output with auto-refresh
+- Config tab: inline editor for `/etc/config/qosify` with save & restart
+- Classification Rules tab: inline editor for `/etc/qosify/00-defaults.conf`
+- Upload/Reset tab: file upload for both configs, factory reset to defaults
+- Default DSCP classification rules: DNS/NTP → voice, SSH → +video, HTTP/QUIC → +besteffort
+- Default classes: voice (CS6), video (AF41), besteffort (CS0), bulk (LE)
+- Voice class includes bulk demotion (100 pps trigger)
+- WAN interface ships disabled by default for safe first-run
+- Full uninstall cleans up tc qdiscs, ifb devices, packages, configs, and LuCI cache
 
 ## License
 
