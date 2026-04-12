@@ -5,7 +5,7 @@ VIEW_DIR="/usr/lib/lua/luci/view/qosify"
 CONFIG_DIR="/etc/qosify"
 UCI_CONFIG="/etc/config/qosify"
 DEFAULTS_FILE="$CONFIG_DIR/00-defaults.conf"
-VERSION="1.3"
+VERSION="1.4"
 
 flush_luci() {
 	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache \
@@ -39,6 +39,7 @@ install_qosify() {
 
 install_defaults() {
 	echo "[*] Writing default configs..."
+	rm -f "$UCI_CONFIG" "$DEFAULTS_FILE"
 	mkdir -p "$CONFIG_DIR"
 	cat > "$DEFAULTS_FILE" << 'EOF'
 # DNS
@@ -117,6 +118,24 @@ local http=require"luci.http"
 local tpl=require"luci.template"
 local function r(c) local h=io.popen(c.." 2>&1") local o=h:read("*a")or"" h:close() return(o:gsub("%s+$","")) end
 local function u(k) return r("uci -q get qosify.wan."..k) end
+local function vf(p,t)
+	local s=fs.stat(p,"size")or 0
+	if s<1 then return nil,"Empty file" end
+	if s>65536 then return nil,"File too large (max 64KB)" end
+	local d=fs.readfile(p)or""
+	if d:find("%z") then return nil,"Binary file rejected" end
+	if t=="uci" then
+		if not d:find("\nconfig ") and not d:match("^config ") then return nil,"No valid UCI config stanzas found" end
+	elseif t=="def" then
+		for l in d:gmatch("[^\n]+") do
+			l=l:match("^%s*(.-)%s*$")
+			if l~="" and l:sub(1,1)~="#" then
+				if not l:match("^%S+%s+%S") then return nil,"Invalid rule line: "..l:sub(1,40) end
+			end
+		end
+	end
+	return true
+end
 
 function index()
 	entry({"admin","network","qosify"},call("act"),"qosify",90)
@@ -155,16 +174,22 @@ function act()
 			if d then fs.writefile("/etc/qosify/00-defaults.conf",d:gsub("\r\n","\n"))
 			sys.call("/etc/init.d/qosify restart >/dev/null 2>&1"); msg="Rules saved, qosify restarted." end
 		elseif a=="upload" then
-			local did=false
+			local did,errs=false,{}
 			if fs.access("/tmp/.qos_up_u") then
-				if(fs.stat("/tmp/.qos_up_u","size")or 0)>0 then fs.copy("/tmp/.qos_up_u","/etc/config/qosify");did=true end
+				local ok,e=vf("/tmp/.qos_up_u","uci")
+				if ok then fs.copy("/tmp/.qos_up_u","/etc/config/qosify");did=true
+				elseif e then errs[#errs+1]="Config: "..e end
 				fs.remove("/tmp/.qos_up_u")
 			end
 			if fs.access("/tmp/.qos_up_d") then
-				if(fs.stat("/tmp/.qos_up_d","size")or 0)>0 then fs.copy("/tmp/.qos_up_d","/etc/qosify/00-defaults.conf");did=true end
+				local ok,e=vf("/tmp/.qos_up_d","def")
+				if ok then fs.copy("/tmp/.qos_up_d","/etc/qosify/00-defaults.conf");did=true
+				elseif e then errs[#errs+1]="Rules: "..e end
 				fs.remove("/tmp/.qos_up_d")
 			end
-			if did then sys.call("/etc/init.d/qosify restart >/dev/null 2>&1"); msg="Uploaded, qosify restarted."
+			if did then sys.call("/etc/init.d/qosify restart >/dev/null 2>&1") end
+			if #errs>0 then msg="Upload error: "..table.concat(errs,"; ")
+			elseif did then msg="Uploaded, qosify restarted."
 			else msg="No valid files received." end
 		elseif a=="reset" then
 			sys.call("/bin/sh /root/qosify-luci.sh reset >/dev/null 2>&1")
@@ -218,11 +243,14 @@ install_views() {
 .qos-btn-en:hover{background:#4caf50 !important;color:#fff !important}
 .qos-btn-dis{background:transparent !important;border:2px solid #e53935 !important;color:#e53935 !important;font-weight:bold}
 .qos-btn-dis:hover{background:#e53935 !important;color:#fff !important}
+.qos-msg{padding:10px 15px;border-radius:4px;font-weight:bold;margin:8px 0}
+.qos-msg-ok{background:#2e7d32;color:#fff;border:1px solid #1b5e20}
+.qos-msg-err{background:#c62828;color:#fff;border:1px solid #b71c1c}
 </style>
 <div class="cbi-map" id="qos-app">
 <h2>qosify</h2>
 <div class="cbi-map-descr">Traffic shaping and DSCP classification via qosify</div>
-<% if msg then %><div class="alert-message notice" id="qos-msg"><%=pcdata(msg)%></div><% end %>
+<% if msg then %><div class="qos-msg <%= msg:find('^Upload error') and 'qos-msg-err' or 'qos-msg-ok' %>" id="qos-msg"><%=pcdata(msg)%></div><% end %>
 <ul class="cbi-tabmenu">
 <li class="cbi-tab" id="th-ov"><a href="#" onclick="qT('ov');return false">Overview</a></li>
 <li class="cbi-tab-disabled" id="th-cf"><a href="#" onclick="qT('cf');return false">Config</a></li>
@@ -330,11 +358,11 @@ install_views() {
 <input type="hidden" name="action" value="upload"/>
 <div class="cbi-value">
 <label class="cbi-value-title">/etc/config/qosify</label>
-<div class="cbi-value-field"><input type="file" name="uci_file"/></div>
+<div class="cbi-value-field"><input type="file" name="uci_file" accept=".conf,text/plain"/></div>
 </div>
 <div class="cbi-value">
 <label class="cbi-value-title">/etc/qosify/00-defaults.conf</label>
-<div class="cbi-value-field"><input type="file" name="def_file"/></div>
+<div class="cbi-value-field"><input type="file" name="def_file" accept=".conf,text/plain"/></div>
 </div>
 <div class="cbi-page-actions">
 <input class="cbi-button cbi-button-apply" type="submit" value="Save &amp; Apply"/>
