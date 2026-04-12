@@ -149,11 +149,11 @@ function act()
 		if m.name=="uci_file" then
 			if not fp_u and c then fp_u=io.open("/tmp/.qos_up_u","w") end
 			if fp_u and c then fp_u:write(c) end
-			if fp_u and e then fp_u:close() end
+			if fp_u and e then fp_u:close();fp_u=nil end
 		elseif m.name=="def_file" then
 			if not fp_d and c then fp_d=io.open("/tmp/.qos_up_d","w") end
 			if fp_d and c then fp_d:write(c) end
-			if fp_d and e then fp_d:close() end
+			if fp_d and e then fp_d:close();fp_d=nil end
 		end
 	end)
 	if http.getenv("REQUEST_METHOD")=="POST" then
@@ -451,7 +451,7 @@ document.addEventListener('submit',function(e){
 var h=location.hash.slice(1),idx=names.indexOf(h);
 if(idx>=0)qT(tabs[idx]);
 var m=document.getElementById('qos-msg');
-if(m)setTimeout(function(){location.href=location.href;},5000);
+if(m)setTimeout(function(){window.location=location.pathname+location.hash;},5000);
 window.qT=qT;
 })();
 //]]></script>
