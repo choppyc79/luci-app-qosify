@@ -191,7 +191,7 @@ function action_overview()
 		wan_iface=wan_iface,bw_up=bw_up,bw_down=bw_down,mode=mode,wan_disabled=wan_disabled,
 		overhead=overhead,autorate=autorate,ingress=ingress,egress=egress,
 		wan_nat=wan_nat,host_iso=host_iso,ing_opts=ing_opts,egr_opts=egr_opts,opts=opts,
-		num_rules=num_rules,qos_ver="1.1"
+		num_rules=num_rules,qos_ver="__VERSION__"
 	})
 end
 
@@ -270,6 +270,7 @@ function action_upload()
 	tpl.render("qosify/upload",{msg=msg})
 end
 LUAEOF
+	sed -i "s/__VERSION__/$VERSION/" "$CTRL_DIR/qosify.lua"
 }
 
 install_views() {
