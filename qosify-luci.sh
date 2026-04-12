@@ -545,6 +545,8 @@ install_all() {
 	echo "[*] Clearing LuCI cache..."
 	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache /tmp/luci-sessions 2>/dev/null
 	echo "[*] Restarting services..."
+	/etc/init.d/qosify restart 2>/dev/null
+	echo "[*] Restarting LuCI web server..."
 	if [ -f /etc/init.d/uhttpd ]; then
 		/etc/init.d/uhttpd restart
 	elif [ -f /etc/init.d/nginx ]; then
@@ -552,9 +554,9 @@ install_all() {
 	else
 		echo "[!] No supported web server found"
 	fi
-	/etc/init.d/qosify restart 2>/dev/null
 	logger -t qosify-luci "LuCI app installed"
 	echo "[OK] qosify LuCI app installed"
+	echo "[*] Please refresh your browser - you will be redirected to the login page"
 }
 
 uninstall_all() {
@@ -574,10 +576,19 @@ uninstall_all() {
 	rmdir "$CONFIG_DIR" 2>/dev/null
 	rm -f "$CTRL_DIR/qosify.lua"
 	rm -rf /usr/lib/lua/luci/model/cbi/qosify "$VIEW_DIR"
+	echo "[*] Clearing LuCI cache..."
 	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache /tmp/luci-sessions 2>/dev/null
-	/etc/init.d/uhttpd restart 2>/dev/null
+	echo "[*] Restarting LuCI web server..."
+	if [ -f /etc/init.d/uhttpd ]; then
+		/etc/init.d/uhttpd restart
+	elif [ -f /etc/init.d/nginx ]; then
+		/etc/init.d/nginx restart
+	else
+		echo "[!] No supported web server found"
+	fi
 	logger -t qosify-luci "LuCI app and qosify fully removed"
 	echo "[OK] qosify fully uninstalled"
+	echo "[*] Please refresh your browser - you will be redirected to the login page"
 }
 
 case "$1" in
