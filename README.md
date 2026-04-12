@@ -74,6 +74,18 @@ After install, go to the **Config** tab to set your WAN bandwidth and enable QoS
 
 ## Changelog
 
+## v1.3 — 2025-04-12
+- Consolidated all tabs into a single controller function (act()) and single view template (main.htm)
+- Removed separate CBI models and per-tab view files — entire LuCI app is now one controller + one template
+- Client-side JavaScript tab switching (no page reload between tabs)
+- URL hash persistence (#overview, #config, #rules, #advanced, #status) — active tab survives page refresh and form submissions
+- AJAX auto-refresh on Status tab — polls qosify-status output every 5 seconds without full page reload
+- Styled enable/disable toggle button with green/red outline indicating current state
+- Version string uses __VERSION__ placeholder in Lua heredoc, replaced by sed from the shell $VERSION variable
+- File upload handling via setfilehandler for both UCI config and defaults files in a single form
+- Action message auto-clears after 5 seconds via page refresh
+- Reduced installed footprint: only 2 files deployed (controller + template) instead of multiple models/views
+
 ### v1.2 — 2025-04-12
 - Fixed session invalidation: restart rpcd to force browser back to login page after install/uninstall
 - Added luci-templatecache to cache clearing
