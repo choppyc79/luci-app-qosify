@@ -57,6 +57,9 @@ After install, go to the **Config** tab to set your WAN bandwidth and enable QoS
 
 ## Changelog
 
+### v1.3 — 2025-04-12
+- changes TBC - TESTING
+
 ### v1.2 — 2025-04-12
 - Fixed session invalidation: restart rpcd to force browser back to login page after install/uninstall
 - Added luci-templatecache to cache clearing
