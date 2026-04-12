@@ -7,19 +7,19 @@ Adds a **Network → qosify** menu with tabs for Overview, Status, Config editin
 ## Screenshots
 
 ### Overview
-![Overview](Overview.PNG)
+<img width="921" height="771" alt="Overview" src="https://github.com/user-attachments/assets/3a28b142-7377-4d9d-a84f-fb68137465ce" />
 
 ### Config
-![Config](Config.PNG)
+<img width="938" height="589" alt="Config" src="https://github.com/user-attachments/assets/52020192-1fb4-43c4-87e7-cc23a7525eb9" />
 
 ### Classification Rules
-![Classification Rules](Classification.PNG)
+<img width="934" height="598" alt="Classification" src="https://github.com/user-attachments/assets/82806906-be31-45f6-96f2-e94b3e091622" />
 
 ### Advanced
-![Advanced](Advanced.PNG)
+<img width="941" height="434" alt="Advanced" src="https://github.com/user-attachments/assets/800f21b2-36b0-4c06-b5fd-14368941d8e9" />
 
 ### Status
-![Status](Status.PNG)
+<img width="729" height="874" alt="Status" src="https://github.com/user-attachments/assets/77170bb0-4558-44ed-afec-294d3fc6c820" />
 
 ## Requirements
 
