@@ -1,6 +1,6 @@
 # luci-app-qosify
 
-LuCI web interface for [QoSify](https://openwrt.org/docs/guide-user/network/traffic-shaping/qosify) on OpenWrt.
+LuCI web interface for [qosify](https://openwrt.org/docs/guide-user/network/traffic-shaping/qosify) on OpenWrt.
 
 Adds a **Network → qosify** menu with tabs for Overview, Status, Config editing, Classification Rules, and Advanced.
 
