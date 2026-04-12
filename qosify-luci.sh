@@ -11,12 +11,10 @@ flush_luci() {
 	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache \
 		/tmp/luci-templatecache /tmp/luci-sessions \
 		/tmp/luci-store 2>/dev/null
-	# destroy active rpcd sessions via ubus
 	if command -v ubus >/dev/null 2>&1; then
 		for sid in $(ubus list 2>/dev/null | grep session); do
 			ubus call session destroy '{}' 2>/dev/null
 		done
-		# brute-force: restart rpcd to drop all in-memory sessions
 	fi
 	[ -f /etc/init.d/rpcd ] && /etc/init.d/rpcd restart 2>/dev/null
 	sleep 1
@@ -39,9 +37,10 @@ install_qosify() {
 	/etc/init.d/qosify start 2>/dev/null
 }
 
-install_config_files() {
+install_defaults() {
+	echo "[*] Writing default configs..."
 	mkdir -p "$CONFIG_DIR"
-	[ -f "$DEFAULTS_FILE" ] || cat > "$DEFAULTS_FILE" << 'EOF'
+	cat > "$DEFAULTS_FILE" << 'EOF'
 # DNS
 tcp:53 voice
 tcp:5353 voice
@@ -57,7 +56,7 @@ tcp:443 +besteffort
 udp:80 +besteffort
 udp:443 +besteffort
 EOF
-	[ -f "$UCI_CONFIG" ] || cat > "$UCI_CONFIG" << 'EOF'
+	cat > "$UCI_CONFIG" << 'EOF'
 config defaults
 	list defaults '/etc/qosify/*.conf'
 	option dscp_prio 'video'
@@ -168,7 +167,7 @@ function act()
 			if did then sys.call("/etc/init.d/qosify restart >/dev/null 2>&1"); msg="Uploaded, qosify restarted."
 			else msg="No valid files received." end
 		elseif a=="reset" then
-			sys.call("/bin/sh /usr/lib/lua/luci/view/qosify/reset_defaults.sh >/dev/null 2>&1")
+			sys.call("/bin/sh /root/qosify-luci.sh reset >/dev/null 2>&1")
 			sys.call("/etc/init.d/qosify restart >/dev/null 2>&1"); msg="Reset to defaults, qosify restarted."
 		end
 	end
@@ -211,9 +210,14 @@ install_views() {
 .qos-badge{display:inline-block;padding:2px 10px;border-radius:3px;font-size:12px;font-weight:bold;color:#fff}
 .qos-green{background:#4caf50}.qos-red{background:#e53935}.qos-ok{color:#4caf50}.qos-err{color:#e53935}
 .qos-tab{display:none}.qos-tab.active{display:block}
-.qos-kv td{padding:4px 10px;border-bottom:1px solid #e5e5e5}
-.qos-kv td:first-child{font-weight:bold;color:#555;width:200px}
+.qos-kv td{padding:7px 12px;border-bottom:1px solid #eee}
+.qos-kv td:first-child{font-weight:bold;color:#888;width:200px}
+.qos-kv tr:last-child td{border-bottom:none}
 .qos-svc form{display:inline-block;margin:0 3px 3px 0}
+.qos-btn-en{background:transparent !important;border:2px solid #4caf50 !important;color:#4caf50 !important;font-weight:bold}
+.qos-btn-en:hover{background:#4caf50 !important;color:#fff !important}
+.qos-btn-dis{background:transparent !important;border:2px solid #e53935 !important;color:#e53935 !important;font-weight:bold}
+.qos-btn-dis:hover{background:#e53935 !important;color:#fff !important}
 </style>
 <div class="cbi-map" id="qos-app">
 <h2>qosify</h2>
@@ -221,10 +225,10 @@ install_views() {
 <% if msg then %><div class="alert-message notice" id="qos-msg"><%=pcdata(msg)%></div><% end %>
 <ul class="cbi-tabmenu">
 <li class="cbi-tab" id="th-ov"><a href="#" onclick="qT('ov');return false">Overview</a></li>
-<li class="cbi-tab-disabled" id="th-st"><a href="#" onclick="qT('st');return false">Status</a></li>
 <li class="cbi-tab-disabled" id="th-cf"><a href="#" onclick="qT('cf');return false">Config</a></li>
 <li class="cbi-tab-disabled" id="th-ru"><a href="#" onclick="qT('ru');return false">Classification Rules</a></li>
 <li class="cbi-tab-disabled" id="th-ad"><a href="#" onclick="qT('ad');return false">Advanced</a></li>
+<li class="cbi-tab-disabled" id="th-st"><a href="#" onclick="qT('st');return false">Status</a></li>
 </ul>
 
 <div id="qos-ov" class="qos-tab active">
@@ -262,7 +266,7 @@ install_views() {
 <table class="qos-kv" width="100%">
 <tr><td>/etc/config/qosify</td><td><% if has_uci then %><span class="qos-ok">&#x2714; Found</span><% else %><span class="qos-err">&#x2718; Missing</span><% end %></td></tr>
 <tr><td>/etc/qosify/00-defaults.conf</td><td><% if has_def then %><span class="qos-ok">&#x2714; Found</span>
-<% if num_rules and num_rules>0 then %><span style="color:#888;margin-left:8px;font-size:12px">(<%=num_rules%> active rules)</span><% end %>
+<% if num_rules and num_rules>0 then %><span style="color:#aaa;margin-left:8px;font-size:12px">(<%=num_rules%> active rules)</span><% end %>
 <% else %><span class="qos-err">&#x2718; Missing</span><% end %></td></tr>
 </table>
 </fieldset>
@@ -272,7 +276,7 @@ install_views() {
 <form method="post" action="<%=REQUEST_URI%>">
 <input type="hidden" name="token" value="<%=token%>"/>
 <input type="hidden" name="action" value="<%= enabled and 'disable' or 'enable' %>"/>
-<input class="cbi-button cbi-button-<%= enabled and 'apply' or 'reset' %>" type="submit"
+<input class="cbi-button <%= enabled and 'qos-btn-en' or 'qos-btn-dis' %>" type="submit"
  value="<%= enabled and 'Enabled' or 'Disabled' %>"
  title="<%= enabled and 'Click to disable autostart' or 'Click to enable autostart' %>"/>
 </form>
@@ -284,19 +288,6 @@ install_views() {
 </form>
 <% end %>
 </div>
-</fieldset>
-</div>
-
-<div id="qos-st" class="qos-tab">
-<fieldset class="cbi-section">
-<legend>qosify-status</legend>
-<% if not running then %>
-<div class="alert-message warning">qosify is not running. Start from the Overview tab.</div>
-<% elseif status_out=="" then %>
-<p style="color:#888"><em>qosify-status returned no output.</em></p>
-<% else %>
-<pre style="background:#1e1e1e;color:#e0e0e0;padding:12px;border:1px solid #333;border-radius:4px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap"><%=pcdata(status_out)%></pre>
-<% end %>
 </fieldset>
 </div>
 
@@ -363,6 +354,19 @@ install_views() {
 </fieldset>
 </div>
 
+<div id="qos-st" class="qos-tab">
+<fieldset class="cbi-section">
+<legend>qosify-status</legend>
+<% if not running then %>
+<div class="alert-message warning">qosify is not running. Start from the Overview tab.</div>
+<% elseif status_out=="" then %>
+<p style="color:#888"><em>qosify-status returned no output.</em></p>
+<% else %>
+<pre style="background:#1e1e1e;color:#e0e0e0;padding:12px;border:1px solid #333;border-radius:4px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap"><%=pcdata(status_out)%></pre>
+<% end %>
+</fieldset>
+</div>
+
 <div style="margin:8px 0 0">
 <span style="color:#888;font-size:12px">luci-app-qosify v<%=pcdata(ver)%></span>
 <span style="float:right;color:#888;font-size:11px;display:none" id="qos-rf">Auto-refresh in <span id="qos-cd">5</span>s</span>
@@ -371,8 +375,8 @@ install_views() {
 
 <script type="text/javascript">//<![CDATA[
 (function(){
-var tabs=['ov','st','cf','ru','ad'],
-	names=['overview','status','config','rules','advanced'],
+var tabs=['ov','cf','ru','ad','st'],
+	names=['overview','config','rules','advanced','status'],
 	cur='ov',tmr;
 function qT(t){
 	cur=t;
@@ -427,85 +431,12 @@ window.qT=qT;
 HTMEOF
 }
 
-install_reset_script() {
-	cat > "$VIEW_DIR/reset_defaults.sh" << 'SHEOF'
-#!/bin/sh
-cat > /etc/qosify/00-defaults.conf << 'CONF'
-# DNS
-tcp:53 voice
-tcp:5353 voice
-udp:53 voice
-udp:5353 voice
-# NTP
-udp:123 voice
-# SSH
-tcp:22 +video
-# HTTP/QUIC
-tcp:80 +besteffort
-tcp:443 +besteffort
-udp:80 +besteffort
-udp:443 +besteffort
-CONF
-cat > /etc/config/qosify << 'UCI'
-config defaults
-	list defaults '/etc/qosify/*.conf'
-	option dscp_prio 'video'
-	option dscp_icmp '+besteffort'
-	option dscp_default_udp 'besteffort'
-	option prio_max_avg_pkt_len '500'
-
-config class 'besteffort'
-	option ingress 'CS0'
-	option egress 'CS0'
-
-config class 'bulk'
-	option ingress 'LE'
-	option egress 'LE'
-
-config class 'video'
-	option ingress 'AF41'
-	option egress 'AF41'
-
-config class 'voice'
-	option ingress 'CS6'
-	option egress 'CS6'
-	option bulk_trigger_pps '100'
-	option bulk_trigger_timeout '5'
-	option dscp_bulk 'CS0'
-
-config interface 'wan'
-	option name 'wan'
-	option disabled '1'
-	option bandwidth_up '100mbit'
-	option bandwidth_down '100mbit'
-	option overhead_type 'none'
-	option ingress '1'
-	option egress '1'
-	option mode 'diffserv4'
-	option nat '1'
-	option host_isolate '1'
-	option autorate_ingress '0'
-	option ingress_options ''
-	option egress_options ''
-	option options ''
-
-config device 'wandev'
-	option disabled '1'
-	option name 'wan'
-	option bandwidth '100mbit'
-UCI
-SHEOF
-	chmod +x "$VIEW_DIR/reset_defaults.sh"
-}
-
 install_all() {
 	echo "===== qosify LuCI Installer v$VERSION ====="
 	install_qosify
 	install_controller
 	install_views
-	rm -f "$UCI_CONFIG" "$DEFAULTS_FILE" 2>/dev/null
-	install_reset_script
-	install_config_files
+	install_defaults
 	/etc/init.d/qosify restart 2>/dev/null
 	flush_luci
 	logger -t qosify-luci "LuCI app installed v$VERSION"
@@ -538,5 +469,6 @@ uninstall_all() {
 case "$1" in
 	install) install_all ;;
 	uninstall) uninstall_all ;;
-	*) echo "Usage: $0 {install|uninstall}" ;;
+	reset) install_defaults ;;
+	*) echo "Usage: $0 {install|uninstall|reset}" ;;
 esac
