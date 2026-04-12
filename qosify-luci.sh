@@ -7,6 +7,24 @@ UCI_CONFIG="/etc/config/qosify"
 DEFAULTS_FILE="$CONFIG_DIR/00-defaults.conf"
 VERSION="1.1"
 
+flush_luci() {
+	echo "[*] Clearing LuCI cache & sessions..."
+	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache \
+		/tmp/luci-templatecache /tmp/luci-sessions 2>/dev/null
+	# invalidate rpcd sessions (modern OpenWrt)
+	if [ -f /etc/init.d/rpcd ]; then
+		/etc/init.d/rpcd restart 2>/dev/null
+	fi
+	echo "[*] Restarting web server..."
+	if [ -f /etc/init.d/uhttpd ]; then
+		/etc/init.d/uhttpd restart
+	elif [ -f /etc/init.d/nginx ]; then
+		/etc/init.d/nginx restart
+	else
+		echo "[!] No supported web server found"
+	fi
+}
+
 install_qosify() {
 	echo "[*] Checking qosify..."
 	if command -v qosify >/dev/null 2>&1; then
@@ -23,6 +41,75 @@ install_qosify() {
 	fi
 	/etc/init.d/qosify enable 2>/dev/null
 	/etc/init.d/qosify start 2>/dev/null
+}
+
+install_config_files() {
+	echo "[*] Checking config files..."
+	mkdir -p "$CONFIG_DIR"
+	[ -f "$DEFAULTS_FILE" ] || cat > "$DEFAULTS_FILE" << 'EOF'
+# DNS
+tcp:53 voice
+tcp:5353 voice
+udp:53 voice
+udp:5353 voice
+# NTP
+udp:123 voice
+# SSH
+tcp:22 +video
+# HTTP/QUIC
+tcp:80 +besteffort
+tcp:443 +besteffort
+udp:80 +besteffort
+udp:443 +besteffort
+EOF
+	[ -f "$UCI_CONFIG" ] || cat > "$UCI_CONFIG" << 'EOF'
+config defaults
+	list defaults '/etc/qosify/*.conf'
+	option dscp_prio 'video'
+	option dscp_icmp '+besteffort'
+	option dscp_default_udp 'besteffort'
+	option prio_max_avg_pkt_len '500'
+
+config class 'besteffort'
+	option ingress 'CS0'
+	option egress 'CS0'
+
+config class 'bulk'
+	option ingress 'LE'
+	option egress 'LE'
+
+config class 'video'
+	option ingress 'AF41'
+	option egress 'AF41'
+
+config class 'voice'
+	option ingress 'CS6'
+	option egress 'CS6'
+	option bulk_trigger_pps '100'
+	option bulk_trigger_timeout '5'
+	option dscp_bulk 'CS0'
+
+config interface 'wan'
+	option name 'wan'
+	option disabled '1'
+	option bandwidth_up '100mbit'
+	option bandwidth_down '100mbit'
+	option overhead_type 'none'
+	option ingress '1'
+	option egress '1'
+	option mode 'diffserv4'
+	option nat '1'
+	option host_isolate '1'
+	option autorate_ingress '0'
+	option ingress_options ''
+	option egress_options ''
+	option options ''
+
+config device 'wandev'
+	option disabled '1'
+	option name 'wan'
+	option bandwidth '100mbit'
+EOF
 }
 
 install_controller() {
@@ -189,7 +276,7 @@ install_views() {
 	echo "[*] Setting up views..."
 	mkdir -p "$VIEW_DIR"
 
-	# Tab 1: Status
+	# Tab 1: Overview
 	cat > "$VIEW_DIR/status.htm" << 'HTMEOF'
 <%+header%>
 <style>
@@ -204,43 +291,29 @@ install_views() {
 .qos-btn-enabled{background:#4caf50;color:#fff;border:1px solid #388e3c;border-radius:3px;padding:3px 12px;font-weight:bold;cursor:pointer;font-size:12px;}
 .qos-btn-disabled{background:#e53935;color:#fff;border:1px solid #c62828;border-radius:3px;padding:3px 12px;font-weight:bold;cursor:pointer;font-size:12px;}
 </style>
-
 <div id="qos-content">
 <h2>qosify — Overview</h2>
 <% if msg then %><div class="alert-message notice"><%=pcdata(msg)%></div><% end %>
-
 <fieldset class="cbi-section">
 <legend>Service Status</legend>
 <table class="qos-tbl">
-<tr>
-<td>Package</td>
-<td><% if has_bin then %><span class="qos-ok">&#x2714; Installed</span><% else %><span class="qos-err">&#x2718; Not Installed</span><% end %></td>
-</tr>
-<tr>
-<td>Init Script</td>
-<td><% if has_init then %><span class="qos-ok">&#x2714; Available</span><% else %><span class="qos-err">&#x2718; Missing</span><% end %></td>
-</tr>
-<tr>
-<td>Autostart</td>
-<td><% if enabled then %><span class="qos-badge qos-badge-green">Enabled</span><% else %><span class="qos-badge qos-badge-red">Disabled</span><% end %></td>
-</tr>
-<tr>
-<td>Status</td>
-<td><% if running then %><span class="qos-badge qos-badge-green">Running</span><% else %><span class="qos-badge qos-badge-red">Not Running</span><% end %></td>
-</tr>
-
+<tr><td>Package</td>
+<td><% if has_bin then %><span class="qos-ok">&#x2714; Installed</span><% else %><span class="qos-err">&#x2718; Not Installed</span><% end %></td></tr>
+<tr><td>Init Script</td>
+<td><% if has_init then %><span class="qos-ok">&#x2714; Available</span><% else %><span class="qos-err">&#x2718; Missing</span><% end %></td></tr>
+<tr><td>Autostart</td>
+<td><% if enabled then %><span class="qos-badge qos-badge-green">Enabled</span><% else %><span class="qos-badge qos-badge-red">Disabled</span><% end %></td></tr>
+<tr><td>Status</td>
+<td><% if running then %><span class="qos-badge qos-badge-green">Running</span><% else %><span class="qos-badge qos-badge-red">Not Running</span><% end %></td></tr>
 </table>
 </fieldset>
-
 <fieldset class="cbi-section">
 <legend>Interface Configuration</legend>
 <table class="qos-tbl">
-<tr>
-<td>WAN Interface</td>
+<tr><td>WAN Interface</td>
 <td><strong><%=pcdata(wan_iface)%></strong>
 <% if wan_disabled then %><span class="qos-badge qos-badge-red" style="margin-left:8px;">QoS Disabled</span>
-<% else %><span class="qos-badge qos-badge-green" style="margin-left:8px;">QoS Active</span><% end %></td>
-</tr>
+<% else %><span class="qos-badge qos-badge-green" style="margin-left:8px;">QoS Active</span><% end %></td></tr>
 <tr><td>Bandwidth Up</td><td><%=pcdata(bw_up)%></td></tr>
 <tr><td>Bandwidth Down</td><td><%=pcdata(bw_down)%></td></tr>
 <tr><td>Overhead Type</td><td><%=pcdata(overhead)%></td></tr>
@@ -255,23 +328,17 @@ install_views() {
 <tr><td>Options</td><td><%=pcdata(opts)%></td></tr>
 </table>
 </fieldset>
-
 <fieldset class="cbi-section">
 <legend>Configuration Files</legend>
 <table class="qos-tbl">
-<tr>
-<td>/etc/config/qosify</td>
-<td><% if has_uci then %><span class="qos-ok">&#x2714; Found</span><% else %><span class="qos-err">&#x2718; Missing</span><% end %></td>
-</tr>
-<tr>
-<td>/etc/qosify/00-defaults.conf</td>
+<tr><td>/etc/config/qosify</td>
+<td><% if has_uci then %><span class="qos-ok">&#x2714; Found</span><% else %><span class="qos-err">&#x2718; Missing</span><% end %></td></tr>
+<tr><td>/etc/qosify/00-defaults.conf</td>
 <td><% if has_def then %><span class="qos-ok">&#x2714; Found</span>
 <% if num_rules and num_rules>0 then %><span style="color:#888;margin-left:8px;font-size:12px;">(<%=num_rules%> active rules)</span><% end %>
-<% else %><span class="qos-err">&#x2718; Missing</span><% end %></td>
-</tr>
+<% else %><span class="qos-err">&#x2718; Missing</span><% end %></td></tr>
 </table>
 </fieldset>
-
 <fieldset class="cbi-section">
 <legend>Service Controls</legend>
 <div class="qos-actions">
@@ -282,7 +349,6 @@ install_views() {
  value="<%= enabled and 'Enabled' or 'Disabled' %>"
  title="<%= enabled and 'Click to disable autostart' or 'Click to enable autostart' %>"/>
 </form>
-
 <% local btns={"start","stop","restart","reload"} %>
 <% for _,a in ipairs(btns) do %>
 <form method="post" action="<%=REQUEST_URI%>" style="display:inline;">
@@ -293,18 +359,16 @@ install_views() {
 <% end %>
 </div>
 </fieldset>
-
 <p style="font-size:14px;color:#888;margin:12px 0 4px 0;"><strong>Luci-app-qosify</strong> version <%=pcdata(qos_ver)%></p>
 <div style="text-align:right;color:#888;font-size:11px;margin-top:8px;">Auto-refresh in <span id="qos-countdown">5</span>s</div>
 </div>
-
 <script type="text/javascript">
 (function(){var t=5;function refresh(){var x=new XMLHttpRequest();x.open('GET',location.href,true);x.onload=function(){if(x.status===200){var d=document.createElement('div');d.innerHTML=x.responseText;var n=d.querySelector('#qos-content');var o=document.getElementById('qos-content');if(n&&o){o.innerHTML=n.innerHTML;t=5;tick();}else{location.reload();}}else{location.reload();}};x.onerror=function(){location.reload();};x.send();}function tick(){var e=document.getElementById('qos-countdown');if(e)e.textContent=t;if(t<=0){refresh();}else{t--;setTimeout(tick,1000);}}tick();})();
 </script>
 <%+footer%>
 HTMEOF
 
-	# Tab 2: Stats
+	# Tab 2: Status
 	cat > "$VIEW_DIR/stats.htm" << 'HTMEOF'
 <%+header%>
 <div id="qos-content">
@@ -349,7 +413,7 @@ HTMEOF
 <%+footer%>
 HTMEOF
 
-	# Tab 5: Upload / Reset
+	# Tab 5: Advanced
 	cat > "$VIEW_DIR/upload.htm" << 'HTMEOF'
 <%+header%>
 <h2>qosify — Advanced</h2>
@@ -466,75 +530,6 @@ SHEOF
 	chmod +x "$VIEW_DIR/reset_defaults.sh"
 }
 
-install_config_files() {
-	echo "[*] Checking config files..."
-	mkdir -p "$CONFIG_DIR"
-	[ -f "$DEFAULTS_FILE" ] || cat > "$DEFAULTS_FILE" << 'EOF'
-# DNS
-tcp:53 voice
-tcp:5353 voice
-udp:53 voice
-udp:5353 voice
-# NTP
-udp:123 voice
-# SSH
-tcp:22 +video
-# HTTP/QUIC
-tcp:80 +besteffort
-tcp:443 +besteffort
-udp:80 +besteffort
-udp:443 +besteffort
-EOF
-	[ -f "$UCI_CONFIG" ] || cat > "$UCI_CONFIG" << 'EOF'
-config defaults
-	list defaults '/etc/qosify/*.conf'
-	option dscp_prio 'video'
-	option dscp_icmp '+besteffort'
-	option dscp_default_udp 'besteffort'
-	option prio_max_avg_pkt_len '500'
-
-config class 'besteffort'
-	option ingress 'CS0'
-	option egress 'CS0'
-
-config class 'bulk'
-	option ingress 'LE'
-	option egress 'LE'
-
-config class 'video'
-	option ingress 'AF41'
-	option egress 'AF41'
-
-config class 'voice'
-	option ingress 'CS6'
-	option egress 'CS6'
-	option bulk_trigger_pps '100'
-	option bulk_trigger_timeout '5'
-	option dscp_bulk 'CS0'
-
-config interface 'wan'
-	option name 'wan'
-	option disabled '1'
-	option bandwidth_up '100mbit'
-	option bandwidth_down '100mbit'
-	option overhead_type 'none'
-	option ingress '1'
-	option egress '1'
-	option mode 'diffserv4'
-	option nat '1'
-	option host_isolate '1'
-	option autorate_ingress '0'
-	option ingress_options ''
-	option egress_options ''
-	option options ''
-
-config device 'wandev'
-	option disabled '1'
-	option name 'wan'
-	option bandwidth '100mbit'
-EOF
-}
-
 install_all() {
 	echo "===== qosify LuCI Installer ====="
 	install_qosify
@@ -542,31 +537,27 @@ install_all() {
 	install_views
 	install_reset_script
 	install_config_files
-	echo "[*] Clearing LuCI cache..."
-	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache /tmp/luci-sessions 2>/dev/null
-	echo "[*] Restarting services..."
 	/etc/init.d/qosify restart 2>/dev/null
-	echo "[*] Restarting LuCI web server..."
-	if [ -f /etc/init.d/uhttpd ]; then
-		/etc/init.d/uhttpd restart
-	elif [ -f /etc/init.d/nginx ]; then
-		/etc/init.d/nginx restart
-	else
-		echo "[!] No supported web server found"
-	fi
+	flush_luci
 	logger -t qosify-luci "LuCI app installed"
 	echo "[OK] qosify LuCI app installed"
-	echo "[*] Please refresh your browser - you will be redirected to the login page"
+	echo "[*] Refresh your browser to reach the login page"
 }
 
 uninstall_all() {
 	echo "===== qosify LuCI Uninstaller ====="
 	/etc/init.d/qosify stop 2>/dev/null
 	/etc/init.d/qosify disable 2>/dev/null
-	tc qdisc del dev pppoe-wan clsact 2>/dev/null
-	tc qdisc del dev br-lan clsact 2>/dev/null
-	ip link set ifb-dns down 2>/dev/null
-	ip link delete ifb-dns type ifb 2>/dev/null
+	# clean tc qdiscs on wan device (read from uci, fallback to common names)
+	WAN_DEV=$(uci -q get qosify.wandev.name 2>/dev/null)
+	for dev in ${WAN_DEV:-wan} pppoe-wan br-lan; do
+		tc qdisc del dev "$dev" clsact 2>/dev/null
+	done
+	# clean ifb devices created by qosify
+	for ifb in $(ip -o link show type ifb 2>/dev/null | awk -F': ' '{print $2}'); do
+		ip link set "$ifb" down 2>/dev/null
+		ip link delete "$ifb" type ifb 2>/dev/null
+	done
 	if command -v apk >/dev/null 2>&1; then
 		apk del qosify 2>/dev/null
 	elif command -v opkg >/dev/null 2>&1; then
@@ -576,19 +567,10 @@ uninstall_all() {
 	rmdir "$CONFIG_DIR" 2>/dev/null
 	rm -f "$CTRL_DIR/qosify.lua"
 	rm -rf /usr/lib/lua/luci/model/cbi/qosify "$VIEW_DIR"
-	echo "[*] Clearing LuCI cache..."
-	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache /tmp/luci-sessions 2>/dev/null
-	echo "[*] Restarting LuCI web server..."
-	if [ -f /etc/init.d/uhttpd ]; then
-		/etc/init.d/uhttpd restart
-	elif [ -f /etc/init.d/nginx ]; then
-		/etc/init.d/nginx restart
-	else
-		echo "[!] No supported web server found"
-	fi
+	flush_luci
 	logger -t qosify-luci "LuCI app and qosify fully removed"
 	echo "[OK] qosify fully uninstalled"
-	echo "[*] Please refresh your browser - you will be redirected to the login page"
+	echo "[*] Refresh your browser to reach the login page"
 }
 
 case "$1" in
