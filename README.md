@@ -2,7 +2,24 @@
 
 LuCI web interface for [qosify](https://openwrt.org/docs/guide-user/network/traffic-shaping/qosify) on OpenWrt.
 
-Adds a **Network → qosify** menu with tabs for Overview, Config, Classification Rules, Advanced, and Status.
+Adds a **Network → qosify** menu with tabs for Overview, Status, Config editing, Classification Rules, and Advanced.
+
+## Screenshots
+
+### Overview
+![Overview](Overview.PNG)
+
+### Config
+![Config](Config.PNG)
+
+### Classification Rules
+![Classification Rules](Classification.PNG)
+
+### Advanced
+![Advanced](Advanced.PNG)
+
+### Status
+![Status](Status.PNG)
 
 ## Requirements
 
@@ -42,38 +59,6 @@ Once complete, navigate to **Network → qosify** in LuCI.
 
 This removes qosify, all config files, and the LuCI app.
 
-## Tabs
-
-### Overview
-
-Service status, WAN interface configuration, config file health, and service controls (enable/disable, start, stop, restart, reload). The enable/disable toggle shows green when enabled and red when disabled.
-
-![Overview tab](screenshots/overview.png)
-
-### Config
-
-Inline editor for `/etc/config/qosify` — UCI classes, interfaces, and defaults. Changes are saved and qosify is restarted on apply.
-
-![Config tab](screenshots/config.png)
-
-### Classification Rules
-
-Inline editor for `/etc/qosify/00-defaults.conf` — DSCP mapping rules loaded by qosify on startup.
-
-![Classification Rules tab](screenshots/rules.png)
-
-### Advanced
-
-Upload replacement config files for both `/etc/config/qosify` and `/etc/qosify/00-defaults.conf`, or reset everything to factory defaults.
-
-![Advanced tab](screenshots/advanced.png)
-
-### Status
-
-Live `qosify-status` output with 5-second auto-refresh (only when qosify is running).
-
-![Status tab](screenshots/status.png)
-
 ## Configuration
 
 After install, go to the **Config** tab to set your WAN bandwidth and enable QoS. The default config ships with QoS **disabled** — you must set `disabled` to `0` and adjust `bandwidth_up` / `bandwidth_down` to match your connection. Alternatively, use the **Advanced** tab to upload pre-configured files for both `/etc/config/qosify` and `/etc/qosify/00-defaults.conf`.
@@ -88,14 +73,6 @@ After install, go to the **Config** tab to set your WAN bandwidth and enable QoS
 | `/usr/lib/lua/luci/view/qosify/*.htm` | LuCI view templates |
 
 ## Changelog
-
-### v1.3 — 2025-04-12
-- Removed config duplication: single `install_defaults` function used by both install and reset (via `reset` command)
-- Removed standalone `reset_defaults.sh`; reset action now calls `qosify-luci.sh reset`
-- LuCI improvements: fainter table borders and wider row spacing to match LuCI overview style
-- Enable/disable button styled with green outline when enabled, red when disabled (matches System → Startup)
-- Status tab moved to last position in tab bar
-- Added `reset` subcommand to script usage
 
 ### v1.2 — 2025-04-12
 - Fixed session invalidation: restart rpcd to force browser back to login page after install/uninstall
