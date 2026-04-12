@@ -5,7 +5,7 @@ VIEW_DIR="/usr/lib/lua/luci/view/qosify"
 CONFIG_DIR="/etc/qosify"
 UCI_CONFIG="/etc/config/qosify"
 DEFAULTS_FILE="$CONFIG_DIR/00-defaults.conf"
-VERSION="1.1"
+VERSION="1.2"
 
 flush_luci() {
 	echo "[*] Clearing LuCI cache & sessions..."
