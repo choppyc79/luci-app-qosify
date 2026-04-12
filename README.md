@@ -1,6 +1,6 @@
 # luci-app-qosify
 
-LuCI web interface for [qosify](https://openwrt.org/docs/guide-user/network/traffic-shaping/qosify) on OpenWrt.
+LuCI web interface for [QoSify](https://openwrt.org/docs/guide-user/network/traffic-shaping/qosify) on OpenWrt.
 
 Adds a **Network → qosify** menu with tabs for Overview, Status, Config editing, Classification Rules, and Advanced.
 
@@ -57,33 +57,33 @@ After install, go to the **Config** tab to set your WAN bandwidth and enable QoS
 
 ## Changelog
 
-## v1.2 — 2025-04-12
-Fixed session invalidation: restart rpcd to force browser back to login page after install/uninstall
-Added luci-templatecache to cache clearing
-Dynamic interface cleanup on uninstall: reads WAN device from UCI, cleans all ifb devices
-Deduplicated cache/web-server restart into shared flush_luci() helper
-Version display updated to v1.2
+### v1.2 — 2025-04-12
+- Fixed session invalidation: restart rpcd to force browser back to login page after install/uninstall
+- Added luci-templatecache to cache clearing
+- Dynamic interface cleanup on uninstall: reads WAN device from UCI, cleans all ifb devices
+- Deduplicated cache/web-server restart into shared flush_luci() helper
+- Version display updated to v1.2
 
 ### v1.1 — 2025-04-11
-Renamed tabs: Status → Overview, Stats → Status, Upload/Reset → Advanced
-Added version display (v1.1) to Overview tab
-Expanded Interface Configuration in Overview to show all `config interface wan` options
-Standardised all display text to use lowercase "qosify" throughout
+- Renamed tabs: Status → Overview, Stats → Status, Upload/Reset → Advanced
+- Added version display (v1.1) to Overview tab
+- Expanded Interface Configuration in Overview to show all `config interface wan` options
+- Standardised all display text to use lowercase "qosify" throughout
 
 ### v1.0 — Initial Release
-Single-script installer (`qosify-luci.sh install|uninstall`)
-Auto-installs `qosify` via opkg or apk if missing
-LuCI controller with 5 tabs: Overview, Status, Config, Classification Rules, Advanced
-Overview tab: service state, full WAN interface config, enable/disable/start/stop/restart/reload controls, 5s auto-refresh
-Status tab: live `qosify-status` output with auto-refresh
-Config tab: inline editor for `/etc/config/qosify` with save & restart
-Classification Rules tab: inline editor for `/etc/qosify/00-defaults.conf`
-Advanced tab: file upload for both configs, factory reset to defaults
-Default DSCP classification rules: DNS/NTP → voice, SSH → +video, HTTP/QUIC → +besteffort
-Default classes: voice (CS6), video (AF41), besteffort (CS0), bulk (LE)
-Voice class includes bulk demotion (100 pps trigger)
-WAN interface ships disabled by default for safe first-run
-Full uninstall cleans up tc qdiscs, ifb devices, packages, configs, and LuCI cache
+- Single-script installer (`qosify-luci.sh install|uninstall`)
+- Auto-installs `qosify` via opkg or apk if missing
+- LuCI controller with 5 tabs: Overview, Status, Config, Classification Rules, Advanced
+- Overview tab: service state, full WAN interface config, enable/disable/start/stop/restart/reload controls, 5s auto-refresh
+- Status tab: live `qosify-status` output with auto-refresh
+- Config tab: inline editor for `/etc/config/qosify` with save & restart
+- Classification Rules tab: inline editor for `/etc/qosify/00-defaults.conf`
+- Advanced tab: file upload for both configs, factory reset to defaults
+- Default DSCP classification rules: DNS/NTP → voice, SSH → +video, HTTP/QUIC → +besteffort
+- Default classes: voice (CS6), video (AF41), besteffort (CS0), bulk (LE)
+- Voice class includes bulk demotion (100 pps trigger)
+- WAN interface ships disabled by default for safe first-run
+- Full uninstall cleans up tc qdiscs, ifb devices, packages, configs, and LuCI cache
 
 ## License
 
