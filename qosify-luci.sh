@@ -503,13 +503,13 @@ install_all() {
 	install_qosify
 	install_controller
 	install_views
+	rm -f "$UCI_CONFIG" "$DEFAULTS_FILE" 2>/dev/null
 	install_reset_script
 	install_config_files
 	/etc/init.d/qosify restart 2>/dev/null
 	flush_luci
 	logger -t qosify-luci "LuCI app installed v$VERSION"
 	echo "[OK] qosify LuCI app installed"
-	echo "[*] Refresh your browser to reach the login page"
 }
 
 uninstall_all() {
@@ -533,7 +533,6 @@ uninstall_all() {
 	flush_luci
 	logger -t qosify-luci "LuCI app and qosify fully removed"
 	echo "[OK] qosify fully uninstalled"
-	echo "[*] Refresh your browser to reach the login page"
 }
 
 case "$1" in
