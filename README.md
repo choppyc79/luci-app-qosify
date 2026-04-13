@@ -9,17 +9,27 @@ Adds a **Network → qosify** menu with tabs for Overview, Config editing, Class
 ### Overview
 <img width="400" height="400" alt="Overview" src="https://github.com/user-attachments/assets/3a28b142-7377-4d9d-a84f-fb68137465ce" />
 
+Service status, WAN interface settings, config file checks, and start/stop/restart/enable controls at a glance.
+
 ### Config
 <img width="400" height="400" alt="Config" src="https://github.com/user-attachments/assets/52020192-1fb4-43c4-87e7-cc23a7525eb9" />
+
+Edit the UCI configuration (`/etc/config/qosify`) directly — set bandwidth, classes, interfaces, and queue options.
 
 ### Classification Rules
 <img width="400" height="400" alt="Classification" src="https://github.com/user-attachments/assets/82806906-be31-45f6-96f2-e94b3e091622" />
 
+Edit DSCP classification rules (`/etc/qosify/00-defaults.conf`) — map ports, protocols, and DNS patterns to traffic classes.
+
 ### Advanced
 <img width="400" height="400" alt="Advanced" src="https://github.com/user-attachments/assets/800f21b2-36b0-4c06-b5fd-14368941d8e9" />
 
+Upload replacement config files or reset both configs back to defaults.
+
 ### Status
 <img width="400" height="400" alt="Status" src="https://github.com/user-attachments/assets/77170bb0-4558-44ed-afec-294d3fc6c820" />
+
+Live `qosify-status` output showing CAKE qdisc stats for egress and ingress, auto-refreshing every 5 seconds.
 
 ## Requirements
 
