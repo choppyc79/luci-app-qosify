@@ -636,7 +636,7 @@ if(m)setTimeout(function(){window.location=location.pathname+location.hash;},500
 window.qT=qT;
 window.qDl=function(id,fn){
 	var t=document.getElementById(id);if(!t)return;
-	var b=new Blob([t.value],{type:'text/plain'});
+	var b=new Blob([t.value],{type:'application/octet-stream'});
 	var a=document.createElement('a');a.href=URL.createObjectURL(b);
 	a.download=fn;a.click();URL.revokeObjectURL(a.href);
 };
@@ -681,6 +681,7 @@ install_all() {
 	flush_luci
 	logger -t qosify-luci "LuCI app installed v$VERSION"
 	echo "[OK] qosify LuCI app installed"
+	echo "[*] Refresh your browser (Ctrl+F5) to load the new menu."
 }
 
 uninstall_all() {
@@ -704,6 +705,7 @@ uninstall_all() {
 	flush_luci
 	logger -t qosify-luci "LuCI app and qosify fully removed"
 	echo "[OK] qosify fully uninstalled"
+	echo "[*] Refresh your browser (Ctrl+F5) to clear the old menu."
 }
 
 case "$1" in
