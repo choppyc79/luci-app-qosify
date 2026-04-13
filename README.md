@@ -7,27 +7,27 @@ Adds a **Network → qosify** menu with tabs for Overview, Config editing, Class
 ## Screenshots
 
 ### Overview
-<img width="400" height="400" alt="Overview" src="https://github.com/user-attachments/assets/3a28b142-7377-4d9d-a84f-fb68137465ce" />
 
-Service status, WAN interface settings, config file checks, and start/stop/restart/enable controls at a glance.
+
+Service status, Quick Settings form, config file validation, and service controls at a glance.
 
 ### Config
-<img width="400" height="400" alt="Config" src="https://github.com/user-attachments/assets/52020192-1fb4-43c4-87e7-cc23a7525eb9" />
+
 
 Edit the UCI configuration (`/etc/config/qosify`) directly — set bandwidth, classes, interfaces, and queue options.
 
 ### Classification Rules
-<img width="400" height="400" alt="Classification" src="https://github.com/user-attachments/assets/82806906-be31-45f6-96f2-e94b3e091622" />
 
-Edit DSCP classification rules (`/etc/qosify/00-defaults.conf`) — map ports, protocols, and DNS patterns to traffic classes.
+
+Edit DSCP classification rules (`/etc/qosify/00-defaults.conf`) — map ports, protocols, and DNS patterns to traffic classes. Includes a Quick Add form and dynamic DSCP class reference.
 
 ### Advanced
-<img width="400" height="400" alt="Advanced" src="https://github.com/user-attachments/assets/800f21b2-36b0-4c06-b5fd-14368941d8e9" />
 
-Upload replacement config files or reset both configs back to defaults.
+
+Backup current config files, upload replacements, or reset both configs back to defaults.
 
 ### Status
-<img width="400" height="400" alt="Status" src="https://github.com/user-attachments/assets/77170bb0-4558-44ed-afec-294d3fc6c820" />
+
 
 Live `qosify-status` output showing CAKE qdisc stats for egress and ingress, auto-refreshing every 5 seconds.
 
@@ -71,7 +71,9 @@ This removes qosify, all config files, and the LuCI app.
 
 ## Configuration
 
-After install, go to the **Config** tab to set your WAN bandwidth and enable QoS. The default config ships with QoS **disabled** — you must set `disabled` to `0` and adjust `bandwidth_up` / `bandwidth_down` to match your connection. Alternatively, use the **Advanced** tab to upload pre-configured files for both `/etc/config/qosify` and `/etc/qosify/00-defaults.conf`.
+After install, use the **Quick Settings** form on the Overview tab to set your WAN bandwidth, enable QoS, and adjust common CAKE options — no raw config editing needed. The default config ships with QoS **disabled** for safe first-run.
+
+For full control, the **Config** tab provides an inline editor for `/etc/config/qosify` (UCI classes, interfaces, queue options). The **Classification Rules** tab edits `/etc/qosify/00-defaults.conf` with a Quick Add form for appending port/DNS rules by class. Alternatively, use the **Advanced** tab to upload pre-configured files.
 
 ## Files
 
@@ -83,6 +85,23 @@ After install, go to the **Config** tab to set your WAN bandwidth and enable QoS
 | `/usr/lib/lua/luci/view/qosify/main.htm` | LuCI view template (single-page) |
 
 ## Changelog
+
+### v2.0 — 2025-04-13
+- **Quick Settings form** on Overview tab — edit all WAN interface options (QoS enable, bandwidth up/down, overhead type, queue mode, ingress, egress, NAT, host isolate, autorate ingress, ingress options, egress options, CAKE options) without touching raw config
+- **QoS Active indicator** next to the QoS Enabled checkbox — shows green Active, amber Enabled but Not Active, or red Disabled based on live `qosify-status` output
+- **Active status detection** — parses `qosify-status` for `: active` to distinguish process running from actually shaping traffic
+- **Config file validation** on Overview — files now show Valid, Found (empty or invalid), or Missing with file size and last-modified timestamp
+- **Quick Add Rule form** on Classification Rules tab — select type (tcp/udp/tcp+udp/dns), enter port or pattern, pick class from dropdown, optional priority (+) flag. Input validation for port numbers/ranges and DNS patterns
+- **Dynamic DSCP class reference** on Classification Rules tab — collapsible panel auto-populated from `config class` entries in UCI config with ingress/egress DSCP codes. Default/fallback classes (referenced by `dscp_default_tcp`/`dscp_default_udp`) are excluded from dropdown and reference
+- **Unsaved changes warning** on Config and Classification Rules tabs — prompts before tab switch or page close if textarea content has been modified
+- **Auto-refresh Overview** every 30 seconds — AJAX updates Service Status and Configuration Files sections without disrupting Quick Settings form
+- **Backup download buttons** on Advanced tab — download current `/etc/config/qosify` and `00-defaults.conf` as local files before uploading or resetting
+- **Confirm dialogs** on all destructive actions — Config save, Rules save, Upload, Reset
+- **Upload banner** now names which files were uploaded (e.g. `/etc/config/qosify & 00-defaults.conf uploaded, qosify restarted.`)
+- **Option name normalisation** — reads both `overhead_type`/`overhead` and `options`/`option` from UCI; on save, writes canonical names and deletes alternates to prevent config duplication after upload
+- **Improved error banner detection** — catches `error` anywhere in message text, not just `Upload error` prefix
+- Removed Interface Configuration section (replaced by editable Quick Settings)
+- Version bumped to 2.0
 
 ### v1.4 — 2025-04-12
 - Added server-side file upload validation: rejects empty files, files >64KB, binary files
