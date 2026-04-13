@@ -187,7 +187,7 @@ function act()
 			local iopts=(http.formvalue("q_ing_opts")or""):gsub("[^%w%s%-%.]",""):gsub("^%s+",""):gsub("%s+$","")
 			local eopts=(http.formvalue("q_egr_opts")or""):gsub("[^%w%s%-%.]",""):gsub("^%s+",""):gsub("%s+$","")
 			local gopts=(http.formvalue("q_opts")or""):gsub("[^%w%s%-%.]",""):gsub("^%s+",""):gsub("%s+$","")
-			local ovh_ok={none=1,ethernet=1,docsis=1,atm=1,pppoa=1,pppoe=1}
+			local ovh_ok={none=1,conservative=1,ethernet=1,["pppoe-ptm"]=1,["bridged-ptm"]=1,["pppoe-vcmux"]=1,["pppoe-llcsnap"]=1,["pppoa-vcmux"]=1,["pppoa-llc"]=1,["bridged-vcmux"]=1,["bridged-llcsnap"]=1,["ipoa-vcmux"]=1,["ipoa-llcsnap"]=1}
 			local mod_ok={diffserv3=1,diffserv4=1,diffserv8=1}
 			local errs={}
 			if iopts~="" and not iopts:match("^[%w%s%-%.]+$") then errs[#errs+1]="Ingress Options" end
@@ -366,8 +366,8 @@ install_views() {
 <% else %><span class="qos-badge qos-red" style="margin-left:8px">Disabled</span><% end %></td></tr>
 <tr><td>Bandwidth Up</td><td><input type="text" name="bw_up" value="<%=pcdata(bw_up)%>" style="width:140px;font-family:monospace" placeholder="e.g. 100mbit"/></td></tr>
 <tr><td>Bandwidth Down</td><td><input type="text" name="bw_down" value="<%=pcdata(bw_down)%>" style="width:140px;font-family:monospace" placeholder="e.g. 100mbit"/></td></tr>
-<tr><td>Overhead Type</td><td><select name="overhead" style="width:148px">
-<% local ovh_list={"none","ethernet","docsis","atm","pppoa","pppoe"}
+<tr><td>Overhead Type</td><td><select name="overhead" style="width:180px">
+<% local ovh_list={"none","conservative","ethernet","pppoe-ptm","bridged-ptm","pppoe-vcmux","pppoe-llcsnap","pppoa-vcmux","pppoa-llc","bridged-vcmux","bridged-llcsnap","ipoa-vcmux","ipoa-llcsnap"}
 for _,v in ipairs(ovh_list) do %><option value="<%=v%>"<%= (overhead==v) and ' selected="selected"' or '' %>><%=v%></option>
 <% end %></select></td></tr>
 <tr><td>Queue Mode</td><td><select name="mode" style="width:148px">
