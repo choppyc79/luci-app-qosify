@@ -1,52 +1,55 @@
 #!/bin/sh
-# qosify-luci.sh — LuCI App for qosify (ash-compatible)
-CTRL_DIR="/usr/lib/lua/luci/controller"
-VIEW_DIR="/usr/lib/lua/luci/view/qosify"
+# qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
+VERSION="2.3.2"
+MENU_DIR="/usr/share/luci/menu.d"
+ACL_DIR="/usr/share/rpcd/acl.d"
+VIEW_DIR="/www/luci-static/resources/view/qosify"
+TPL_DIR="/usr/share/qosify-luci"
 CONFIG_DIR="/etc/qosify"
 UCI_CONFIG="/etc/config/qosify"
 DEFAULTS_FILE="$CONFIG_DIR/00-defaults.conf"
-VERSION="2.1"
+LEGACY_CTRL="/usr/lib/lua/luci/controller/qosify.lua"
+LEGACY_VIEW="/usr/lib/lua/luci/view/qosify"
+LEGACY_CBI="/usr/lib/lua/luci/model/cbi/qosify"
 
 restart_luci_services() {
-    [ -f /etc/init.d/rpcd ] && /etc/init.d/rpcd restart 2>/dev/null
-    sleep 1
-    if [ -f /etc/init.d/uhttpd ]; then
-        /etc/init.d/uhttpd restart 2>/dev/null
-    elif [ -f /etc/init.d/nginx ]; then
-        /etc/init.d/nginx restart 2>/dev/null
-    fi
-    # best-effort: ask ubus/uhttpd to reload if available (ignore errors)
-    if command -v ubus >/dev/null 2>&1; then
-        ubus call uhttpd reload 2>/dev/null || true
-    fi
+	[ -f /etc/init.d/rpcd ] && /etc/init.d/rpcd restart 2>/dev/null
+	sleep 1
+	if [ -f /etc/init.d/uhttpd ]; then /etc/init.d/uhttpd restart 2>/dev/null
+	elif [ -f /etc/init.d/nginx ]; then /etc/init.d/nginx restart 2>/dev/null
+	fi
+	command -v ubus >/dev/null 2>&1 && ubus call uhttpd reload 2>/dev/null
+	return 0
 }
 
+clean_legacy() {
+	rm -f "$LEGACY_CTRL"
+	rm -rf "$LEGACY_VIEW" "$LEGACY_CBI"
+}
 
-install_qosify() {
-	echo "[*] Checking qosify..."
-	if command -v qosify >/dev/null 2>&1; then
-		echo "[OK] qosify found"
+install_deps() {
+	echo "[*] Installing qosify..."
+	if command -v apk >/dev/null 2>&1; then
+		apk update >/dev/null 2>&1
+		apk add qosify
+	elif command -v opkg >/dev/null 2>&1; then
+		opkg update >/dev/null 2>&1
+		opkg install qosify
 	else
-		echo "[*] Installing qosify, lua, luci-compat..."
-		if command -v opkg >/dev/null 2>&1; then
-			opkg update && opkg install qosify lua luci-compat
-		elif command -v apk >/dev/null 2>&1; then
-			apk update && apk add qosify lua luci-compat
-		else
-			echo "[ERROR] No supported package manager"
-			exit 1
-		fi
+		echo "[ERROR] No supported package manager"; exit 1
 	fi
-
+	if ! command -v qosify >/dev/null 2>&1; then
+		echo "[ERROR] qosify not found after install"; exit 1
+	fi
 	/etc/init.d/qosify enable 2>/dev/null
 	/etc/init.d/qosify start 2>/dev/null
+	echo "[OK] qosify ready"
 }
 
-install_defaults() {
-	echo "[*] Writing default configs..."
-	rm -f "$UCI_CONFIG" "$DEFAULTS_FILE"
-	mkdir -p "$CONFIG_DIR"
-	cat > "$DEFAULTS_FILE" << 'EOF'
+install_templates() {
+	echo "[*] Writing template files..."
+	mkdir -p "$TPL_DIR"
+	cat > "$TPL_DIR/00-defaults.conf" << 'EOF'
 # DNS
 tcp:53 voice
 tcp:5353 voice
@@ -62,7 +65,7 @@ tcp:443 +besteffort
 udp:80 +besteffort
 udp:443 +besteffort
 EOF
-	cat > "$UCI_CONFIG" << 'EOF'
+	cat > "$TPL_DIR/qosify" << 'EOF'
 config defaults
 	list defaults '/etc/qosify/*.conf'
 	option dscp_prio 'video'
@@ -112,789 +115,1096 @@ config device 'wandev'
 EOF
 }
 
-install_controller() {
-	echo "[*] Setting up controller..."
-	mkdir -p "$CTRL_DIR"
-	cat > "$CTRL_DIR/qosify.lua" << 'LUAEOF'
-module("luci.controller.qosify",package.seeall)
-local fs=require"nixio.fs"
-local sys=require"luci.sys"
-local http=require"luci.http"
-local tpl=require"luci.template"
-local function r(c) local h=io.popen(c.." 2>&1") local o=h:read("*a")or"" h:close() return(o:gsub("%s+$","")) end
-local function parse_uci(raw)
-	local named,typed={},{}
-	local cur
-	for line in raw:gmatch("[^\n]+") do
-		local t,n=line:match("^config%s+(%S+)%s+'([%w_]+)'")
-		if not t then t,n=line:match("^config%s+(%S+)%s+([%w_]+)") end
-		if not t then t=line:match("^config%s+(%S+)%s*$") end
-		if t then
-			cur={_type=t,_name=n}
-			if n then named[n]=cur end
-			if not typed[t] then typed[t]={} end
-			typed[t][#typed[t]+1]=cur
-		elseif cur then
-			local k,v=line:match("^%s+option%s+(%S+)%s+'(.-)'")
-			if not k then k,v=line:match("^%s+option%s+(%S+)%s+(%S+)") end
-			if k then cur[k]=v end
-		end
-	end
-	return named,typed
-end
-local function vf(p,t)
-	local s=fs.stat(p,"size")or 0
-	if s<1 then return nil,"Empty file" end
-	if s>65536 then return nil,"File too large (max 64KB)" end
-	local d=fs.readfile(p)or""
-	if d:find("%z") then return nil,"Binary file rejected" end
-	if t=="uci" then
-		if not d:find("\nconfig ") and not d:match("^config ") then return nil,"No valid UCI config stanzas found" end
-	elseif t=="def" then
-		for l in d:gmatch("[^\n]+") do
-			l=l:match("^%s*(.-)%s*$")
-			if l~="" and l:sub(1,1)~="#" then
-				if not l:match("^%S+%s+%S") then return nil,"Invalid rule line: "..l:sub(1,40) end
-			end
-		end
-	end
-	return true
-end
-
-function index()
-	entry({"admin","network","qosify"},call("act"),"qosify",90)
-end
-
-function act()
-	local msg
-	local fp_u,fp_d
-	http.setfilehandler(function(m,c,e)
-		if not m or not m.name then return end
-		if m.name=="uci_file" then
-			if not fp_u and c then fp_u=io.open("/tmp/.qos_up_u","w") end
-			if fp_u and c then fp_u:write(c) end
-			if fp_u and e then fp_u:close();fp_u=nil end
-		elseif m.name=="def_file" then
-			if not fp_d and c then fp_d=io.open("/tmp/.qos_up_d","w") end
-			if fp_d and c then fp_d:write(c) end
-			if fp_d and e then fp_d:close();fp_d=nil end
-		end
-	end)
-	if http.getenv("REQUEST_METHOD")=="POST" then
-		local a=http.formvalue("action")
-		if a=="start" or a=="stop" or a=="restart" or a=="reload" then
-			sys.call("/etc/init.d/qosify "..a.." >/dev/null 2>&1")
-			msg="qosify "..a.."ed."
-		elseif a=="enable" then
-			sys.call("/etc/init.d/qosify enable >/dev/null 2>&1"); msg="Enabled at boot."
-		elseif a=="disable" then
-			sys.call("/etc/init.d/qosify disable >/dev/null 2>&1"); msg="Disabled at boot."
-		elseif a=="save_config" then
-			local d=http.formvalue("data")
-			if d then
-				d=d:gsub("\r\n","\n")
-				if #d>0 then
-					local ok,e=true,nil
-					if d:find("%z") then ok,e=false,"Binary content rejected"
-					elseif not d:find("config ") then ok,e=false,"No valid config stanzas found" end
-					if ok then fs.writefile("/etc/config/qosify",d)
-						sys.call("/etc/init.d/qosify restart >/dev/null 2>&1"); msg="Config saved, qosify restarted."
-					else msg="Error: "..e end
-				else fs.writefile("/etc/config/qosify","")
-					sys.call("/etc/init.d/qosify stop >/dev/null 2>&1"); msg="Config cleared, qosify stopped."
-				end
-			end
-		elseif a=="save_rules" then
-			local d=http.formvalue("data")
-			if d then fs.writefile("/etc/qosify/00-defaults.conf",d:gsub("\r\n","\n"))
-			sys.call("/etc/init.d/qosify restart >/dev/null 2>&1"); msg="Rules saved, qosify restarted." end
-		elseif a=="save_quick" then
-			local bwu=(http.formvalue("bw_up")or""):lower():gsub("[^%d%a]","")
-			local bwd=(http.formvalue("bw_down")or""):lower():gsub("[^%d%a]","")
-			local dis=http.formvalue("qos_enabled") and "0" or "1"
-			local ovh=http.formvalue("overhead")or""
-			local mod=http.formvalue("mode")or""
-			local ing=http.formvalue("q_ingress") and "1" or "0"
-			local egr=http.formvalue("q_egress") and "1" or "0"
-			local nat=http.formvalue("q_nat") and "1" or "0"
-			local hiso=http.formvalue("q_host_isolate") and "1" or "0"
-			local arate=http.formvalue("q_autorate") and "1" or "0"
-			local iopts=(http.formvalue("q_ing_opts")or""):gsub("[^%w%s%-%.]",""):gsub("^%s+",""):gsub("%s+$","")
-			local eopts=(http.formvalue("q_egr_opts")or""):gsub("[^%w%s%-%.]",""):gsub("^%s+",""):gsub("%s+$","")
-			local gopts=(http.formvalue("q_opts")or""):gsub("[^%w%s%-%.]",""):gsub("^%s+",""):gsub("%s+$","")
-			local ovh_ok={none=1,conservative=1,ethernet=1,["pppoe-ptm"]=1,["bridged-ptm"]=1,["pppoe-vcmux"]=1,["pppoe-llcsnap"]=1,["pppoa-vcmux"]=1,["pppoa-llc"]=1,["bridged-vcmux"]=1,["bridged-llcsnap"]=1,["ipoa-vcmux"]=1,["ipoa-llcsnap"]=1}
-			local mod_ok={diffserv3=1,diffserv4=1,diffserv8=1}
-			local errs={}
-			if iopts~="" and not iopts:match("^[%w%s%-%.]+$") then errs[#errs+1]="Ingress Options" end
-			if eopts~="" and not eopts:match("^[%w%s%-%.]+$") then errs[#errs+1]="Egress Options" end
-			if gopts~="" and not gopts:match("^[%w%s%-%.]+$") then errs[#errs+1]="Options" end
-			if #errs>0 then
-				msg="Error: invalid characters in "..table.concat(errs,", ")..". Use alphanumeric, spaces, hyphens, dots only."
-			else
-				local cmds={"(uci -q get qosify.wan >/dev/null || (uci add qosify interface >/dev/null && uci rename qosify.@interface[-1]=wan && uci set qosify.wan.name=wan))"}
-				cmds[#cmds+1]="uci set qosify.wan.disabled='"..dis.."'"
-				if bwu:match("^%d+[kmg]?bit$") then cmds[#cmds+1]="uci set qosify.wan.bandwidth_up='"..bwu.."'" end
-				if bwd:match("^%d+[kmg]?bit$") then cmds[#cmds+1]="uci set qosify.wan.bandwidth_down='"..bwd.."'" end
-				if ovh_ok[ovh] then
-					cmds[#cmds+1]="uci set qosify.wan.overhead_type='"..ovh.."'"
-					cmds[#cmds+1]="(uci -q delete qosify.wan.overhead || true)"
-				end
-				if mod_ok[mod] then cmds[#cmds+1]="uci set qosify.wan.mode='"..mod.."'" end
-				cmds[#cmds+1]="uci set qosify.wan.ingress='"..ing.."'"
-				cmds[#cmds+1]="uci set qosify.wan.egress='"..egr.."'"
-				cmds[#cmds+1]="uci set qosify.wan.nat='"..nat.."'"
-				cmds[#cmds+1]="uci set qosify.wan.host_isolate='"..hiso.."'"
-				cmds[#cmds+1]="uci set qosify.wan.autorate_ingress='"..arate.."'"
-				cmds[#cmds+1]="uci set qosify.wan.ingress_options='"..iopts.."'"
-				cmds[#cmds+1]="uci set qosify.wan.egress_options='"..eopts.."'"
-				cmds[#cmds+1]="uci set qosify.wan.options='"..gopts.."'"
-				cmds[#cmds+1]="(uci -q delete qosify.wan.option || true)"
-				cmds[#cmds+1]="uci commit qosify"
-				sys.call(table.concat(cmds," && ").." >/dev/null 2>&1")
-				sys.call("/etc/init.d/qosify restart >/dev/null 2>&1")
-				msg="Settings saved, qosify restarted."
-			end
-		elseif a=="upload" then
-			local did_u,did_d,errs=false,false,{}
-			if fs.access("/tmp/.qos_up_u") then
-				local ok,e=vf("/tmp/.qos_up_u","uci")
-				if ok then fs.copy("/tmp/.qos_up_u","/etc/config/qosify");did_u=true
-				elseif e then errs[#errs+1]="Config: "..e end
-				fs.remove("/tmp/.qos_up_u")
-			end
-			if fs.access("/tmp/.qos_up_d") then
-				local ok,e=vf("/tmp/.qos_up_d","def")
-				if ok then fs.copy("/tmp/.qos_up_d","/etc/qosify/00-defaults.conf");did_d=true
-				elseif e then errs[#errs+1]="Rules: "..e end
-				fs.remove("/tmp/.qos_up_d")
-			end
-			local did=did_u or did_d
-			if did then sys.call("/etc/init.d/qosify restart >/dev/null 2>&1") end
-			local names={}
-			if did_u then names[#names+1]="/etc/config/qosify" end
-			if did_d then names[#names+1]="00-defaults.conf" end
-			if #errs>0 and did then msg=table.concat(names," & ").." applied. Errors: "..table.concat(errs,"; ")..". qosify restarted."
-			elseif #errs>0 then msg="Upload error: "..table.concat(errs,"; ")
-			elseif did then msg=table.concat(names," & ").." uploaded, qosify restarted."
-			else msg="No valid files received." end
-		elseif a=="reset" then
-			sys.call("/bin/sh /root/qosify-luci.sh reset >/dev/null 2>&1")
-			sys.call("/etc/init.d/qosify restart >/dev/null 2>&1"); msg="Reset to defaults, qosify restarted."
-		end
-	end
-	local running=(sys.call("/etc/init.d/qosify running >/dev/null 2>&1")==0)
-	if not running then running=(sys.call("pgrep -x qosify >/dev/null 2>&1")==0) end
-	local enabled=(sys.call("/etc/init.d/qosify enabled 2>/dev/null")==0)
-	local has_bin=fs.access("/usr/sbin/qosify")or(sys.call("which qosify >/dev/null 2>&1")==0)
-	local has_uci=fs.access("/etc/config/qosify")
-	local has_def=fs.access("/etc/qosify/00-defaults.conf")
-	local has_init=fs.access("/etc/init.d/qosify")
-	local cfg_raw=has_uci and (fs.readfile("/etc/config/qosify")or"") or ""
-	local def_raw=has_def and (fs.readfile("/etc/qosify/00-defaults.conf")or"") or ""
-	local num_rules=0
-	if has_def then for l in def_raw:gmatch("[^\n]+") do local s=l:match("^%s*(.-)%s*$") if s~="" and s:sub(1,1)~="#" then num_rules=num_rules+1 end end end
-	local status_out=""
-	local active=false
-	if running then
-		status_out=r("qosify-status 2>/dev/null")
-		active=(status_out:find(": active")~=nil)
-	end
-	local uci_ok=false
-	if has_uci then uci_ok=(#cfg_raw>10 and (cfg_raw:find("\nconfig ") or cfg_raw:match("^config "))~=nil) end
-	local def_ok=(has_def and num_rules>0)
-	local uci_st=has_uci and fs.stat("/etc/config/qosify") or nil
-	local def_st=has_def and fs.stat("/etc/qosify/00-defaults.conf") or nil
-	local uci_sz=uci_st and uci_st.size or 0
-	local def_sz=def_st and def_st.size or 0
-	local uci_mod=uci_st and os.date("%Y-%m-%d %H:%M",uci_st.mtime) or ""
-	local def_mod=def_st and os.date("%Y-%m-%d %H:%M",def_st.mtime) or ""
-	local named,typed=parse_uci(cfg_raw)
-	local wan=named["wan"] or {}
-	local defs_s=(typed["defaults"] and typed["defaults"][1]) or {}
-	local function g(t,k) return t[k] or "" end
-	local all_classes={}
-	local all_cls={}
-	for c in cfg_raw:gmatch("config%s+class%s+'?([%w_]+)'?") do
-		local cs=named[c] or {}
-		all_classes[#all_classes+1]={name=c,ingress=g(cs,"ingress"),egress=g(cs,"egress"),
-			dscp_prio=g(cs,"dscp_prio"),dscp_bulk=g(cs,"dscp_bulk"),
-			prio_max_avg_pkt_len=g(cs,"prio_max_avg_pkt_len"),
-			bulk_trigger_pps=g(cs,"bulk_trigger_pps"),
-			bulk_trigger_timeout=g(cs,"bulk_trigger_timeout")}
-		all_cls[#all_cls+1]=c
-	end
-	local defs={dscp_icmp=g(defs_s,"dscp_icmp"),
-		dscp_default_tcp=g(defs_s,"dscp_default_tcp"),dscp_default_udp=g(defs_s,"dscp_default_udp"),
-		dscp_prio=g(defs_s,"dscp_prio"),
-		prio_max_avg_pkt_len=g(defs_s,"prio_max_avg_pkt_len")}
-	local ovh_v=g(wan,"overhead_type") if ovh_v=="" then ovh_v=g(wan,"overhead") end
-	local wo=g(wan,"options") if wo=="" then wo=g(wan,"option") end
-	tpl.render("qosify/main",{
-		msg=msg,running=running,enabled=enabled,active=active,
-		has_bin=has_bin,has_uci=has_uci,has_def=has_def,has_init=has_init,
-		uci_ok=uci_ok,def_ok=def_ok,defs=defs,all_cls=all_cls,all_classes=all_classes,
-		uci_sz=uci_sz,def_sz=def_sz,uci_mod=uci_mod,def_mod=def_mod,
-		wan_iface=g(wan,"name"),bw_up=g(wan,"bandwidth_up"),bw_down=g(wan,"bandwidth_down"),
-		mode=g(wan,"mode"),wan_dis=(g(wan,"disabled")=="1"),
-		overhead=ovh_v,autorate=g(wan,"autorate_ingress"),
-		ingress=g(wan,"ingress"),egress=g(wan,"egress"),
-		wan_nat=g(wan,"nat"),host_iso=g(wan,"host_isolate"),
-		ing_opts=g(wan,"ingress_options"),egr_opts=g(wan,"egress_options"),wan_opts=wo,
-		num_rules=num_rules,status_out=status_out,
-		cfg_content=cfg_raw,def_content=def_raw,
-		ver="__VERSION__"
-	})
-end
-LUAEOF
-	sed -i "s/__VERSION__/$VERSION/" "$CTRL_DIR/qosify.lua"
+install_defaults() {
+	echo "[*] Writing default configs..."
+	rm -f "$UCI_CONFIG" "$DEFAULTS_FILE"
+	mkdir -p "$CONFIG_DIR"
+	cp "$TPL_DIR/00-defaults.conf" "$DEFAULTS_FILE"
+	cp "$TPL_DIR/qosify" "$UCI_CONFIG"
 }
 
-install_views() {
-	echo "[*] Setting up views..."
-	mkdir -p "$VIEW_DIR"
-	cat > "$VIEW_DIR/main.htm" << 'HTMEOF'
-<%+header%>
-<style>
-.qos-badge{display:inline-block;padding:2px 10px;border-radius:3px;font-size:12px;font-weight:bold;color:#fff}
-.qos-green{background:#4caf50}.qos-red{background:#e53935}.qos-amber{background:#ff9800}.qos-ok{color:#4caf50}.qos-err{color:#e53935}.qos-warn{color:#ff9800}
-.qos-tab{display:none}.qos-tab.active{display:block}
-.qos-kv td{padding:7px 12px;border-bottom:1px solid #eee}
-.qos-kv td:first-child{font-weight:bold;color:#888;width:200px}
-.qos-kv tr:last-child td{border-bottom:none}
-.qos-svc form{display:inline-block;margin:0 3px 3px 0}
-.qos-btn-en{background:transparent !important;border:2px solid #4caf50 !important;color:#4caf50 !important;font-weight:bold}
-.qos-btn-en:hover{background:#4caf50 !important;color:#fff !important}
-.qos-btn-dis{background:transparent !important;border:2px solid #e53935 !important;color:#e53935 !important;font-weight:bold}
-.qos-btn-dis:hover{background:#e53935 !important;color:#fff !important}
-.qos-msg{padding:10px 15px;border-radius:4px;font-weight:bold;margin:8px 0}
-.qos-msg-ok{background:#2e7d32;color:#fff;border:1px solid #1b5e20}
-.qos-msg-err{background:#c62828;color:#fff;border:1px solid #b71c1c}
-</style>
-<div class="cbi-map" id="qos-app">
-<h2>qosify</h2>
-<div class="cbi-map-descr">Traffic shaping and DSCP classification via qosify</div>
-<% if msg then %><div class="qos-msg <%= msg:lower():find('error') and 'qos-msg-err' or 'qos-msg-ok' %>" id="qos-msg"><%=pcdata(msg)%></div><% end %>
-<ul class="cbi-tabmenu">
-<li class="cbi-tab" id="th-ov"><a href="#" onclick="qT('ov');return false">Overview</a></li>
-<li class="cbi-tab-disabled" id="th-cf"><a href="#" onclick="qT('cf');return false">Config</a></li>
-<li class="cbi-tab-disabled" id="th-ru"><a href="#" onclick="qT('ru');return false">Classification Rules</a></li>
-<li class="cbi-tab-disabled" id="th-ad"><a href="#" onclick="qT('ad');return false">Advanced</a></li>
-<li class="cbi-tab-disabled" id="th-st"><a href="#" onclick="qT('st');return false">Status</a></li>
-</ul>
-
-<div id="qos-ov" class="qos-tab active">
-<fieldset class="cbi-section" id="qos-svc-sect">
-<legend>Service Status</legend>
-<table class="qos-kv" width="100%" id="qos-svc-tbl">
-<tr><td>Package</td><td><% if has_bin then %><span class="qos-ok">&#x2714; Installed</span><% else %><span class="qos-err">&#x2718; Not installed</span><% end %></td></tr>
-<tr><td>Init Script</td><td><% if has_init then %><span class="qos-ok">&#x2714; Available</span><% else %><span class="qos-err">&#x2718; Missing</span><% end %></td></tr>
-<tr><td>Autostart</td><td><% if enabled then %><span class="qos-badge qos-green">Enabled</span><% else %><span class="qos-badge qos-red">Disabled</span><% end %></td></tr>
-<tr><td>Running</td><td><% if running then %><span class="qos-badge qos-green">Running</span><% else %><span class="qos-badge qos-red">Not Running</span><% end %></td></tr>
-</table>
-</fieldset>
-<fieldset class="cbi-section">
-<legend>Quick Settings</legend>
-<div class="cbi-section-descr">Common WAN settings &mdash; edit and apply without touching raw config.</div>
-<form method="post" action="<%=REQUEST_URI%>" id="qos-quick-form">
-<input type="hidden" name="token" value="<%=token%>"/>
-<input type="hidden" name="action" value="save_quick"/>
-<table class="qos-kv" width="100%">
-<tr><td>QoS Enabled</td><td><input type="checkbox" name="qos_enabled" value="1"<%= (wan_iface~="" and not wan_dis) and ' checked="checked"' or '' %>/>
-<% if active then %><span class="qos-badge qos-green" style="margin-left:8px">Active</span>
-<% elseif wan_iface~="" and not wan_dis then %><span class="qos-badge qos-amber" style="margin-left:8px">Enabled &mdash; Not Active</span>
-<% else %><span class="qos-badge qos-red" style="margin-left:8px">Disabled</span><% end %></td></tr>
-<tr><td>Bandwidth Up</td><td><input type="text" name="bw_up" value="<%=pcdata(bw_up)%>" style="width:140px;font-family:monospace" placeholder="e.g. 100mbit"/></td></tr>
-<tr><td>Bandwidth Down</td><td><input type="text" name="bw_down" value="<%=pcdata(bw_down)%>" style="width:140px;font-family:monospace" placeholder="e.g. 100mbit"/></td></tr>
-<tr><td>Overhead Type</td><td><select name="overhead" style="width:180px">
-<% if overhead=="" then %><option value="" selected="selected">--</option><% end %>
-<% local ovh_list={"none","conservative","ethernet","pppoe-ptm","bridged-ptm","pppoe-vcmux","pppoe-llcsnap","pppoa-vcmux","pppoa-llc","bridged-vcmux","bridged-llcsnap","ipoa-vcmux","ipoa-llcsnap"}
-for _,v in ipairs(ovh_list) do %><option value="<%=v%>"<%= (overhead==v) and ' selected="selected"' or '' %>><%=v%></option>
-<% end %></select></td></tr>
-<tr><td>Queue Mode</td><td><select name="mode" style="width:148px">
-<% if mode=="" then %><option value="" selected="selected">--</option><% end %>
-<% local mod_list={"diffserv3","diffserv4","diffserv8"}
-for _,v in ipairs(mod_list) do %><option value="<%=v%>"<%= (mode==v) and ' selected="selected"' or '' %>><%=v%></option>
-<% end %></select></td></tr>
-<tr><td>Ingress</td><td><input type="checkbox" name="q_ingress" value="1"<%= (ingress=="1") and ' checked="checked"' or '' %>/></td></tr>
-<tr><td>Egress</td><td><input type="checkbox" name="q_egress" value="1"<%= (egress=="1") and ' checked="checked"' or '' %>/></td></tr>
-<tr><td>NAT</td><td><input type="checkbox" name="q_nat" value="1"<%= (wan_nat=="1") and ' checked="checked"' or '' %>/></td></tr>
-<tr><td>Host Isolate</td><td><input type="checkbox" name="q_host_isolate" value="1"<%= (host_iso=="1") and ' checked="checked"' or '' %>/></td></tr>
-<tr><td>Autorate Ingress</td><td><input type="checkbox" name="q_autorate" value="1"<%= (autorate=="1") and ' checked="checked"' or '' %>/></td></tr>
-<tr><td>Ingress Options</td><td><input type="text" name="q_ing_opts" value="<%=pcdata(ing_opts)%>" style="width:100%;max-width:400px;font-family:monospace" placeholder="e.g. triple-isolate memlimit 32mb"/></td></tr>
-<tr><td>Egress Options</td><td><input type="text" name="q_egr_opts" value="<%=pcdata(egr_opts)%>" style="width:100%;max-width:400px;font-family:monospace" placeholder="e.g. triple-isolate memlimit 32mb wash"/></td></tr>
-<tr><td>Options</td><td><input type="text" name="q_opts" value="<%=pcdata(wan_opts)%>" style="width:100%;max-width:400px;font-family:monospace" placeholder="e.g. overhead 44 mpu 84"/></td></tr>
-</table>
-<div class="cbi-page-actions">
-<input class="cbi-button cbi-button-apply" type="submit" value="Save &amp; Apply" onclick="return confirm('Save settings and restart qosify?')"/>
-</div>
-</form>
-</fieldset>
-<fieldset class="cbi-section" id="qos-cfg-sect">
-<legend>Configuration Files</legend>
-<table class="qos-kv" width="100%">
-<tr><td>/etc/config/qosify</td><td><% if uci_ok then %><span class="qos-ok">&#x2714; Valid</span>
-<span style="color:#aaa;margin-left:8px;font-size:12px">(<%=uci_sz%>B, <%=uci_mod%>)</span>
-<% elseif has_uci then %><span class="qos-warn">&#x26a0; Found (empty or invalid)</span>
-<span style="color:#aaa;margin-left:8px;font-size:12px">(<%=uci_sz%>B, <%=uci_mod%>)</span>
-<% else %><span class="qos-err">&#x2718; Missing</span><% end %></td></tr>
-<tr><td>/etc/qosify/00-defaults.conf</td><td><% if def_ok then %><span class="qos-ok">&#x2714; Valid</span>
-<span style="color:#aaa;margin-left:8px;font-size:12px">(<%=num_rules%> rules, <%=def_sz%>B, <%=def_mod%>)</span>
-<% elseif has_def then %><span class="qos-warn">&#x26a0; Found (empty or no rules)</span>
-<span style="color:#aaa;margin-left:8px;font-size:12px">(<%=def_sz%>B, <%=def_mod%>)</span>
-<% else %><span class="qos-err">&#x2718; Missing</span><% end %></td></tr>
-</table>
-</fieldset>
-<fieldset class="cbi-section">
-<legend>Service Controls</legend>
-<div class="qos-svc" id="qos-svc-btns">
-<input class="cbi-button <%= enabled and 'qos-btn-en' or 'qos-btn-dis' %>" type="button" id="qos-en-btn"
- value="<%= enabled and 'Enabled' or 'Disabled' %>"
- title="<%= enabled and 'Click to disable autostart' or 'Click to enable autostart' %>"
- onclick="qSvc('<%= enabled and 'disable' or 'enable' %>')"/>
-<% local btns={"start","stop","restart","reload"} for _,a in ipairs(btns) do %>
-<input class="cbi-button cbi-button-<%= (a=='stop') and 'reset' or 'apply' %>" type="button" value="<%=a:sub(1,1):upper()..a:sub(2)%>" onclick="qSvc('<%=a%>')"/>
-<% end %>
-</div>
-</fieldset>
-</div>
-
-<div id="qos-cf" class="qos-tab">
-<fieldset class="cbi-section">
-<legend>Config</legend>
-<div class="cbi-section-descr">UCI configuration &mdash; classes, interfaces, defaults. <code>/etc/config/qosify</code></div>
-<% local dscp_codes={"CS0","CS1","CS2","CS3","CS4","CS5","CS6","CS7","AF11","AF12","AF13","AF21","AF22","AF23","AF31","AF32","AF33","AF41","AF42","AF43","EF","LE"}
-local ovh_types={"none","conservative","ethernet","pppoe-ptm","bridged-ptm","pppoe-vcmux","pppoe-llcsnap","pppoa-vcmux","pppoa-llc","bridged-vcmux","bridged-llcsnap","ipoa-vcmux","ipoa-llcsnap"}
-local mode_types={"diffserv3","diffserv4","diffserv8"} %>
-<details style="margin:0 0 10px;padding:6px 10px;border:1px solid #555;border-radius:4px;background:#2a2a2a">
-<summary style="cursor:pointer;font-weight:bold;font-size:13px;color:#aaa">Config Reference</summary>
-<div style="font-size:11px;color:#bbb;margin:6px 0;font-family:monospace;line-height:1.8">
-<strong style="color:#8ab4f8">config defaults</strong><br/>
-&nbsp; list defaults, option dscp_prio, option dscp_icmp, option dscp_default_tcp, option dscp_default_udp, option prio_max_avg_pkt_len<br/>
-<strong style="color:#8ab4f8">config class</strong> &lsquo;name&rsquo;<br/>
-&nbsp; option ingress, option egress, option dscp_prio, option dscp_bulk, option prio_max_avg_pkt_len, option bulk_trigger_pps, option bulk_trigger_timeout<br/>
-<strong style="color:#8ab4f8">config interface</strong> &lsquo;name&rsquo;<br/>
-&nbsp; option name, option disabled, option bandwidth_up, option bandwidth_down, option overhead_type, option mode, option ingress, option egress, option nat, option host_isolate, option autorate_ingress, option ingress_options, option egress_options, option options<br/>
-<strong style="color:#8ab4f8">config device</strong> &lsquo;name&rsquo;<br/>
-&nbsp; option name, option disabled, option bandwidth
-</div>
-<% if defs then %>
-<div style="margin:6px 0 4px;padding:4px 8px;border:1px solid #444;border-radius:3px;background:#222">
-<strong style="font-size:12px;color:#8ab4f8">config defaults</strong>
-<div style="font-size:11px;color:#bbb;margin:2px 0 0;font-family:monospace">
-<% if defs.dscp_default_tcp~="" then %>dscp_default_tcp: <strong><%=pcdata(defs.dscp_default_tcp)%></strong> &nbsp; <% end %>
-<% if defs.dscp_default_udp~="" then %>dscp_default_udp: <strong><%=pcdata(defs.dscp_default_udp)%></strong> &nbsp; <% end %>
-<% if defs.dscp_icmp~="" then %>dscp_icmp: <strong><%=pcdata(defs.dscp_icmp)%></strong> &nbsp; <% end %>
-<% if defs.dscp_prio~="" then %>dscp_prio: <strong><%=pcdata(defs.dscp_prio)%></strong> &nbsp; <% end %>
-<% if defs.prio_max_avg_pkt_len~="" then %>prio_max_avg_pkt_len: <strong><%=pcdata(defs.prio_max_avg_pkt_len)%></strong><% end %>
-</div></div>
-<% end %>
-<% if all_classes and #all_classes>0 then for _,cl in ipairs(all_classes) do %>
-<div style="margin:4px 0;padding:4px 8px;border:1px solid #444;border-radius:3px;background:#222">
-<strong style="font-size:12px;color:#8ab4f8"><%=pcdata(cl.name)%></strong>
-<span style="font-size:11px;color:#bbb;margin-left:8px">Ingress: <strong><%=pcdata(cl.ingress)%></strong> / Egress: <strong><%=pcdata(cl.egress)%></strong></span>
-<% if cl.dscp_prio~="" or cl.prio_max_avg_pkt_len~="" or cl.bulk_trigger_pps~="" or cl.dscp_bulk~="" then %>
-<div style="font-size:11px;color:#888;margin:2px 0 0;font-family:monospace">
-<% if cl.dscp_prio~="" then %>dscp_prio: <strong style="color:#bbb"><%=pcdata(cl.dscp_prio)%></strong> &nbsp; <% end %>
-<% if cl.prio_max_avg_pkt_len~="" then %>prio_max_avg_pkt_len: <strong style="color:#bbb"><%=pcdata(cl.prio_max_avg_pkt_len)%></strong> &nbsp; <% end %>
-<% if cl.bulk_trigger_pps~="" then %>bulk_trigger_pps: <strong style="color:#bbb"><%=pcdata(cl.bulk_trigger_pps)%></strong> &nbsp; <% end %>
-<% if cl.bulk_trigger_timeout~="" then %>bulk_trigger_timeout: <strong style="color:#bbb"><%=pcdata(cl.bulk_trigger_timeout)%></strong> &nbsp; <% end %>
-<% if cl.dscp_bulk~="" then %>dscp_bulk: <strong style="color:#bbb"><%=pcdata(cl.dscp_bulk)%></strong><% end %>
-</div>
-<% end %>
-</div>
-<% end end %>
-<div style="color:#888;font-size:11px;margin:4px 0 2px">DSCP codepoints: CS0&ndash;CS7, AF11&ndash;AF43, EF, LE. Prefix with <code>+</code> for priority boost.</div>
-</details>
-<div style="margin:0 0 8px;padding:8px 10px;border:1px solid #555;border-radius:4px;background:#2a2a2a">
-<strong style="font-size:13px;color:#aaa">Quick Add Config</strong>
-<div style="display:flex;gap:6px;align-items:center;margin:6px 0 0;flex-wrap:wrap">
-<select id="qac-type" style="width:130px" onchange="qCS()">
-<option value="defaults">config defaults</option>
-<option value="class">config class</option>
-<option value="interface">config interface</option>
-</select>
-<span id="qac-nm-w" style="display:none"><input id="qac-name" type="text" placeholder="section name" style="width:120px;font-family:monospace"/></span>
-<input class="cbi-button cbi-button-add" type="button" value="Add" onclick="qAC()"/>
-</div>
-<div id="qac-opts-defaults" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:6px 0 0;font-size:11px;color:#888">
-<label>list defaults:</label><input data-opt="defaults" data-pre="list" type="text" value="/etc/qosify/*.conf" style="width:180px;font-family:monospace"/>
-<label>dscp_prio:</label><select data-opt="dscp_prio" style="width:120px"><option value="">--</option><% for _,c in ipairs(all_cls) do %><option><%=pcdata(c)%></option><% end %></select>
-<label>dscp_icmp:</label><select data-opt="dscp_icmp" data-pfx="qac-icmp-pf" style="width:120px"><option value="">--</option><% for _,c in ipairs(all_cls) do %><option><%=pcdata(c)%></option><% end %></select><label><input type="checkbox" id="qac-icmp-pf"/> +</label>
-<label>dscp_default_tcp:</label><select data-opt="dscp_default_tcp" style="width:120px"><option value="">--</option><% for _,c in ipairs(all_cls) do %><option><%=pcdata(c)%></option><% end %></select>
-<label>dscp_default_udp:</label><select data-opt="dscp_default_udp" style="width:120px"><option value="">--</option><% for _,c in ipairs(all_cls) do %><option><%=pcdata(c)%></option><% end %></select>
-<label>prio_max_avg_pkt_len:</label><input data-opt="prio_max_avg_pkt_len" type="number" min="0" style="width:55px" placeholder="500"/>
-</div>
-<div id="qac-opts-class" style="display:none;gap:4px;align-items:center;flex-wrap:wrap;margin:6px 0 0;font-size:11px;color:#888">
-<label>Ingress:</label><select data-opt="ingress" style="width:70px"><% for _,d in ipairs(dscp_codes) do %><option><%=d%></option><% end %></select>
-<label>Egress:</label><select data-opt="egress" style="width:70px"><% for _,d in ipairs(dscp_codes) do %><option><%=d%></option><% end %></select>
-<label>dscp_prio:</label><select data-opt="dscp_prio" style="width:70px"><option value="">--</option><% for _,d in ipairs(dscp_codes) do %><option><%=d%></option><% end %></select>
-<label>dscp_bulk:</label><select data-opt="dscp_bulk" style="width:70px"><option value="">--</option><% for _,d in ipairs(dscp_codes) do %><option><%=d%></option><% end %></select>
-<label>prio_max_avg_pkt_len:</label><input data-opt="prio_max_avg_pkt_len" type="number" min="0" style="width:55px" placeholder="500"/>
-<label>bulk_trigger_pps:</label><input data-opt="bulk_trigger_pps" type="number" min="0" style="width:55px" placeholder="100"/>
-<label>bulk_trigger_timeout:</label><input data-opt="bulk_trigger_timeout" type="number" min="0" style="width:45px" placeholder="5"/>
-</div>
-<div id="qac-opts-interface" style="display:none;gap:4px;align-items:center;flex-wrap:wrap;margin:6px 0 0;font-size:11px;color:#888">
-<label>name:</label><input data-opt="name" type="text" style="width:80px;font-family:monospace" placeholder="wan"/>
-<label>disabled:</label><select data-opt="disabled" style="width:45px"><option value="">--</option><option>0</option><option>1</option></select>
-<label>bandwidth_up:</label><input data-opt="bandwidth_up" type="text" style="width:80px;font-family:monospace" placeholder="100mbit"/>
-<label>bandwidth_down:</label><input data-opt="bandwidth_down" type="text" style="width:80px;font-family:monospace" placeholder="100mbit"/>
-<label>overhead_type:</label><select data-opt="overhead_type" style="width:130px"><option value="">--</option><% for _,v in ipairs(ovh_types) do %><option><%=v%></option><% end %></select>
-<label>mode:</label><select data-opt="mode" style="width:100px"><option value="">--</option><% for _,v in ipairs(mode_types) do %><option><%=v%></option><% end %></select>
-<label>ingress:</label><select data-opt="ingress" style="width:45px"><option value="">--</option><option>0</option><option>1</option></select>
-<label>egress:</label><select data-opt="egress" style="width:45px"><option value="">--</option><option>0</option><option>1</option></select>
-<label>nat:</label><select data-opt="nat" style="width:45px"><option value="">--</option><option>0</option><option>1</option></select>
-<label>host_isolate:</label><select data-opt="host_isolate" style="width:45px"><option value="">--</option><option>0</option><option>1</option></select>
-<label>autorate_ingress:</label><select data-opt="autorate_ingress" style="width:45px"><option value="">--</option><option>0</option><option>1</option></select>
-<label>ingress_options:</label><input data-opt="ingress_options" type="text" style="width:160px;font-family:monospace" placeholder="e.g. triple-isolate"/>
-<label>egress_options:</label><input data-opt="egress_options" type="text" style="width:160px;font-family:monospace" placeholder="e.g. triple-isolate wash"/>
-<label>options:</label><input data-opt="options" type="text" style="width:160px;font-family:monospace" placeholder="e.g. overhead 44 mpu 84"/>
-</div>
-</div>
-<form method="post" action="<%=REQUEST_URI%>" id="qos-config-form">
-<input type="hidden" name="token" value="<%=token%>"/>
-<input type="hidden" name="action" value="save_config"/>
-<textarea name="data" id="qos-config-ta" rows="28" style="width:100%;font-family:monospace;font-size:12px;line-height:1.4;tab-size:4;border:1px solid #ccc;padding:6px"><%=pcdata(cfg_content)%></textarea>
-<div class="cbi-page-actions">
-<input class="cbi-button cbi-button-reset" type="button" value="Clear" onclick="qClrCfg()" style="margin-right:6px"/>
-<input class="cbi-button cbi-button-apply" type="submit" value="Save &amp; Apply" onclick="return confirm('Save config and restart qosify?')"/>
-</div>
-</form>
-</fieldset>
-</div>
-
-<div id="qos-ru" class="qos-tab">
-<fieldset class="cbi-section">
-<legend>Classification Rules</legend>
-<div class="cbi-section-descr">DSCP mapping rules loaded by qosify on startup. <code>/etc/qosify/00-defaults.conf</code></div>
-<details style="margin:0 0 10px;padding:6px 10px;border:1px solid #555;border-radius:4px;background:#2a2a2a">
-<summary style="cursor:pointer;font-weight:bold;font-size:13px;color:#aaa">Available Classes</summary>
-<table class="qos-kv" style="margin:6px 0 0" width="100%">
-<% if all_classes and #all_classes>0 then for _,cl in ipairs(all_classes) do %>
-<tr><td style="width:140px"><%=pcdata(cl.name)%></td><td>Ingress: <strong><%=pcdata(cl.ingress)%></strong> / Egress: <strong><%=pcdata(cl.egress)%></strong></td></tr>
-<% end else %>
-<tr><td colspan="2" style="color:#888"><em>No classes defined in /etc/config/qosify</em></td></tr>
-<% end %>
-</table>
-<div style="color:#888;font-size:11px;margin:6px 0 2px">Prefix with <code>+</code> for priority within class. Ports: <code>tcp:443</code>, <code>udp:3074</code>, ranges: <code>tcp:5060-5061</code>. DNS: <code>dns:*teams*</code>, regex: <code>dns:/zoom[0-9]+</code>. IP: <code>1.1.1.1</code>, <code>ff01::1</code></div>
-</details>
-<div style="margin:0 0 8px;padding:8px 10px;border:1px solid #555;border-radius:4px;background:#2a2a2a">
-<strong style="font-size:13px;color:#aaa">Quick Add Rule</strong>
-<div style="display:flex;gap:6px;align-items:center;margin:6px 0 0;flex-wrap:wrap">
-<select id="qar-type" style="width:140px" onchange="qTP()">
-<option value="tcp:">tcp port</option>
-<option value="udp:">udp port</option>
-<option value="both:">tcp+udp port</option>
-<option value="dns:">dns pattern</option>
-<option value="dnsr:">dns regex</option>
-<option value="dns_c:">dns_c pattern</option>
-<option value="dns_cr:">dns_c regex</option>
-<option value="ipv4:">IPv4 address</option>
-<option value="ipv6:">IPv6 address</option>
-</select>
-<input id="qar-val" type="text" placeholder="e.g. 4500 or 5060-5061" style="width:180px;font-family:monospace"/>
-<select id="qar-cls" style="width:140px">
-<% if all_classes then for _,cl in ipairs(all_classes) do %>
-<option value="<%=pcdata(cl.name)%>"><%=pcdata(cl.name)%></option>
-<% end end %>
-</select>
-<label style="font-size:12px;color:#aaa;white-space:nowrap"><input type="checkbox" id="qar-prio"/> priority (+)</label>
-<input class="cbi-button cbi-button-add" type="button" value="Add" onclick="qAR()"/>
-</div>
-</div>
-<form method="post" action="<%=REQUEST_URI%>" id="qos-rules-form">
-<input type="hidden" name="token" value="<%=token%>"/>
-<input type="hidden" name="action" value="save_rules"/>
-<textarea name="data" id="qos-rules-ta" rows="28" style="width:100%;font-family:monospace;font-size:12px;line-height:1.4;tab-size:4;border:1px solid #ccc;padding:6px"><%=pcdata(def_content)%></textarea>
-<div class="cbi-page-actions">
-<input class="cbi-button cbi-button-reset" type="button" value="Clear" onclick="qClrRules()" style="margin-right:6px"/>
-<input class="cbi-button cbi-button-apply" type="submit" value="Save &amp; Apply" onclick="return confirm('Save rules and restart qosify?')"/>
-</div>
-</form>
-</fieldset>
-</div>
-
-<div id="qos-ad" class="qos-tab">
-<fieldset class="cbi-section">
-<legend>Backup Current Files</legend>
-<div class="cbi-section-descr">Download current config files before making changes.</div>
-<div class="cbi-value">
-<label class="cbi-value-title">/etc/config/qosify</label>
-<div class="cbi-value-field"><input class="cbi-button cbi-button-action" type="button" value="Download" onclick="qDl('cfg_bk','qosify')"/></div>
-</div>
-<div class="cbi-value">
-<label class="cbi-value-title">/etc/qosify/00-defaults.conf</label>
-<div class="cbi-value-field"><input class="cbi-button cbi-button-action" type="button" value="Download" onclick="qDl('def_bk','00-defaults.conf')"/></div>
-</div>
-<textarea id="cfg_bk" style="display:none"><%=pcdata(cfg_content)%></textarea>
-<textarea id="def_bk" style="display:none"><%=pcdata(def_content)%></textarea>
-</fieldset>
-<fieldset class="cbi-section">
-<legend>Upload Config Files</legend>
-<div class="cbi-section-descr">Select files and click Save &amp; Apply to overwrite and restart qosify.</div>
-<form method="post" enctype="multipart/form-data" action="<%=REQUEST_URI%>">
-<input type="hidden" name="token" value="<%=token%>"/>
-<input type="hidden" name="action" value="upload"/>
-<div class="cbi-value">
-<label class="cbi-value-title">/etc/config/qosify</label>
-<div class="cbi-value-field"><input type="file" name="uci_file" accept=".conf,text/plain"/></div>
-</div>
-<div class="cbi-value">
-<label class="cbi-value-title">/etc/qosify/00-defaults.conf</label>
-<div class="cbi-value-field"><input type="file" name="def_file" accept=".conf,text/plain"/></div>
-</div>
-<div class="cbi-page-actions">
-<input class="cbi-button cbi-button-apply" type="submit" value="Save &amp; Apply" onclick="return confirm('Upload and overwrite config files? qosify will restart.')"/>
-</div>
-</form>
-</fieldset>
-<fieldset class="cbi-section">
-<legend>Reset to qosify Defaults</legend>
-<div class="cbi-section-descr">Replaces both config files with qosify defaults, qosify will be disabled.</div>
-<form method="post" action="<%=REQUEST_URI%>">
-<input type="hidden" name="token" value="<%=token%>"/>
-<input type="hidden" name="action" value="reset"/>
-<div class="cbi-page-actions">
-<input class="cbi-button cbi-button-negative" type="submit" value="Reset to Defaults" onclick="return confirm('Reset qosify config to defaults?')"/>
-</div>
-</form>
-</fieldset>
-</div>
-
-<div id="qos-st" class="qos-tab">
-<fieldset class="cbi-section">
-<legend>qosify-status</legend>
-<% if not running then %>
-<div class="alert-message warning">qosify is not running. Start from the Overview tab.</div>
-<% elseif status_out=="" then %>
-<p style="color:#888"><em>qosify-status returned no output.</em></p>
-<% else %>
-<pre style="background:#1e1e1e;color:#e0e0e0;padding:12px;border:1px solid #333;border-radius:4px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap"><%=pcdata(status_out)%></pre>
-<% end %>
-</fieldset>
-</div>
-
-<div style="margin:8px 0 0">
-<span style="color:#888;font-size:12px">luci-app-qosify v<%=pcdata(ver)%></span>
-<span style="float:right;color:#888;font-size:11px;display:none" id="qos-rf"><span id="qos-rf-txt">Auto-refresh in <span id="qos-cd">5</span>s</span></span>
-</div>
-</div>
-
-<script type="text/javascript">//<![CDATA[
-(function(){
-var tabs=['ov','cf','ru','ad','st'],
-	names=['overview','config','rules','advanced','status'],
-	cur='ov',tmr,otmr,dirty=false;
-var cta=document.getElementById('qos-config-ta');
-var rta=document.getElementById('qos-rules-ta');
-if(cta)cta.dataset.orig=cta.value;
-if(rta)rta.dataset.orig=rta.value;
-function chkD(){
-	dirty=(cta&&cta.value!==cta.dataset.orig)||(rta&&rta.value!==rta.dataset.orig);
-}
-if(cta)cta.addEventListener('input',chkD);
-if(rta)rta.addEventListener('input',chkD);
-window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue='';}});
-function qT(t){
-	if(dirty&&(cur==='cf'||cur==='ru')&&t!==cur){
-		if(!confirm('You have unsaved changes. Leave this tab?'))return;
-	}
-	cur=t;
-	for(var i=0;i<tabs.length;i++){
-		var el=document.getElementById('qos-'+tabs[i]);
-		var th=document.getElementById('th-'+tabs[i]);
-		if(tabs[i]===t){el.className='qos-tab active';th.className='cbi-tab';}
-		else{el.className='qos-tab';th.className='cbi-tab-disabled';}
-	}
-	var rf=document.getElementById('qos-rf');
-	if(rf)rf.style.display=(t==='st'||t==='ov')?'':'none';
-	location.hash=names[tabs.indexOf(t)];
-	clearTimeout(tmr);clearTimeout(otmr);
-	if(t==='st')startR();
-	if(t==='ov')startO();
-}
-function startR(){
-	var c=5;
-	(function tick(){
-		var el=document.getElementById('qos-cd');
-		if(el)el.textContent=c;
-		if(c<=0)doR();
-		else{c--;tmr=setTimeout(tick,1000);}
-	})();
-}
-function doR(){
-	ajaxRefresh('#qos-st',function(){if(cur==='st')startR();});
-}
-function startO(){
-	var c=30;
-	(function tick(){
-		var el=document.getElementById('qos-cd');
-		if(el)el.textContent=c;
-		if(c<=0)doO();
-		else{c--;otmr=setTimeout(tick,1000);}
-	})();
-}
-function doO(){
-	var mb=document.getElementById('qos-msg');if(mb)mb.style.display='none';
-	ajaxRefresh('#qos-svc-sect,#qos-cfg-sect',function(){if(cur==='ov')startO();});
-}
-function ajaxRefresh(sels,cb){
-	var x=new XMLHttpRequest();
-	x.open('GET',location.href.split('#')[0],true);
-	x.onload=function(){
-		if(x.status===200){
-			var d=document.createElement('div');d.innerHTML=x.responseText;
-			var arr=sels.split(',');
-			for(var i=0;i<arr.length;i++){
-				var n=d.querySelector(arr[i]),o=document.querySelector(arr[i]);
-				if(n&&o)o.innerHTML=n.innerHTML;
-			}
-			if(cb)cb();
+install_menu() {
+	echo "[*] Writing menu entry..."
+	mkdir -p "$MENU_DIR"
+	cat > "$MENU_DIR/luci-app-qosify.json" << 'EOF'
+{
+	"admin/network/qosify": {
+		"title": "qosify",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "qosify/main"
+		},
+		"depends": {
+			"acl": [ "luci-app-qosify" ]
 		}
-	};
-	x.onerror=function(){};
-	x.send();
+	}
 }
-document.addEventListener('submit',function(e){
-	var f=e.target;if(f.tagName==='FORM'){
-	dirty=false;
-	var h=location.hash;if(h)f.action=f.action.split('#')[0]+h;}
+EOF
+}
+
+install_acl() {
+	echo "[*] Writing ACL..."
+	mkdir -p "$ACL_DIR"
+	cat > "$ACL_DIR/luci-app-qosify.json" << 'EOF'
+{
+	"luci-app-qosify": {
+		"description": "Grant access to LuCI app qosify",
+		"read": {
+			"ubus": {
+				"luci": [ "setInitAction", "getInitList" ]
+			},
+			"uci": [ "qosify" ],
+			"file": {
+				"/etc/config/qosify": [ "read" ],
+				"/etc/qosify/00-defaults.conf": [ "read" ],
+				"/etc/init.d/qosify": [ "exec" ],
+				"/usr/sbin/qosify": [ "read" ],
+				"/usr/sbin/qosify-status": [ "exec" ],
+				"/usr/share/qosify-luci/qosify": [ "read" ],
+				"/usr/share/qosify-luci/00-defaults.conf": [ "read" ]
+			}
+		},
+		"write": {
+			"uci": [ "qosify" ],
+			"file": {
+				"/etc/config/qosify": [ "write" ],
+				"/etc/qosify/00-defaults.conf": [ "write" ]
+			}
+		}
+	}
+}
+EOF
+}
+
+install_view() {
+	echo "[*] Writing view..."
+	mkdir -p "$VIEW_DIR"
+	cat > "$VIEW_DIR/main.js" << 'JSEOF'
+'use strict';
+'require view';
+'require fs';
+'require ui';
+'require uci';
+'require poll';
+'require rpc';
+'require dom';
+
+var VER='__VERSION__';
+var UCI_PATH='/etc/config/qosify';
+var RULES_PATH='/etc/qosify/00-defaults.conf';
+var DSCP=['CS0','CS1','CS2','CS3','CS4','CS5','CS6','CS7','AF11','AF12','AF13','AF21','AF22','AF23','AF31','AF32','AF33','AF41','AF42','AF43','EF','LE'];
+var OVH=['none','conservative','ethernet','pppoe-ptm','bridged-ptm','pppoe-vcmux','pppoe-llcsnap','pppoa-vcmux','pppoa-llc','bridged-vcmux','bridged-llcsnap','ipoa-vcmux','ipoa-llcsnap'];
+var MODES=['diffserv3','diffserv4','diffserv8'];
+
+var callInit=rpc.declare({
+	object:'luci',
+	method:'setInitAction',
+	params:['name','action'],
+	expect:{result:false}
 });
-var h=location.hash.slice(1),idx=names.indexOf(h);
-if(idx>=0)qT(tabs[idx]);else{var rf=document.getElementById('qos-rf');if(rf)rf.style.display='';startO();}
-var m=document.getElementById('qos-msg');
-if(m){var mt=m.className.match('qos-msg-err')?10000:5000;setTimeout(function(){m.style.display='none';},mt);}
-window.qT=qT;
-window.qSvc=function(a){
-	var btns=document.getElementById('qos-svc-btns');
-	var els=btns.querySelectorAll('input');
-	for(var i=0;i<els.length;i++)els[i].disabled=true;
-	var x=new XMLHttpRequest();
-	x.open('POST',location.href.split('#')[0],true);
-	x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
-	x.onload=function(){
-		for(var i=0;i<els.length;i++)els[i].disabled=false;
-		ajaxRefresh('#qos-svc-sect,#qos-cfg-sect,#qos-svc-btns',function(){});
-	};
-	x.onerror=function(){for(var i=0;i<els.length;i++)els[i].disabled=false;};
-	var tk=document.querySelector('#qos-quick-form input[name=token]');
-	x.send('token='+(tk?tk.value:'')+'&action='+a);
-};
-window.qClrCfg=function(){
-	if(!confirm('Clear config editor and reset Quick Settings? Content will not be saved until you click Save.'))return;
-	document.getElementById('qos-config-ta').value='';
-	chkD();
-	var f=document.getElementById('qos-quick-form');
-	if(f){var x=f.querySelectorAll('input:not([type=hidden]),select');
-	for(var i=0;i<x.length;i++){
-		if(x[i].type==='checkbox')x[i].checked=false;
-		else if(x[i].tagName==='SELECT')x[i].selectedIndex=0;
-		else x[i].value='';
-	}}
-};
-window.qClrRules=function(){
-	if(!confirm('Clear rules editor? Content will not be saved until you click Save.'))return;
-	document.getElementById('qos-rules-ta').value='';
-	chkD();
-};
-window.qDl=function(id,fn){
-	var t=document.getElementById(id);if(!t)return;
-	var b=new Blob([t.value],{type:'application/octet-stream'});
-	var a=document.createElement('a');a.href=URL.createObjectURL(b);
-	a.download=fn;a.click();URL.revokeObjectURL(a.href);
-};
-window.qAR=function(){
-	var ty=document.getElementById('qar-type').value;
-	var vl=document.getElementById('qar-val').value.replace(/^\s+|\s+$/g,'');
-	var cl=document.getElementById('qar-cls').value;
-	var pr=document.getElementById('qar-prio').checked;
-	if(!vl){alert('Enter a value.');return;}
-	if(!cl){alert('No classes defined. Add classes in the Config tab first.');return;}
-	var pt=(ty==='tcp:'||ty==='udp:'||ty==='both:');
-	if(pt&&!/^\d+(-\d+)?$/.test(vl)){alert('Port must be a number or range (e.g. 4500 or 5060-5061).');return;}
-	if(pt){var pp=vl.split('-');for(var j=0;j<pp.length;j++){var pn=parseInt(pp[j]);if(pn<1||pn>65535){alert('Port must be 1-65535.');return;}}}
-	if(ty==='ipv4:'&&!/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(vl)){alert('Enter a valid IPv4 address (e.g. 1.1.1.1 or 192.168.1.0/24).');return;}
-	if(ty==='ipv6:'&&!/^[0-9a-fA-F:]+(%[a-zA-Z0-9]+)?(\/\d{1,3})?$/.test(vl)){alert('Enter a valid IPv6 address (e.g. ff01::1).');return;}
-	var pfx=pr?'+':'';
-	var ta=document.getElementById('qos-rules-ta');if(!ta)return;
-	var lines=[];
-	if(ty==='both:'){
-		lines.push('tcp:'+vl+'\t'+pfx+cl);
-		lines.push('udp:'+vl+'\t'+pfx+cl);
-	}else if(ty==='ipv4:'||ty==='ipv6:'){
-		lines.push(vl+'\t'+pfx+cl);
-	}else if(ty==='dnsr:'){
-		lines.push('dns:/'+vl+'\t'+pfx+cl);
-	}else if(ty==='dns_cr:'){
-		lines.push('dns_c:/'+vl+'\t'+pfx+cl);
-	}else{
-		lines.push(ty+vl+'\t'+pfx+cl);
+
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]});}
+function trim(s){return (s||'').replace(/^\s+|\s+$/g,'');}
+function $(id){return document.getElementById(id);}
+
+function detectActive(out){return /qdisc cake|: active|cake/.test(out||'');}
+
+function countRules(text){
+	var n=0,lines=(text||'').split('\n');
+	for(var i=0;i<lines.length;i++){
+		var l=trim(lines[i]);
+		if(l&&l.charAt(0)!=='#')n++;
 	}
-	var v=ta.value.replace(/\s+$/,'');
-	ta.value=v+(v?'\n':'')+lines.join('\n')+'\n';
-	chkD();
-	document.getElementById('qar-val').value='';
-	document.getElementById('qar-prio').checked=false;
-	ta.scrollTop=ta.scrollHeight;
-};
-window.qTP=function(){
-	var ty=document.getElementById('qar-type').value;
-	var el=document.getElementById('qar-val');
-	var ph={'tcp:':'e.g. 4500 or 5060-5061','udp:':'e.g. 4500 or 5060-5061','both:':'e.g. 4500 or 5060-5061',
-		'dns:':'e.g. *teams* or *.zoom*','dnsr:':'e.g. zoom[0-9]+\\.us','dns_c:':'e.g. *cdn*','dns_cr:':'e.g. cdn[0-9]+',
-		'ipv4:':'e.g. 1.1.1.1 or 192.168.1.0/24','ipv6:':'e.g. ff01::1'};
-	el.placeholder=ph[ty]||'';
-};
-window.qCS=function(){
-	var ty=document.getElementById('qac-type').value;
-	var ids=['defaults','class','interface'];
-	for(var i=0;i<ids.length;i++){
-		var el=document.getElementById('qac-opts-'+ids[i]);
-		el.style.display=(ids[i]===ty)?'flex':'none';
+	return n;
+}
+
+function fmtSize(n){return n<1024?n+'B':(n/1024).toFixed(1)+'K';}
+function fmtMtime(t){if(!t)return '';var d=new Date(t*1000);return d.toISOString().replace('T',' ').slice(0,16);}
+
+function getWan(){
+	var w=uci.get('qosify','wan');
+	if(!w){
+		uci.add('qosify','interface','wan');
+		uci.set('qosify','wan','name','wan');
 	}
-	document.getElementById('qac-nm-w').style.display=(ty==='defaults')?'none':'';
-};
-window.qAC=function(){
-	var ty=document.getElementById('qac-type').value;
-	var ta=document.getElementById('qos-config-ta');if(!ta)return;
-	var nm='';
-	if(ty!=='defaults'){
-		nm=document.getElementById('qac-name').value.replace(/[^a-zA-Z0-9_]/g,'');
-		if(!nm){alert('Enter a section name (alphanumeric/underscore).');return;}
+	return 'wan';
+}
+
+function notify(msg,kind){
+	var n=ui.addNotification(null,E('p',{},msg),kind||'info');
+	var ms=(kind==='danger')?10000:(kind==='warning')?8000:5000;
+	if(n)setTimeout(function(){if(n&&n.parentNode)n.parentNode.removeChild(n);},ms);
+	return n;
+}
+
+return view.extend({
+	handleSaveApply:null,handleSave:null,handleReset:null,
+	currentTab:'ov',
+	pollers:[],
+
+	load:function(){
+		return Promise.all([
+			uci.load('qosify').catch(function(){return null;}),
+			L.resolveDefault(fs.read(RULES_PATH),''),
+			L.resolveDefault(fs.read(UCI_PATH),''),
+			L.resolveDefault(fs.stat(UCI_PATH),null),
+			L.resolveDefault(fs.stat(RULES_PATH),null),
+			L.resolveDefault(fs.exec('/etc/init.d/qosify',['running']),{code:1}),
+			L.resolveDefault(fs.exec('/etc/init.d/qosify',['enabled']),{code:1}),
+			L.resolveDefault(fs.stat('/usr/sbin/qosify'),null),
+			L.resolveDefault(fs.stat('/etc/init.d/qosify'),null),
+			L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),{stdout:''})
+		]);
+	},
+
+	render:function(d){
+		var ctx={
+			rulesText:d[1]||'',
+			cfgRaw:d[2]||'',
+			cfgStat:d[3],
+			rulesStat:d[4],
+			running:d[5].code===0,
+			enabled:d[6].code===0,
+			hasBin:d[7]!=null,
+			hasInit:d[8]!=null,
+			qstatus:(d[9]&&d[9].stdout)||'',
+		};
+		ctx.active=detectActive(ctx.qstatus);
+
+		var root=E('div',{'class':'cbi-map','id':'qos-app'});
+		root.appendChild(E('style',{},this.css()));
+		root.appendChild(E('h2',{},'qosify'));
+		root.appendChild(E('div',{'class':'cbi-map-descr'},'Traffic shaping and DSCP classification via qosify'));
+
+		var tabs=E('ul',{'class':'cbi-tabmenu'});
+		var tabDef=[['ov','Overview'],['cf','Config'],['ru','Classification Rules'],['ad','Advanced'],['st','Status']];
+		var self=this;
+		tabDef.forEach(function(t){
+			var li=E('li',{'class':'cbi-tab-disabled','id':'th-'+t[0]},
+				E('a',{'href':'#','click':function(ev){ev.preventDefault();self.showTab(t[0]);}},t[1]));
+			tabs.appendChild(li);
+		});
+		root.appendChild(tabs);
+
+		root.appendChild(this.tabOverview(ctx));
+		root.appendChild(this.tabConfig(ctx));
+		root.appendChild(this.tabRules(ctx));
+		root.appendChild(this.tabAdvanced(ctx));
+		root.appendChild(this.tabStatus(ctx));
+
+		root.appendChild(E('div',{'style':'margin:8px 0 0'},[
+			E('span',{'style':'color:#888;font-size:12px'},'luci-app-qosify v'+VER)
+		]));
+
+		var hash=(location.hash||'').slice(1);
+		var map={overview:'ov',config:'cf',rules:'ru',advanced:'ad',status:'st'};
+		setTimeout(function(){self.showTab(map[hash]||'ov');},0);
+
+		this.installPollers();
+		return root;
+	},
+
+	installPollers:function(){
+		var self=this;
+		poll.add(function(){return self.refreshOverview();},10);
+		poll.add(function(){return self.refreshStatus();},5);
+	},
+
+	showTab:function(t){
+		var dirty=this.dirty();
+		if(dirty&&(this.currentTab==='cf'||this.currentTab==='ru')&&t!==this.currentTab){
+			if(!confirm('You have unsaved changes. Leave this tab?'))return;
+		}
+		this.currentTab=t;
+		['ov','cf','ru','ad','st'].forEach(function(x){
+			var el=$('qos-'+x),th=$('th-'+x);
+			if(!el||!th)return;
+			if(x===t){el.style.display='block';th.className='cbi-tab';}
+			else{el.style.display='none';th.className='cbi-tab-disabled';}
+		});
+		var rev={ov:'overview',cf:'config',ru:'rules',ad:'advanced',st:'status'};
+		try{history.replaceState(null,'','#'+rev[t]);}catch(e){}
+	},
+
+	dirty:function(){
+		var c=$('qos-config-ta'),r=$('qos-rules-ta');
+		if(c&&c.dataset.orig!=null&&c.value!==c.dataset.orig)return true;
+		if(r&&r.dataset.orig!=null&&r.value!==r.dataset.orig)return true;
+		return false;
+	},
+
+	css:function(){return [
+		'.qos-badge{display:inline-block;padding:2px 10px;border-radius:3px;font-size:12px;font-weight:bold;color:#fff}',
+		'.qos-green{background:#4caf50}.qos-red{background:#e53935}.qos-amber{background:#ff9800}',
+		'.qos-ok{color:#4caf50}.qos-err{color:#e53935}.qos-warn{color:#ff9800}',
+		'.qos-tab{display:none}.qos-kv td{padding:7px 12px;border-bottom:1px solid #eee}',
+		'.qos-kv td:first-child{font-weight:bold;color:#888;width:200px}',
+		'.qos-kv tr:last-child td{border-bottom:none}',
+		'.qos-svc>*{display:inline-block;margin:0 3px 3px 0}',
+		'.qos-btn-en{background:transparent !important;border:2px solid #4caf50 !important;color:#4caf50 !important;font-weight:bold}',
+		'.qos-btn-en:hover{background:#4caf50 !important;color:#fff !important}',
+		'.qos-btn-dis{background:transparent !important;border:2px solid #e53935 !important;color:#e53935 !important;font-weight:bold}',
+		'.qos-btn-dis:hover{background:#e53935 !important;color:#fff !important}',
+		'.qos-ref{margin:0 0 10px;padding:6px 10px;border:1px solid #555;border-radius:4px;background:#2a2a2a}',
+		'.qos-ref summary{cursor:pointer;font-weight:bold;font-size:13px;color:#aaa}',
+		'.qos-qa{margin:0 0 8px;padding:8px 10px;border:1px solid #555;border-radius:4px;background:#2a2a2a}',
+		'.qos-qa label{font-size:11px;color:#888}',
+		'.qos-qa-row{display:flex;gap:6px;align-items:center;margin:6px 0 0;flex-wrap:wrap}'
+	].join('');},
+
+	tabOverview:function(ctx){
+		var section=E('div',{'class':'qos-tab','id':'qos-ov'});
+		section.appendChild(E('fieldset',{'class':'cbi-section','id':'qos-svc-sect'},this.buildSvcSect(ctx)));
+		section.appendChild(E('fieldset',{'class':'cbi-section','id':'qos-qs-sect'},this.buildQsSect(ctx)));
+		section.appendChild(E('fieldset',{'class':'cbi-section','id':'qos-cfg-sect'},this.buildCfgSect(ctx)));
+		section.appendChild(E('fieldset',{'class':'cbi-section','id':'qos-ctl-sect'},this.buildCtlSect(ctx)));
+		return section;
+	},
+
+	buildSvcSect:function(ctx){
+		return [E('legend',{},'Service Status'),this.renderSvcTable(ctx)];
+	},
+
+	buildCfgSect:function(ctx){
+		return [E('legend',{},'Configuration Files'),this.renderCfgFiles(ctx)];
+	},
+
+	buildQsSect:function(ctx){
+		var self=this;
+		var w=uci.get('qosify','wan')||{};
+		var wanDis=(w.disabled==='1');
+		var enChecked=(uci.get('qosify','wan','name')&&!wanDis);
+
+		var nodes=[];
+		nodes.push(E('legend',{},'Quick Settings'));
+		nodes.push(E('div',{'class':'cbi-section-descr'},'Common WAN settings — edit and apply without touching raw config.'));
+		var tbl=E('table',{'class':'qos-kv','width':'100%'});
+		var bdy=E('tbody');tbl.appendChild(bdy);
+
+		function row(lbl,el){bdy.appendChild(E('tr',{},[E('td',{},lbl),E('td',{},el)]));}
+		function chk(name,val){return E('input',{'type':'checkbox','id':'q-'+name,'data-q':name,'checked':val?'checked':null});}
+		function txt(name,val,ph,style){return E('input',{'type':'text','id':'q-'+name,'data-q':name,'value':val||'','placeholder':ph||'','style':style||'width:140px;font-family:monospace'});}
+		function sel(name,val,opts,style){
+			var s=E('select',{'id':'q-'+name,'data-q':name,'style':style||'width:180px'});
+			if(!val)s.appendChild(E('option',{'value':'','selected':'selected'},'--'));
+			opts.forEach(function(o){var a={'value':o};if(val===o)a.selected='selected';s.appendChild(E('option',a,o));});
+			return s;
+		}
+
+		var enCb=chk('enabled',enChecked);
+		var enBadge=E('span',{'class':'qos-badge qos-amber','style':'margin-left:8px','id':'q-en-badge'},'');
+		this.updateEnBadge(enBadge,ctx,enChecked);
+		row('QoS Enabled',[enCb,enBadge]);
+		row('Bandwidth Up',txt('bw_up',w.bandwidth_up,'e.g. 100mbit'));
+		row('Bandwidth Down',txt('bw_down',w.bandwidth_down,'e.g. 100mbit'));
+		row('Overhead Type',sel('overhead',w.overhead_type||w.overhead,OVH,'width:180px'));
+		row('Queue Mode',sel('mode',w.mode,MODES,'width:148px'));
+		row('Ingress',chk('ingress',w.ingress==='1'));
+		row('Egress',chk('egress',w.egress==='1'));
+		row('NAT',chk('nat',w.nat==='1'));
+		row('Host Isolate',chk('host_isolate',w.host_isolate==='1'));
+		row('Autorate Ingress',chk('autorate',w.autorate_ingress==='1'));
+		row('Ingress Options',txt('ing_opts',w.ingress_options,'e.g. triple-isolate memlimit 32mb','width:100%;max-width:400px;font-family:monospace'));
+		row('Egress Options',txt('egr_opts',w.egress_options,'e.g. triple-isolate memlimit 32mb wash','width:100%;max-width:400px;font-family:monospace'));
+		row('Options',txt('opts',w.options||w.option,'e.g. overhead 44 mpu 84','width:100%;max-width:400px;font-family:monospace'));
+		nodes.push(tbl);
+		nodes.push(E('div',{'class':'cbi-page-actions'},
+			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveQuick();}},'Save & Apply')));
+		return nodes;
+	},
+
+	buildCtlSect:function(ctx){
+		var self=this;
+		var nodes=[E('legend',{},'Service Controls')];
+		var svcCt=E('div',{'class':'qos-svc','id':'qos-svc-btns'});
+		svcCt.appendChild(E('button',{
+			'class':'cbi-button '+(ctx.enabled?'qos-btn-en':'qos-btn-dis'),
+			'title':ctx.enabled?'Click to disable autostart':'Click to enable autostart',
+			'click':function(){return self.svcAction(ctx.enabled?'disable':'enable');}
+		},ctx.enabled?'Enabled':'Disabled'));
+		['start','stop','restart','reload'].forEach(function(a){
+			svcCt.appendChild(E('button',{
+				'class':'cbi-button cbi-button-'+(a==='stop'?'reset':'apply'),
+				'click':function(){return self.svcAction(a);}
+			},a.charAt(0).toUpperCase()+a.slice(1)));
+		});
+		nodes.push(svcCt);
+		return nodes;
+	},
+
+	fillSect:function(id,nodes){
+		var el=$(id);
+		if(!el)return;
+		dom.content(el,'');
+		nodes.forEach(function(n){el.appendChild(n);});
+	},
+
+	waitForRunning:function(timeoutMs){
+		var deadline=Date.now()+(timeoutMs||3000);
+		function tick(){
+			return L.resolveDefault(fs.exec('/etc/init.d/qosify',['running']),{code:1}).then(function(r){
+				if(r.code===0)return true;
+				if(Date.now()>=deadline)return false;
+				return new Promise(function(res){setTimeout(res,400);}).then(tick);
+			});
+		}
+		return tick();
+	},
+
+	updateEnBadge:function(el,ctx,enChecked){
+		dom.content(el,'');
+		if(ctx.active){el.className='qos-badge qos-green';dom.append(el,'Active');}
+		else if(ctx.running&&enChecked){el.className='qos-badge qos-amber';dom.append(el,'Enabled — Not Shaping (check config)');}
+		else if(enChecked){el.className='qos-badge qos-amber';dom.append(el,'Enabled — Not Running');}
+		else{el.className='qos-badge qos-red';dom.append(el,'Disabled');}
+	},
+
+	renderSvcTable:function(ctx){
+		function ok(t){return E('span',{'class':'qos-ok'},'\u2714 '+t);}
+		function err(t){return E('span',{'class':'qos-err'},'\u2718 '+t);}
+		function bdg(cls,t){return E('span',{'class':'qos-badge '+cls},t);}
+		var tbl=E('table',{'class':'qos-kv','width':'100%','id':'qos-svc-tbl'});
+		var b=E('tbody');tbl.appendChild(b);
+		b.appendChild(E('tr',{},[E('td',{},'Package'),E('td',{},ctx.hasBin?ok('Installed'):err('Not installed'))]));
+		b.appendChild(E('tr',{},[E('td',{},'Init Script'),E('td',{},ctx.hasInit?ok('Available'):err('Missing'))]));
+		b.appendChild(E('tr',{},[E('td',{},'Autostart'),E('td',{},bdg(ctx.enabled?'qos-green':'qos-red',ctx.enabled?'Enabled':'Disabled'))]));
+		var run;
+		if(ctx.running&&ctx.active)run=bdg('qos-green','Running & Shaping');
+		else if(ctx.running)run=bdg('qos-amber','Running — Not Shaping');
+		else run=bdg('qos-red','Not Running');
+		b.appendChild(E('tr',{},[E('td',{},'Running'),E('td',{},run)]));
+		return tbl;
+	},
+
+	renderCfgFiles:function(ctx){
+		var cfgRules=countRules(ctx.cfgRaw);
+		var rulesN=countRules(ctx.rulesText);
+		var cfgOk=ctx.cfgRaw.length>10&&/(^|\n)config /.test(ctx.cfgRaw);
+		var rulesOk=rulesN>0;
+		var tbl=E('table',{'class':'qos-kv','width':'100%'});
+		var b=E('tbody');tbl.appendChild(b);
+		function fileRow(path,exists,ok,sz,mod,extra){
+			var st;
+			if(ok)st=E('span',{'class':'qos-ok'},'\u2714 Valid');
+			else if(exists)st=E('span',{'class':'qos-warn'},'\u26a0 Found (empty or invalid)');
+			else st=E('span',{'class':'qos-err'},'\u2718 Missing');
+			var meta=exists?E('span',{'style':'color:#aaa;margin-left:8px;font-size:12px'},'('+(extra||'')+fmtSize(sz)+', '+mod+')'):'';
+			b.appendChild(E('tr',{},[E('td',{},path),E('td',{},[st,meta])]));
+		}
+		fileRow(UCI_PATH,!!ctx.cfgStat,cfgOk,ctx.cfgStat?ctx.cfgStat.size:0,ctx.cfgStat?fmtMtime(ctx.cfgStat.mtime):'');
+		fileRow(RULES_PATH,!!ctx.rulesStat,rulesOk,ctx.rulesStat?ctx.rulesStat.size:0,ctx.rulesStat?fmtMtime(ctx.rulesStat.mtime):'',rulesN+' rules, ');
+		return tbl;
+	},
+
+	tabConfig:function(ctx){
+		var self=this;
+		var section=E('div',{'class':'qos-tab','id':'qos-cf','style':'display:none'});
+		var fs1=E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},'Config'),
+			E('div',{'class':'cbi-section-descr'},['UCI configuration — classes, interfaces, defaults. ',E('code',{},UCI_PATH)])
+		]);
+
+		// Reference panel
+		var ref=E('details',{'class':'qos-ref'});
+		ref.appendChild(E('summary',{},'Config Reference'));
+		var refBody=E('div',{'style':'font-size:11px;color:#bbb;margin:6px 0;font-family:monospace;line-height:1.8'});
+		refBody.innerHTML=[
+			'<strong style="color:#8ab4f8">config defaults</strong><br/>',
+			'&nbsp; list defaults, option dscp_prio, option dscp_icmp, option dscp_bulk, option dscp_default_tcp, option dscp_default_udp, option prio_max_avg_pkt_len, option bulk_trigger_pps, option bulk_trigger_timeout<br/>',
+			'<strong style="color:#8ab4f8">config class</strong> &lsquo;name&rsquo;<br/>',
+			'&nbsp; option ingress, option egress, option dscp_prio, option dscp_bulk, option prio_max_avg_pkt_len, option bulk_trigger_pps, option bulk_trigger_timeout<br/>',
+			'<strong style="color:#8ab4f8">config interface</strong> &lsquo;name&rsquo;<br/>',
+			'&nbsp; option name, option disabled, option bandwidth_up, option bandwidth_down, option overhead_type, option mode, option ingress, option egress, option nat, option host_isolate, option autorate_ingress, option ingress_options, option egress_options, option options<br/>',
+			'<strong style="color:#8ab4f8">config device</strong> &lsquo;name&rsquo;<br/>',
+			'&nbsp; option name, option disabled, option bandwidth'
+		].join('');
+		ref.appendChild(refBody);
+
+		// Live defaults & classes
+		var defs={};
+		uci.sections('qosify','defaults',function(s){if(!defs['.name'])defs=s;});
+		if(defs['.name']){
+			var defBox=E('div',{'style':'margin:6px 0 4px;padding:4px 8px;border:1px solid #444;border-radius:3px;background:#222'});
+			defBox.appendChild(E('strong',{'style':'font-size:12px;color:#8ab4f8'},'config defaults'));
+			var defLine=E('div',{'style':'font-size:11px;color:#bbb;margin:2px 0 0;font-family:monospace'});
+			var keys=['dscp_default_tcp','dscp_default_udp','dscp_icmp','dscp_prio','dscp_bulk','prio_max_avg_pkt_len','bulk_trigger_pps','bulk_trigger_timeout'];
+			var parts=[];
+			keys.forEach(function(k){if(defs[k])parts.push(k+': <strong>'+esc(defs[k])+'</strong>');});
+			defLine.innerHTML=parts.join(' &nbsp; ');
+			defBox.appendChild(defLine);
+			ref.appendChild(defBox);
+		}
+		var classes=this.getClasses();
+		classes.forEach(function(c){
+			var box=E('div',{'style':'margin:4px 0;padding:4px 8px;border:1px solid #444;border-radius:3px;background:#222'});
+			box.appendChild(E('strong',{'style':'font-size:12px;color:#8ab4f8'},c.name));
+			box.appendChild(E('span',{'style':'font-size:11px;color:#bbb;margin-left:8px'},'Ingress: '+(c.ingress||'')+' / Egress: '+(c.egress||'')));
+			ref.appendChild(box);
+		});
+		ref.appendChild(E('div',{'style':'color:#888;font-size:11px;margin:4px 0 2px'},
+			'DSCP codepoints: CS0–CS7, AF11–AF43, EF, LE. Prefix with + for priority boost (rules only).'));
+		fs1.appendChild(ref);
+
+		// Quick Add Config
+		var qa=E('div',{'class':'qos-qa'});
+		qa.appendChild(E('strong',{'style':'font-size:13px;color:#aaa'},'Quick Add Config'));
+		var qacRow=E('div',{'class':'qos-qa-row'});
+		var qacType=E('select',{'id':'qac-type','style':'width:130px','change':function(){self.qacSwitch();}});
+		[['defaults','config defaults'],['class','config class'],['interface','config interface']].forEach(function(o){
+			qacType.appendChild(E('option',{'value':o[0]},o[1]));
+		});
+		qacRow.appendChild(qacType);
+		qacRow.appendChild(E('span',{'id':'qac-nm-w','style':'display:none'},
+			E('input',{'id':'qac-name','type':'text','placeholder':'section name','style':'width:120px;font-family:monospace'})));
+		qacRow.appendChild(E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd();}},'Add'));
+		qa.appendChild(qacRow);
+
+		var clsNames=classes.map(function(c){return c.name;});
+		// defaults options
+		var qadDef=E('div',{'class':'qos-qa-row','id':'qac-opts-defaults'});
+		this.qaInput(qadDef,'list','defaults','/etc/qosify/*.conf','list',180);
+		this.qaSelect(qadDef,'dscp_prio',clsNames,120);
+		this.qaSelect(qadDef,'dscp_icmp',clsNames,120);
+		this.qaSelect(qadDef,'dscp_bulk',clsNames,120);
+		this.qaSelect(qadDef,'dscp_default_tcp',clsNames,120);
+		this.qaSelect(qadDef,'dscp_default_udp',clsNames,120);
+		this.qaNum(qadDef,'prio_max_avg_pkt_len','500',55);
+		this.qaNum(qadDef,'bulk_trigger_pps','100',55);
+		this.qaNum(qadDef,'bulk_trigger_timeout','5',45);
+		qa.appendChild(qadDef);
+
+		// class options
+		var qadCls=E('div',{'class':'qos-qa-row','id':'qac-opts-class','style':'display:none'});
+		this.qaSelect(qadCls,'ingress',DSCP,70,true);
+		this.qaSelect(qadCls,'egress',DSCP,70,true);
+		this.qaSelect(qadCls,'dscp_prio',DSCP,70);
+		this.qaSelect(qadCls,'dscp_bulk',DSCP,70);
+		this.qaNum(qadCls,'prio_max_avg_pkt_len','500',55);
+		this.qaNum(qadCls,'bulk_trigger_pps','100',55);
+		this.qaNum(qadCls,'bulk_trigger_timeout','5',45);
+		qa.appendChild(qadCls);
+
+		// interface options
+		var qadIf=E('div',{'class':'qos-qa-row','id':'qac-opts-interface','style':'display:none'});
+		this.qaInput(qadIf,'name','option','wan','option',80);
+		this.qaSelect(qadIf,'disabled',['0','1'],45);
+		this.qaInput(qadIf,'bandwidth_up','option','100mbit','option',80);
+		this.qaInput(qadIf,'bandwidth_down','option','100mbit','option',80);
+		this.qaSelect(qadIf,'overhead_type',OVH,130);
+		this.qaSelect(qadIf,'mode',MODES,100);
+		this.qaSelect(qadIf,'ingress',['0','1'],45);
+		this.qaSelect(qadIf,'egress',['0','1'],45);
+		this.qaSelect(qadIf,'nat',['0','1'],45);
+		this.qaSelect(qadIf,'host_isolate',['0','1'],45);
+		this.qaSelect(qadIf,'autorate_ingress',['0','1'],45);
+		this.qaInput(qadIf,'ingress_options','option','triple-isolate','option',160);
+		this.qaInput(qadIf,'egress_options','option','triple-isolate wash','option',160);
+		this.qaInput(qadIf,'options','option','overhead 44 mpu 84','option',160);
+		qa.appendChild(qadIf);
+
+		fs1.appendChild(qa);
+
+		// Editor
+		var ta=E('textarea',{
+			'id':'qos-config-ta',
+			'rows':28,
+			'style':'width:100%;font-family:monospace;font-size:12px;line-height:1.4;tab-size:4;border:1px solid #ccc;padding:6px'
+		},ctx.cfgRaw);
+		ta.dataset.orig=ctx.cfgRaw;
+		fs1.appendChild(ta);
+		fs1.appendChild(E('div',{'class':'cbi-page-actions'},[
+			E('button',{'class':'cbi-button cbi-button-reset','style':'margin-right:6px','click':function(){return self.clearCfg();}},'Clear'),
+			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveConfig();}},'Save & Apply')
+		]));
+
+		section.appendChild(fs1);
+		return section;
+	},
+
+	qaInput:function(parent,opt,pre,ph,preVal,w){
+		parent.appendChild(E('label',{},opt+':'));
+		parent.appendChild(E('input',{
+			'data-opt':opt,'data-pre':pre,'type':'text',
+			'value':opt==='list'?ph:'','placeholder':opt==='list'?'':ph,
+			'style':'width:'+w+'px;font-family:monospace'
+		}));
+	},
+	qaSelect:function(parent,opt,opts,w,required){
+		parent.appendChild(E('label',{},opt+':'));
+		var s=E('select',{'data-opt':opt,'style':'width:'+w+'px'});
+		if(!required)s.appendChild(E('option',{'value':''},'--'));
+		opts.forEach(function(o){s.appendChild(E('option',{'value':o},o));});
+		parent.appendChild(s);
+	},
+	qaNum:function(parent,opt,ph,w){
+		parent.appendChild(E('label',{},opt+':'));
+		parent.appendChild(E('input',{'data-opt':opt,'type':'number','min':'0','placeholder':ph,'style':'width:'+w+'px'}));
+	},
+
+	getClasses:function(){
+		var arr=[];
+		uci.sections('qosify','class',function(s){
+			arr.push({name:s['.name'],ingress:s.ingress||'',egress:s.egress||'',
+				dscp_prio:s.dscp_prio||'',dscp_bulk:s.dscp_bulk||'',
+				prio_max_avg_pkt_len:s.prio_max_avg_pkt_len||'',
+				bulk_trigger_pps:s.bulk_trigger_pps||'',
+				bulk_trigger_timeout:s.bulk_trigger_timeout||''});
+		});
+		return arr;
+	},
+
+	tabRules:function(ctx){
+		var self=this;
+		var section=E('div',{'class':'qos-tab','id':'qos-ru','style':'display:none'});
+		var fs1=E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},'Classification Rules'),
+			E('div',{'class':'cbi-section-descr'},['DSCP mapping rules loaded by qosify on startup. ',E('code',{},RULES_PATH)])
+		]);
+
+		// Available classes
+		var classes=this.getClasses();
+		var ref=E('details',{'class':'qos-ref'});
+		ref.appendChild(E('summary',{},'Available Classes'));
+		var refTbl=E('table',{'class':'qos-kv','style':'margin:6px 0 0','width':'100%'});
+		var refB=E('tbody');refTbl.appendChild(refB);
+		if(classes.length){
+			classes.forEach(function(c){
+				refB.appendChild(E('tr',{},[
+					E('td',{'style':'width:140px'},c.name),
+					E('td',{},'Ingress: '+(c.ingress||'')+' / Egress: '+(c.egress||''))
+				]));
+			});
+		}else{
+			refB.appendChild(E('tr',{},E('td',{'colspan':2,'style':'color:#888'},E('em',{},'No classes defined in /etc/config/qosify'))));
+		}
+		ref.appendChild(refTbl);
+		ref.appendChild(E('div',{'style':'color:#888;font-size:11px;margin:6px 0 2px'},
+			'Prefix with + for priority within class. Ports: tcp:443, udp:3074, ranges: tcp:5060-5061. DNS: dns:*teams*, regex: dns:/zoom[0-9]+. IP: 1.1.1.1, ff01::1'));
+		fs1.appendChild(ref);
+
+		// Quick Add Rule
+		var qa=E('div',{'class':'qos-qa'});
+		qa.appendChild(E('strong',{'style':'font-size:13px;color:#aaa'},'Quick Add Rule'));
+		var qarRow=E('div',{'class':'qos-qa-row'});
+		var qarType=E('select',{'id':'qar-type','style':'width:140px','change':function(){self.qarPlaceholder();}});
+		[['tcp:','tcp port'],['udp:','udp port'],['both:','tcp+udp port'],['dns:','dns pattern'],['dnsr:','dns regex'],['dns_c:','dns_c pattern'],['dns_cr:','dns_c regex'],['ipv4:','IPv4 address'],['ipv6:','IPv6 address']].forEach(function(o){
+			qarType.appendChild(E('option',{'value':o[0]},o[1]));
+		});
+		qarRow.appendChild(qarType);
+		qarRow.appendChild(E('input',{'id':'qar-val','type':'text','placeholder':'e.g. 4500 or 5060-5061','style':'width:180px;font-family:monospace'}));
+		var qarCls=E('select',{'id':'qar-cls','style':'width:140px'});
+		classes.forEach(function(c){qarCls.appendChild(E('option',{'value':c.name},c.name));});
+		qarRow.appendChild(qarCls);
+		qarRow.appendChild(E('label',{'style':'font-size:12px;color:#aaa;white-space:nowrap'},
+			[E('input',{'type':'checkbox','id':'qar-prio'}),' priority (+)']));
+		qarRow.appendChild(E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},'Add'));
+		qa.appendChild(qarRow);
+		fs1.appendChild(qa);
+
+		// Editor
+		var ta=E('textarea',{
+			'id':'qos-rules-ta','rows':28,
+			'style':'width:100%;font-family:monospace;font-size:12px;line-height:1.4;tab-size:4;border:1px solid #ccc;padding:6px'
+		},ctx.rulesText);
+		ta.dataset.orig=ctx.rulesText;
+		fs1.appendChild(ta);
+		fs1.appendChild(E('div',{'class':'cbi-page-actions'},[
+			E('button',{'class':'cbi-button cbi-button-reset','style':'margin-right:6px','click':function(){return self.clearRules();}},'Clear'),
+			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveRules();}},'Save & Apply')
+		]));
+
+		section.appendChild(fs1);
+		return section;
+	},
+
+	tabAdvanced:function(ctx){
+		var self=this;
+		var section=E('div',{'class':'qos-tab','id':'qos-ad','style':'display:none'});
+
+		// Backup
+		var fb=E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},'Backup Current Files'),
+			E('div',{'class':'cbi-section-descr'},'Download current config files before making changes.')
+		]);
+		fb.appendChild(this.dlRow('/etc/config/qosify','qosify',ctx.cfgRaw));
+		fb.appendChild(this.dlRow('/etc/qosify/00-defaults.conf','00-defaults.conf',ctx.rulesText));
+		section.appendChild(fb);
+
+		// Upload
+		var fu=E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},'Upload Config Files'),
+			E('div',{'class':'cbi-section-descr'},'Select files and click Save & Apply to overwrite and restart qosify.')
+		]);
+		var u1=E('input',{'type':'file','id':'qos-up-cfg','accept':'.conf,text/plain'});
+		var u2=E('input',{'type':'file','id':'qos-up-rules','accept':'.conf,text/plain'});
+		fu.appendChild(E('div',{'class':'cbi-value'},[
+			E('label',{'class':'cbi-value-title'},'/etc/config/qosify'),
+			E('div',{'class':'cbi-value-field'},u1)
+		]));
+		fu.appendChild(E('div',{'class':'cbi-value'},[
+			E('label',{'class':'cbi-value-title'},'/etc/qosify/00-defaults.conf'),
+			E('div',{'class':'cbi-value-field'},u2)
+		]));
+		fu.appendChild(E('div',{'class':'cbi-page-actions'},
+			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.uploadFiles();}},'Save & Apply')
+		));
+		section.appendChild(fu);
+
+		// Reset
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},'Reset to qosify Defaults'),
+			E('div',{'class':'cbi-section-descr'},'Replaces both config files with qosify defaults, qosify will be disabled.'),
+			E('div',{'class':'cbi-page-actions'},
+				E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},'Reset to Defaults'))
+		]));
+		return section;
+	},
+
+	dlRow:function(path,fn,content){
+		return E('div',{'class':'cbi-value'},[
+			E('label',{'class':'cbi-value-title'},path),
+			E('div',{'class':'cbi-value-field'},
+				E('button',{'class':'cbi-button cbi-button-action','click':function(){
+					var b=new Blob([content||''],{type:'application/octet-stream'});
+					var a=document.createElement('a');
+					a.href=URL.createObjectURL(b);a.download=fn;a.click();URL.revokeObjectURL(a.href);
+				}},'Download'))
+		]);
+	},
+
+	tabStatus:function(ctx){
+		var section=E('div',{'class':'qos-tab','id':'qos-st','style':'display:none'});
+		var fs1=E('fieldset',{'class':'cbi-section'},E('legend',{},'qosify-status'));
+		var body=E('div',{'id':'qos-st-body'});
+		this.fillStatus(body,ctx);
+		fs1.appendChild(body);
+		section.appendChild(fs1);
+		return section;
+	},
+
+	fillStatus:function(body,ctx){
+		dom.content(body,'');
+		if(!ctx.running){
+			body.appendChild(E('div',{'class':'alert-message warning'},'qosify is not running. Start from the Overview tab.'));
+		}else if(!ctx.qstatus){
+			body.appendChild(E('p',{'style':'color:#888'},E('em',{},'qosify-status returned no output.')));
+		}else{
+			body.appendChild(E('pre',{'style':'background:#1e1e1e;color:#e0e0e0;padding:12px;border:1px solid #333;border-radius:4px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap'},ctx.qstatus));
+		}
+	},
+
+	// === Actions ===
+
+	svcAction:function(action){
+		var self=this;
+		ui.showModal('Working',[E('p',{},'Sending ' +action+ ' to qosify...')]);
+		return callInit('qosify',action).then(function(){
+			return new Promise(function(r){setTimeout(r,800);});
+		}).then(function(){
+			return self.refreshOverview();
+		}).finally(function(){
+			ui.hideModal();
+		});
+	},
+
+	saveQuick:function(){
+		var self=this;
+		var get=function(id){var e=$('q-'+id);return e?e.value:'';};
+		var chk=function(id){var e=$('q-'+id);return e&&e.checked;};
+		var bw=function(s){return (s||'').toLowerCase().replace(/[^0-9a-z]/g,'');};
+		var bwUp=bw(get('bw_up')),bwDn=bw(get('bw_down'));
+		var ovh=get('overhead'),mode=get('mode');
+		var iopts=trim(get('ing_opts')),eopts=trim(get('egr_opts')),gopts=trim(get('opts'));
+		var safe=/^[\w\s\-\.]*$/;
+		if(!safe.test(iopts)||!safe.test(eopts)||!safe.test(gopts)){
+			notify('Error: invalid characters in options fields. Use alphanumeric, spaces, hyphens, dots only.','danger');
+			return;
+		}
+		if(bwUp&&!/^\d+[kmg]?bit$/.test(bwUp)){notify('Error: bandwidth_up must look like 100mbit','danger');return;}
+		if(bwDn&&!/^\d+[kmg]?bit$/.test(bwDn)){notify('Error: bandwidth_down must look like 100mbit','danger');return;}
+
+		var sec=getWan();
+		uci.set('qosify',sec,'disabled',chk('enabled')?'0':'1');
+		if(bwUp)uci.set('qosify',sec,'bandwidth_up',bwUp);
+		if(bwDn)uci.set('qosify',sec,'bandwidth_down',bwDn);
+		if(ovh){uci.set('qosify',sec,'overhead_type',ovh);uci.unset('qosify',sec,'overhead');}
+		if(mode)uci.set('qosify',sec,'mode',mode);
+		uci.set('qosify',sec,'ingress',chk('ingress')?'1':'0');
+		uci.set('qosify',sec,'egress',chk('egress')?'1':'0');
+		uci.set('qosify',sec,'nat',chk('nat')?'1':'0');
+		uci.set('qosify',sec,'host_isolate',chk('host_isolate')?'1':'0');
+		uci.set('qosify',sec,'autorate_ingress',chk('autorate')?'1':'0');
+		uci.set('qosify',sec,'ingress_options',iopts);
+		uci.set('qosify',sec,'egress_options',eopts);
+		uci.set('qosify',sec,'options',gopts);
+		uci.unset('qosify',sec,'option');
+
+		ui.showModal('Saving',[E('p',{},'Saving settings and restarting qosify...')]);
+		return uci.save().then(function(){return uci.apply(0);}).then(function(){
+			return callInit('qosify','restart');
+		}).then(function(){
+			return self.waitForRunning(4000);
+		}).then(function(){
+			return self.checkShapingForSave('Settings saved');
+		}).then(function(msg){
+			ui.hideModal();
+			notify(msg.text,msg.kind);
+			return self.refreshOverviewFull();
+		}).catch(function(e){
+			ui.hideModal();
+			notify('Save failed: '+e,'danger');
+		});
+	},
+
+	saveConfig:function(){
+		var self=this;
+		var ta=$('qos-config-ta');
+		if(!ta)return;
+		var data=ta.value.replace(/\r\n/g,'\n');
+		if(data.length===0){
+			if(!confirm('Empty config will stop qosify. Continue?'))return;
+			return fs.write(UCI_PATH,'').then(function(){
+				return callInit('qosify','stop');
+			}).then(function(){
+				ta.dataset.orig='';
+				notify('Config cleared, qosify stopped.','info');
+				return self.refreshOverview();
+			});
+		}
+		if(!/(^|\n)config /.test(data)){
+			notify('Error: No valid config stanzas found.','danger');return;
+		}
+		ui.showModal('Saving',[E('p',{},'Writing config and restarting qosify...')]);
+		return fs.write(UCI_PATH,data).then(function(){
+			uci.unload('qosify');
+			return uci.load('qosify');
+		}).then(function(){
+			return callInit('qosify','restart');
+		}).then(function(){
+			return self.waitForRunning(4000);
+		}).then(function(){
+			return self.checkShapingForSave('Config saved');
+		}).then(function(msg){
+			ta.dataset.orig=data;
+			ui.hideModal();
+			notify(msg.text,msg.kind);
+			return self.refreshOverviewFull();
+		}).catch(function(e){
+			ui.hideModal();
+			notify('Save failed: '+e,'danger');
+		});
+	},
+
+	checkShapingForSave:function(prefix){
+		return Promise.all([
+			L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),{stdout:''}),
+			uci.load('qosify')
+		]).then(function(r){
+			var st=r[0].stdout||'';
+			var w=uci.get('qosify','wan')||{};
+			if(w.disabled==='1')return {text:prefix+', qosify restarted (QoS disabled).',kind:'info'};
+			if(detectActive(st))return {text:prefix+', qosify restarted.',kind:'info'};
+			return {text:'Warning: '+prefix+' but qosify is not shaping traffic — check for syntax errors.',kind:'warning'};
+		});
+	},
+
+	saveRules:function(){
+		var self=this;
+		var ta=$('qos-rules-ta');
+		if(!ta)return;
+		var data=ta.value.replace(/\r\n/g,'\n');
+		ui.showModal('Saving',[E('p',{},'Writing rules and restarting qosify...')]);
+		return fs.write(RULES_PATH,data).then(function(){
+			return callInit('qosify','restart');
+		}).then(function(){
+			return self.waitForRunning(4000);
+		}).then(function(){
+			return self.checkShapingForSave('Rules saved');
+		}).then(function(msg){
+			ta.dataset.orig=data;
+			ui.hideModal();
+			notify(msg.text,msg.kind);
+			return self.refreshOverview();
+		}).catch(function(e){
+			ui.hideModal();
+			notify('Save failed: '+e,'danger');
+		});
+	},
+
+	clearCfg:function(){
+		if(!confirm('Clear config editor and reset Quick Settings? Content will not be saved until you click Save.'))return;
+		var ta=$('qos-config-ta');if(ta)ta.value='';
+		document.querySelectorAll('#qos-ov [data-q]').forEach(function(el){
+			if(el.type==='checkbox')el.checked=false;
+			else if(el.tagName==='SELECT')el.selectedIndex=0;
+			else el.value='';
+		});
+	},
+	clearRules:function(){
+		if(!confirm('Clear rules editor? Content will not be saved until you click Save.'))return;
+		var ta=$('qos-rules-ta');if(ta)ta.value='';
+	},
+
+	uploadFiles:function(){
+		var self=this;
+		var u1=$('qos-up-cfg'),u2=$('qos-up-rules');
+		var f1=u1&&u1.files[0],f2=u2&&u2.files[0];
+		if(!f1&&!f2){notify('No files selected.','warning');return;}
+		if(!confirm('Upload and overwrite config files? qosify will restart.'))return;
+
+		function readFile(f){
+			return new Promise(function(res,rej){
+				if(f.size<1)return rej('Empty file');
+				if(f.size>65536)return rej('File too large (max 64KB)');
+				var r=new FileReader();
+				r.onload=function(){res(r.result);};
+				r.onerror=function(){rej('Read error');};
+				r.readAsText(f);
+			});
+		}
+		function validateUci(d){
+			if(/\x00/.test(d))return 'Binary content rejected';
+			if(!/(^|\n)config /.test(d))return 'No valid UCI config stanzas';
+			return null;
+		}
+		function validateRules(d){
+			if(/\x00/.test(d))return 'Binary content rejected';
+			var lines=d.split('\n');
+			for(var i=0;i<lines.length;i++){
+				var l=trim(lines[i]);
+				if(l&&l.charAt(0)!=='#'&&!/^\S+\s+\S/.test(l))return 'Invalid rule line: '+l.slice(0,40);
+			}
+			return null;
+		}
+
+		ui.showModal('Uploading',[E('p',{},'Reading and validating files...')]);
+		var ops=[],names=[],errs=[];
+		if(f1)ops.push(readFile(f1).then(function(d){
+			var e=validateUci(d);
+			if(e){errs.push('Config: '+e);return null;}
+			return fs.write(UCI_PATH,d).then(function(){names.push('/etc/config/qosify');});
+		},function(e){errs.push('Config: '+e);}));
+		if(f2)ops.push(readFile(f2).then(function(d){
+			var e=validateRules(d);
+			if(e){errs.push('Rules: '+e);return null;}
+			return fs.write(RULES_PATH,d).then(function(){names.push('00-defaults.conf');});
+		},function(e){errs.push('Rules: '+e);}));
+
+		return Promise.all(ops).then(function(){
+			if(names.length===0){
+				ui.hideModal();
+				notify('Upload error: '+errs.join('; '),'danger');
+				return;
+			}
+			return callInit('qosify','restart').then(function(){
+				return self.waitForRunning(4000);
+			}).then(function(){
+				ui.hideModal();
+				var msg=names.join(' & ')+' uploaded, qosify restarted.';
+				if(errs.length)msg+=' Errors: '+errs.join('; ');
+				notify(msg,errs.length?'warning':'info');
+				if(u1)u1.value='';if(u2)u2.value='';
+				return self.refreshAll();
+			});
+		}).catch(function(e){
+			ui.hideModal();
+			notify('Upload failed: '+e,'danger');
+		});
+	},
+
+	resetDefaults:function(){
+		var self=this;
+		if(!confirm('Reset qosify config to defaults?'))return;
+		ui.showModal('Resetting',[E('p',{},'Restoring defaults...')]);
+		return Promise.all([
+			fs.read('/usr/share/qosify-luci/qosify'),
+			fs.read('/usr/share/qosify-luci/00-defaults.conf')
+		]).then(function(t){
+			return Promise.all([
+				fs.write(UCI_PATH,t[0]),
+				fs.write(RULES_PATH,t[1])
+			]);
+		}).then(function(){
+			return callInit('qosify','restart');
+		}).then(function(){
+			return self.waitForRunning(4000);
+		}).then(function(){
+			ui.hideModal();
+			notify('Reset to defaults, qosify restarted.','info');
+			return self.refreshAll();
+		}).catch(function(e){
+			ui.hideModal();
+			notify('Reset failed: '+e,'danger');
+		});
+	},
+
+	// === Quick Add handlers ===
+
+	qarPlaceholder:function(){
+		var t=$('qar-type').value;
+		var v=$('qar-val');
+		var ph={'tcp:':'e.g. 4500 or 5060-5061','udp:':'e.g. 4500 or 5060-5061','both:':'e.g. 4500 or 5060-5061',
+			'dns:':'e.g. *teams* or *.zoom*','dnsr:':'e.g. zoom[0-9]+\\.us','dns_c:':'e.g. *cdn*','dns_cr:':'e.g. cdn[0-9]+',
+			'ipv4:':'e.g. 1.1.1.1 or 192.168.1.0/24','ipv6:':'e.g. ff01::1'};
+		v.placeholder=ph[t]||'';
+	},
+
+	qarAdd:function(){
+		var ty=$('qar-type').value;
+		var val=trim($('qar-val').value);
+		var cls=$('qar-cls').value;
+		var pr=$('qar-prio').checked;
+		if(!val){alert('Enter a value.');return;}
+		if(!cls){alert('No classes defined. Add classes in the Config tab first.');return;}
+		var pt=(ty==='tcp:'||ty==='udp:'||ty==='both:');
+		if(pt&&!/^\d+(-\d+)?$/.test(val)){alert('Port must be a number or range (e.g. 4500 or 5060-5061).');return;}
+		if(pt){
+			var pp=val.split('-');
+			for(var j=0;j<pp.length;j++){var n=parseInt(pp[j]);if(n<1||n>65535){alert('Port must be 1-65535.');return;}}
+		}
+		if(ty==='ipv4:'&&!/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(val)){alert('Enter a valid IPv4 address.');return;}
+		if(ty==='ipv6:'&&!/^[0-9a-fA-F:]+(%[a-zA-Z0-9]+)?(\/\d{1,3})?$/.test(val)){alert('Enter a valid IPv6 address.');return;}
+		var pfx=pr?'+':'';
+		var ta=$('qos-rules-ta');if(!ta)return;
+		var lines=[];
+		if(ty==='both:'){lines.push('tcp:'+val+'\t'+pfx+cls);lines.push('udp:'+val+'\t'+pfx+cls);}
+		else if(ty==='ipv4:'||ty==='ipv6:')lines.push(val+'\t'+pfx+cls);
+		else if(ty==='dnsr:')lines.push('dns:/'+val+'\t'+pfx+cls);
+		else if(ty==='dns_cr:')lines.push('dns_c:/'+val+'\t'+pfx+cls);
+		else lines.push(ty+val+'\t'+pfx+cls);
+		var v=ta.value.replace(/\s+$/,'');
+		ta.value=v+(v?'\n':'')+lines.join('\n')+'\n';
+		$('qar-val').value='';
+		$('qar-prio').checked=false;
+		ta.scrollTop=ta.scrollHeight;
+	},
+
+	qacSwitch:function(){
+		var ty=$('qac-type').value;
+		['defaults','class','interface'].forEach(function(x){
+			var el=$('qac-opts-'+x);
+			if(el)el.style.display=(x===ty)?'flex':'none';
+		});
+		$('qac-nm-w').style.display=(ty==='defaults')?'none':'';
+	},
+
+	qacAdd:function(){
+		var ty=$('qac-type').value;
+		var ta=$('qos-config-ta');if(!ta)return;
+		var nm='';
+		if(ty!=='defaults'){
+			nm=$('qac-name').value.replace(/[^a-zA-Z0-9_]/g,'');
+			if(!nm){alert('Enter a section name (alphanumeric/underscore).');return;}
+		}
+		var s='\nconfig '+ty+(nm?" '"+nm+"'":'');
+		var div=$('qac-opts-'+ty);
+		var els=div.querySelectorAll('[data-opt]');
+		for(var i=0;i<els.length;i++){
+			var v=els[i].value;if(!v)continue;
+			var opt=els[i].getAttribute('data-opt');
+			var pre=els[i].getAttribute('data-pre')||'option';
+			s+="\n\t"+pre+" "+opt+" '"+v+"'";
+		}
+		var cv=ta.value.replace(/\s+$/,'');
+		ta.value=cv+s+'\n';
+		if(nm)$('qac-name').value='';
+		for(var i=0;i<els.length;i++){
+			if(els[i].tagName==='SELECT')els[i].selectedIndex=0;
+			else els[i].value=els[i].defaultValue||'';
+		}
+		ta.scrollTop=ta.scrollHeight;
+	},
+
+	// === Refreshers ===
+
+	gatherCtx:function(){
+		return Promise.all([
+			L.resolveDefault(fs.read(UCI_PATH),''),
+			L.resolveDefault(fs.read(RULES_PATH),''),
+			L.resolveDefault(fs.stat(UCI_PATH),null),
+			L.resolveDefault(fs.stat(RULES_PATH),null),
+			L.resolveDefault(fs.exec('/etc/init.d/qosify',['running']),{code:1}),
+			L.resolveDefault(fs.exec('/etc/init.d/qosify',['enabled']),{code:1}),
+			L.resolveDefault(fs.stat('/usr/sbin/qosify'),null),
+			L.resolveDefault(fs.stat('/etc/init.d/qosify'),null),
+			L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),{stdout:''})
+		]).then(function(d){
+			var ctx={
+				cfgRaw:d[0]||'',rulesText:d[1]||'',
+				cfgStat:d[2],rulesStat:d[3],
+				running:d[4].code===0,enabled:d[5].code===0,
+				hasBin:d[6]!=null,hasInit:d[7]!=null,
+				qstatus:(d[8]&&d[8].stdout)||''
+			};
+			ctx.active=detectActive(ctx.qstatus);
+			return ctx;
+		});
+	},
+
+	refreshOverview:function(){
+		var self=this;
+		uci.unload('qosify');
+		return uci.load('qosify').then(function(){
+			return self.gatherCtx();
+		}).then(function(ctx){
+			self.fillSect('qos-svc-sect',self.buildSvcSect(ctx));
+			self.fillSect('qos-cfg-sect',self.buildCfgSect(ctx));
+			self.fillSect('qos-ctl-sect',self.buildCtlSect(ctx));
+			var stb=$('qos-st-body');
+			if(stb)self.fillStatus(stb,ctx);
+			return ctx;
+		});
+	},
+
+	refreshOverviewFull:function(){
+		var self=this;
+		return self.refreshOverview().then(function(ctx){
+			self.fillSect('qos-qs-sect',self.buildQsSect(ctx));
+			return ctx;
+		});
+	},
+
+	refreshStatus:function(){
+		if(this.currentTab!=='st')return;
+		var self=this;
+		return Promise.all([
+			L.resolveDefault(fs.exec('/etc/init.d/qosify',['running']),{code:1}),
+			L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),{stdout:''})
+		]).then(function(d){
+			var ctx={running:d[0].code===0,qstatus:(d[1]&&d[1].stdout)||''};
+			var stb=$('qos-st-body');
+			if(stb)self.fillStatus(stb,ctx);
+		});
+	},
+
+	refreshAll:function(){
+		var self=this;
+		return self.refreshOverviewFull().then(function(){
+			return Promise.all([
+				L.resolveDefault(fs.read(UCI_PATH),''),
+				L.resolveDefault(fs.read(RULES_PATH),'')
+			]);
+		}).then(function(d){
+			var c=$('qos-config-ta'),r=$('qos-rules-ta');
+			if(c){c.value=d[0]||'';c.dataset.orig=c.value;}
+			if(r){r.value=d[1]||'';r.dataset.orig=r.value;}
+		});
 	}
-	var s='\nconfig '+ty+(nm?" '"+nm+"'":'');
-	var div=document.getElementById('qac-opts-'+ty);
-	var els=div.querySelectorAll('[data-opt]');
-	for(var i=0;i<els.length;i++){
-		var v=els[i].value;if(!v)continue;
-		var opt=els[i].getAttribute('data-opt');
-		var pre=els[i].getAttribute('data-pre')||'option';
-		var pfx=els[i].getAttribute('data-pfx');
-		if(pfx){var cb=document.getElementById(pfx);if(cb&&cb.checked)v='+'+v;}
-		s+="\n\t"+pre+" "+opt+" '"+v+"'";
-	}
-	var cv=ta.value.replace(/\s+$/,'');
-	ta.value=cv+s+'\n';
-	chkD();
-	if(nm)document.getElementById('qac-name').value='';
-	for(var i=0;i<els.length;i++){
-		if(els[i].tagName==='SELECT')els[i].selectedIndex=0;
-		else els[i].value=els[i].defaultValue||'';
-	}
-	var pf=document.getElementById('qac-icmp-pf');if(pf)pf.checked=false;
-	ta.scrollTop=ta.scrollHeight;
-};
-})();
-//]]></script>
-<%+footer%>
-HTMEOF
+});
+JSEOF
+	sed -i "s/__VERSION__/$VERSION/" "$VIEW_DIR/main.js"
 }
 
 install_all() {
 	echo "===== qosify LuCI Installer v$VERSION ====="
-	install_qosify
-	install_controller
-	install_views
+	clean_legacy
+	install_deps
+	install_templates
 	install_defaults
+	install_menu
+	install_acl
+	install_view
 	/etc/init.d/qosify restart 2>/dev/null
 	restart_luci_services
 	logger -t qosify-luci "LuCI app installed v$VERSION"
@@ -918,8 +1228,10 @@ uninstall_all() {
 	elif command -v opkg >/dev/null 2>&1; then opkg remove qosify 2>/dev/null; fi
 	rm -f "$UCI_CONFIG" "$DEFAULTS_FILE"
 	rmdir "$CONFIG_DIR" 2>/dev/null
-	rm -f "$CTRL_DIR/qosify.lua"
-	rm -rf /usr/lib/lua/luci/model/cbi/qosify "$VIEW_DIR"
+	rm -rf "$VIEW_DIR" "$TPL_DIR"
+	rm -f "$MENU_DIR/luci-app-qosify.json"
+	rm -f "$ACL_DIR/luci-app-qosify.json"
+	clean_legacy
 	restart_luci_services
 	logger -t qosify-luci "LuCI app and qosify fully removed"
 	echo "[OK] qosify fully uninstalled"
@@ -929,6 +1241,6 @@ uninstall_all() {
 case "$1" in
 	install) install_all ;;
 	uninstall) uninstall_all ;;
-	reset) install_defaults ;;
+	reset) install_templates; install_defaults ;;
 	*) echo "Usage: $0 {install|uninstall|reset}" ;;
 esac
