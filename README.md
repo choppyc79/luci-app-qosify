@@ -4,35 +4,28 @@ LuCI web interface for [qosify](https://openwrt.org/docs/guide-user/network/traf
 
 Adds a **Network → qosify** menu with tabs for Overview, Config editing, Classification Rules, Advanced, and Status.
 
+## Screenshots
+
 ### Overview
-
-
 Service status, Quick Settings form, config file validation, and service controls at a glance.
 
 ### Config
-
-
-Edit the UCI configuration (`/etc/config/qosify`) directly — set bandwidth, classes, interfaces, and queue options.
+Edit the UCI configuration (`/etc/config/qosify`) directly — set bandwidth, classes, interfaces, and queue options. Includes a Config Reference panel showing all stanza types and current class details, plus a Quick Add Config form for building `config defaults`, `config class`, and `config interface` stanzas from dropdowns.
 
 ### Classification Rules
-
-
-Edit DSCP classification rules (`/etc/qosify/00-defaults.conf`) — map ports, protocols, and DNS patterns to traffic classes. Includes a Quick Add form and dynamic DSCP class reference.
+Edit DSCP classification rules (`/etc/qosify/00-defaults.conf`) — map ports, protocols, IPs, and DNS patterns to traffic classes. Includes a Quick Add form supporting all qosify match types and an Available Classes reference.
 
 ### Advanced
-
-
 Backup current config files, upload replacements, or reset both configs back to defaults.
 
 ### Status
-
-
 Live `qosify-status` output showing CAKE qdisc stats for egress and ingress, auto-refreshing every 5 seconds.
 
 ## Requirements
 
 - OpenWrt 22.03+ (or snapshot) with LuCI
 - `wget` or `curl` (for download)
+- `luci-base` (preinstalled with LuCI)
 
 ## Install
 
@@ -54,8 +47,9 @@ chmod +x /root/qosify-luci.sh
 
 The installer will:
 1. Install `qosify` if not already present
-2. Create the LuCI controller, view template, and default config files
-3. Clear the LuCI cache and restart services
+2. Drop the LuCI menu entry, ACL definition, and JS view into the standard LuCI paths
+3. Create default config files
+4. Restart rpcd and the web server so the new menu appears
 
 Once complete, navigate to **Network → qosify** in LuCI.
 
@@ -65,13 +59,13 @@ Once complete, navigate to **Network → qosify** in LuCI.
 /root/qosify-luci.sh uninstall
 ```
 
-This removes qosify, all config files, and the LuCI app.
+This removes qosify, all config files, and the LuCI app. `luci-base` is left in place.
 
 ## Configuration
 
 After install, use the **Quick Settings** form on the Overview tab to set your WAN bandwidth, enable QoS, and adjust common CAKE options — no raw config editing needed. The default config ships with QoS **disabled** for safe first-run.
 
-For full control, the **Config** tab provides an inline editor for `/etc/config/qosify` (UCI classes, interfaces, queue options). The **Classification Rules** tab edits `/etc/qosify/00-defaults.conf` with a Quick Add form for appending port/DNS rules by class. Alternatively, use the **Advanced** tab to upload pre-configured files.
+For full control, the **Config** tab provides an inline editor for `/etc/config/qosify` with a Quick Add Config form for building class, defaults, and interface stanzas from dropdowns — all options are constrained to valid values (DSCP codepoints, CAKE overhead types, diffserv modes). The **Classification Rules** tab edits `/etc/qosify/00-defaults.conf` with a Quick Add form supporting all qosify match types (tcp/udp ports, DNS patterns, DNS regex, IPv4/IPv6 addresses). Alternatively, use the **Advanced** tab to upload pre-configured files.
 
 ## Files
 
@@ -79,10 +73,52 @@ For full control, the **Config** tab provides an inline editor for `/etc/config/
 |---|---|
 | `/etc/config/qosify` | UCI config (classes, interfaces) |
 | `/etc/qosify/00-defaults.conf` | DSCP classification rules |
-| `/usr/lib/lua/luci/controller/qosify.lua` | LuCI controller |
-| `/usr/lib/lua/luci/view/qosify/main.htm` | LuCI view template (single-page) |
+| `/usr/share/luci/menu.d/luci-app-qosify.json` | LuCI menu entry |
+| `/usr/share/rpcd/acl.d/luci-app-qosify.json` | rpcd ACL grants |
+| `/www/luci-static/resources/view/qosify/main.js` | LuCI JS view (single-page) |
+| `/usr/share/qosify-luci/` | Default config templates (used by the Reset button) |
 
 ## Changelog
+
+### v2.3.2 — 2026-04-29
+- **Modern JS-based LuCI app** — full rewrite from the legacy Lua controller + `.htm` template architecture to the client-side JS view shape used by current LuCI. UI lives in one `main.js` under `/www/luci-static/resources/view/qosify/`, menu entry is a JSON file under `/usr/share/luci/menu.d/`, permissions are a JSON ACL under `/usr/share/rpcd/acl.d/`. Same shape as `luci-app-firewall` and other recent official apps.
+- **No more `luci-compat` dependency** — only `luci-base` is needed now.
+- **File uploads handled client-side** — `FileReader` reads and validates locally, then `fs.write` writes through rpcd. No multipart POST, no CSRF/`setfilehandler` issues.
+- **UCI accessed via the proper API** — `uci.load` / `uci.get` / `uci.sections` / `uci.set` / `uci.save` / `uci.apply`, no more text parsing or shelling out to `uci -q get`.
+- **Service controls via `ubus call luci setInitAction`** — canonical way to drive init scripts from a LuCI app.
+- **`poll.add()` for auto-refresh** — Status every 5s, Overview every 30s, pauses when the tab is hidden.
+- **Notifications auto-dismiss** — info 5s, warning 8s, danger 10s.
+- **Save/Upload/Reset wait for qosify to come back up** — polls `/etc/init.d/qosify running` until ready (up to 4s) before refreshing the UI, instead of a fixed sleep that could miss the daemon's startup.
+- **Quick Settings, Service Controls and Service Status all refresh after save/upload/reset** — form fields and toggle buttons reflect the new on-disk state, no stale closures.
+- **Legacy Lua paths cleaned on install** — upgrading from v2.2 leaves no stale `/usr/lib/lua/luci/...` files behind.
+
+### v2.2 — 2025-04-17
+- **OpenWrt 25.12 compatibility** — installer now installs `lua` and `luci-compat` alongside `qosify`, fixing `uhttpd` error `Lua controller present but no Lua runtime installed` on default 25.12 images where the Lua runtime is not preinstalled
+- **No more cache flushing** — `flush_luci()` replaced with `restart_luci_services()`: restarts `rpcd` and `uhttpd`/`nginx` and asks uhttpd to reload over ubus, without purging `/tmp/luci-*` caches. Cache flushing was causing issues on OpenWrt 25.12
+- **Invalid config detection** — previously if `/etc/config/qosify` contained a syntax error (e.g. missing closing quote), qosify would restart but silently fail to shape traffic and the banner still showed green. Now the Overview Running row shows amber "Running — Not Shaping" and the QoS Enabled badge shows "Enabled — Not Shaping (check config)" when the process is up but `qosify-status` reports no CAKE qdisc
+- **Amber post-save warnings** — Config, Rules, and Quick Settings saves now check `qosify-status` after restart. If WAN is enabled but qosify is not shaping, the banner turns orange with "Warning: ... but qosify is not shaping traffic — check config for syntax errors" instead of the misleading green success banner
+- **Config defaults — missing options added** — Quick Add Config `config defaults` stanza now offers `dscp_bulk`, `bulk_trigger_pps`, and `bulk_trigger_timeout` (all the class-level options except `ingress`/`egress` DSCP). Config Reference panel updated to list and display these values too
+- **Config defaults — `+` prefix removed** — the `+` DSCP priority-override prefix is only meaningful in classification rules (`00-defaults.conf`), so the checkbox is now only on Classification Rules Quick Add, not Config Quick Add
+- **Active detection improved** — now matches `qdisc cake`, `: active`, or plain `cake` in `qosify-status` output to reliably detect shaping across qosify versions
+- Version bumped to 2.2
+
+### v2.1 — 2025-04-14
+- **Quick Add Config** on Config tab — build `config defaults`, `config class`, and `config interface` stanzas from dropdowns. Stanza type selector shows only the options valid for that type; all values constrained to valid choices (DSCP codepoints, CAKE overhead types, diffserv modes, 0/1 booleans). No free-text where a defined set exists
+- **Config Reference** on Config tab — collapsible panel showing all stanza types with their available options, plus live view of current defaults and all class details (ingress/egress, dscp_prio, dscp_bulk, prio_max_avg_pkt_len, bulk_trigger_pps, bulk_trigger_timeout)
+- **Expanded Quick Add Rule** on Classification Rules tab — now supports all qosify match types: tcp/udp/tcp+udp ports, DNS patterns, DNS regex, dns_c patterns, dns_c regex, IPv4 addresses, IPv6 addresses. Dynamic placeholder hints per type
+- **CAKE overhead types fixed** — replaced incorrect values (pppoe, pppoa, docsis, atm) with correct CAKE keywords (pppoe-ptm, bridged-ptm, pppoe-vcmux, pppoe-llcsnap, pppoa-vcmux, pppoa-llc, bridged-vcmux, bridged-llcsnap, ipoa-vcmux, ipoa-llcsnap, conservative)
+- **All classes shown** — Config Reference and Classification Rules now show all classes including those referenced by dscp_default_tcp/udp
+- **Clear buttons** on Config and Classification Rules tabs — clear the editor for building config from scratch via Quick Add. Config clear also resets Quick Settings form on Overview
+- **AJAX service controls** — start/stop/restart/reload/enable/disable now use background requests instead of full page reloads
+- **UCI parser** — replaced ~70 subprocess calls (`uci -q get` per field per class) with a single Lua text parser. Significant page load speed improvement on low-end routers
+- **Port validation** — Quick Add Rule now validates port numbers are within 1–65535
+- **Save config validation** — non-empty config saves checked for valid UCI stanzas; empty saves allowed (intentional clear) and stop qosify
+- **WAN section guard** — Quick Settings save auto-creates the WAN interface section if config was cleared/missing
+- **Banner timing** — success messages auto-clear after 5s, errors after 10s; Overview auto-refresh clears any remaining banner
+- **Resilient AJAX refresh** — no longer redirects to LuCI root if a selector is momentarily missing during qosify restart
+- **Empty config handling** — Quick Settings correctly shows all fields blank/unchecked and dropdowns as `--` when no config exists
+- Removed dead code (filtered class list, skip logic, duplicate file reads)
+- Version bumped to 2.1
 
 ### v2.0 — 2025-04-13
 - **Quick Settings form** on Overview tab — edit all WAN interface options (QoS enable, bandwidth up/down, overhead type, queue mode, ingress, egress, NAT, host isolate, autorate ingress, ingress options, egress options, CAKE options) without touching raw config
