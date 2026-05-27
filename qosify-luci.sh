@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.3.2"
+VERSION="2.3.3"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -161,6 +161,7 @@ install_acl() {
 				"/etc/init.d/qosify": [ "exec" ],
 				"/usr/sbin/qosify": [ "read" ],
 				"/usr/sbin/qosify-status": [ "exec" ],
+				"/usr/sbin/tc": [ "exec" ],
 				"/usr/share/qosify-luci/qosify": [ "read" ],
 				"/usr/share/qosify-luci/00-defaults.conf": [ "read" ]
 			}
@@ -193,7 +194,7 @@ install_view() {
 var VER='__VERSION__';
 var UCI_PATH='/etc/config/qosify';
 var RULES_PATH='/etc/qosify/00-defaults.conf';
-var DSCP=['CS0','CS1','CS2','CS3','CS4','CS5','CS6','CS7','AF11','AF12','AF13','AF21','AF22','AF23','AF31','AF32','AF33','AF41','AF42','AF43','EF','LE'];
+var DSCP=['CS0','CS1','CS2','CS3','CS4','CS5','CS6','CS7','AF11','AF12','AF13','AF21','AF22','AF23','AF31','AF32','AF33','AF41','AF42','AF43','EF','VA','LE','DF'];
 var OVH=['none','conservative','ethernet','pppoe-ptm','bridged-ptm','pppoe-vcmux','pppoe-llcsnap','pppoa-vcmux','pppoa-llc','bridged-vcmux','bridged-llcsnap','ipoa-vcmux','ipoa-llcsnap'];
 var MODES=['diffserv3','diffserv4','diffserv8'];
 
@@ -213,8 +214,9 @@ function detectActive(out){return /qdisc cake|: active|cake/.test(out||'');}
 function countRules(text){
 	var n=0,lines=(text||'').split('\n');
 	for(var i=0;i<lines.length;i++){
-		var l=trim(lines[i]);
-		if(l&&l.charAt(0)!=='#')n++;
+		var l=lines[i],h=l.indexOf('#');
+		if(h>=0)l=l.slice(0,h);
+		if(trim(l))n++;
 	}
 	return n;
 }
@@ -561,14 +563,15 @@ return view.extend({
 		qa.appendChild(qacRow);
 
 		var clsNames=classes.map(function(c){return c.name;});
+		var dscpChoices=clsNames.concat(DSCP);
 		// defaults options
 		var qadDef=E('div',{'class':'qos-qa-row','id':'qac-opts-defaults'});
 		this.qaInput(qadDef,'list','defaults','/etc/qosify/*.conf','list',180);
-		this.qaSelect(qadDef,'dscp_prio',clsNames,120);
-		this.qaSelect(qadDef,'dscp_icmp',clsNames,120);
-		this.qaSelect(qadDef,'dscp_bulk',clsNames,120);
-		this.qaSelect(qadDef,'dscp_default_tcp',clsNames,120);
-		this.qaSelect(qadDef,'dscp_default_udp',clsNames,120);
+		this.qaSelect(qadDef,'dscp_prio',dscpChoices,140);
+		this.qaSelect(qadDef,'dscp_icmp',dscpChoices,140);
+		this.qaSelect(qadDef,'dscp_bulk',dscpChoices,140);
+		this.qaSelect(qadDef,'dscp_default_tcp',dscpChoices,140);
+		this.qaSelect(qadDef,'dscp_default_udp',dscpChoices,140);
 		this.qaNum(qadDef,'prio_max_avg_pkt_len','500',55);
 		this.qaNum(qadDef,'bulk_trigger_pps','100',55);
 		this.qaNum(qadDef,'bulk_trigger_timeout','5',45);
@@ -972,8 +975,10 @@ return view.extend({
 			if(/\x00/.test(d))return 'Binary content rejected';
 			var lines=d.split('\n');
 			for(var i=0;i<lines.length;i++){
-				var l=trim(lines[i]);
-				if(l&&l.charAt(0)!=='#'&&!/^\S+\s+\S/.test(l))return 'Invalid rule line: '+l.slice(0,40);
+				var l=lines[i],h=l.indexOf('#');
+				if(h>=0)l=l.slice(0,h);
+				l=trim(l);
+				if(l&&!/^\S+\s+\S/.test(l))return 'Invalid rule line: '+l.slice(0,40);
 			}
 			return null;
 		}
@@ -1046,7 +1051,7 @@ return view.extend({
 		var v=$('qar-val');
 		var ph={'tcp:':'e.g. 4500 or 5060-5061','udp:':'e.g. 4500 or 5060-5061','both:':'e.g. 4500 or 5060-5061',
 			'dns:':'e.g. *teams* or *.zoom*','dnsr:':'e.g. zoom[0-9]+\\.us','dns_c:':'e.g. *cdn*','dns_cr:':'e.g. cdn[0-9]+',
-			'ipv4:':'e.g. 1.1.1.1 or 192.168.1.0/24','ipv6:':'e.g. ff01::1'};
+			'ipv4:':'e.g. 1.1.1.1','ipv6:':'e.g. ff01::1'};
 		v.placeholder=ph[t]||'';
 	},
 
@@ -1063,8 +1068,8 @@ return view.extend({
 			var pp=val.split('-');
 			for(var j=0;j<pp.length;j++){var n=parseInt(pp[j]);if(n<1||n>65535){alert('Port must be 1-65535.');return;}}
 		}
-		if(ty==='ipv4:'&&!/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(val)){alert('Enter a valid IPv4 address.');return;}
-		if(ty==='ipv6:'&&!/^[0-9a-fA-F:]+(%[a-zA-Z0-9]+)?(\/\d{1,3})?$/.test(val)){alert('Enter a valid IPv6 address.');return;}
+		if(ty==='ipv4:'&&!/^\d{1,3}(\.\d{1,3}){3}$/.test(val)){alert('Enter a single IPv4 address (qosify does not accept CIDR).');return;}
+		if(ty==='ipv6:'&&!/^[0-9a-fA-F:]+(%[a-zA-Z0-9]+)?$/.test(val)){alert('Enter a single IPv6 address (qosify does not accept CIDR).');return;}
 		var pfx=pr?'+':'';
 		var ta=$('qos-rules-ta');if(!ta)return;
 		var lines=[];
@@ -1196,6 +1201,26 @@ JSEOF
 	sed -i "s/__VERSION__/$VERSION/" "$VIEW_DIR/main.js"
 }
 
+install_keepd() {
+	echo "[*] Writing sysupgrade keep list..."
+	mkdir -p /lib/upgrade/keep.d
+	cat > /lib/upgrade/keep.d/luci-app-qosify << 'EOF'
+/etc/config/qosify
+/etc/qosify/00-defaults.conf
+/root/qosify-luci.sh
+EOF
+}
+
+save_installer() {
+	SRC="$0"
+	[ -f "$SRC" ] || return 0
+	case "$SRC" in
+		/root/qosify-luci.sh) return 0 ;;
+	esac
+	cp "$SRC" /root/qosify-luci.sh 2>/dev/null
+	chmod +x /root/qosify-luci.sh 2>/dev/null
+}
+
 install_all() {
 	echo "===== qosify LuCI Installer v$VERSION ====="
 	clean_legacy
@@ -1205,6 +1230,8 @@ install_all() {
 	install_menu
 	install_acl
 	install_view
+	install_keepd
+	save_installer
 	/etc/init.d/qosify restart 2>/dev/null
 	restart_luci_services
 	logger -t qosify-luci "LuCI app installed v$VERSION"
@@ -1231,6 +1258,8 @@ uninstall_all() {
 	rm -rf "$VIEW_DIR" "$TPL_DIR"
 	rm -f "$MENU_DIR/luci-app-qosify.json"
 	rm -f "$ACL_DIR/luci-app-qosify.json"
+	rm -f /lib/upgrade/keep.d/luci-app-qosify
+	rm -f /root/qosify-luci.sh
 	clean_legacy
 	restart_luci_services
 	logger -t qosify-luci "LuCI app and qosify fully removed"
