@@ -4,8 +4,6 @@ LuCI web interface for [qosify](https://openwrt.org/docs/guide-user/network/traf
 
 Adds a **Network → qosify** menu with tabs for Overview, Config editing, Classification Rules, Advanced, and Status.
 
-## Screenshots
-
 ### Overview
 Service status, Quick Settings form, config file validation, and service controls at a glance.
 
