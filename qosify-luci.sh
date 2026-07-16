@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.5.2"
+VERSION="2.5.5"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -117,8 +117,9 @@ EOF
 	cat > "$TPL_DIR/cleanup" << 'EOF'
 #!/bin/sh
 # Remove leftover qosify qdiscs/ifb devices after stop
-for ifb in $(ls /sys/class/net 2>/dev/null | grep '^ifb-'); do
-	dev="${ifb#ifb-}"
+for ifb in /sys/class/net/ifb-*; do
+	[ -e "$ifb" ] || continue
+	ifb="${ifb##*/}"; dev="${ifb#ifb-}"
 	tc qdisc del dev "$dev" clsact 2>/dev/null
 	tc qdisc del dev "$dev" root 2>/dev/null
 	ip link set "$ifb" down 2>/dev/null
@@ -270,13 +271,13 @@ function countRules(text){
 }
 
 function validateRules(d){
-	if(/\x00/.test(d))return 'Binary content rejected';
+	if(/\x00/.test(d))return _('Binary content rejected');
 	var lines=d.split('\n');
 	for(var i=0;i<lines.length;i++){
 		var l=lines[i],h=l.indexOf('#');
 		if(h>=0)l=l.slice(0,h);
 		l=trim(l);
-		if(l&&!/^\S+\s+\S/.test(l))return 'Invalid rule line: '+l.slice(0,40);
+		if(l&&!/^\S+\s+\S/.test(l))return _('Invalid rule line: %s').format(l.slice(0,40));
 	}
 	return null;
 }
@@ -335,10 +336,10 @@ return view.extend({
 		var root=E('div',{'class':'cbi-map','id':'qos-app'});
 		root.appendChild(E('style',{},this.css()));
 		root.appendChild(E('h2',{},'qosify'));
-		root.appendChild(E('div',{'class':'cbi-map-descr'},'Traffic shaping and DSCP classification via qosify'));
+		root.appendChild(E('div',{'class':'cbi-map-descr'},_('Traffic shaping and DSCP classification via qosify')));
 
 		var tabs=E('ul',{'class':'cbi-tabmenu'});
-		var tabDef=[['ov','Overview'],['cf','Config'],['ru','Classification Rules'],['ad','Advanced'],['st','Status']];
+		var tabDef=[['ov',_('Overview')],['cf',_('Config')],['ru',_('Classification Rules')],['ad',_('Advanced')],['st',_('Status')]];
 		var self=this;
 		tabDef.forEach(function(t){
 			var li=E('li',{'class':'cbi-tab-disabled','id':'th-'+t[0]},
@@ -374,7 +375,7 @@ return view.extend({
 	showTab:function(t){
 		var dirty=this.dirty();
 		if(dirty&&(this.currentTab==='cf'||this.currentTab==='ru')&&t!==this.currentTab){
-			if(!confirm('You have unsaved changes. Leave this tab?'))return;
+			if(!confirm(_('You have unsaved changes. Leave this tab?')))return;
 		}
 		this.currentTab=t;
 		['ov','cf','ru','ad','st'].forEach(function(x){
@@ -423,11 +424,11 @@ return view.extend({
 	},
 
 	buildSvcSect:function(ctx){
-		return [E('legend',{},'Service Status'),this.renderSvcTable(ctx)];
+		return [E('legend',{},_('Service Status')),this.renderSvcTable(ctx)];
 	},
 
 	buildCfgSect:function(ctx){
-		return [E('legend',{},'Configuration Files'),this.renderCfgFiles(ctx)];
+		return [E('legend',{},_('Configuration Files')),this.renderCfgFiles(ctx)];
 	},
 
 	buildQsSect:function(ctx){
@@ -437,19 +438,19 @@ return view.extend({
 		var enChecked=(uci.get('qosify','wan','name')&&!wanDis);
 
 		var nodes=[];
-		nodes.push(E('legend',{},'Quick Settings'));
-		nodes.push(E('div',{'class':'cbi-section-descr'},'Common WAN settings — edit and apply without touching raw config.'));
+		nodes.push(E('legend',{},_('Quick Settings')));
+		nodes.push(E('div',{'class':'cbi-section-descr'},_('Common WAN settings — edit and apply without touching raw config.')));
 		var tbl=E('table',{'class':'qos-kv','width':'100%'});
 		var bdy=E('tbody');tbl.appendChild(bdy);
 
 		function row(lbl,el){bdy.appendChild(E('tr',{},[E('td',{},lbl),E('td',{},el)]));}
 		function chk(name,val){return E('input',{'type':'checkbox','id':'q-'+name,'data-q':name,'checked':val?'checked':null});}
 		function txt(name,val,ph,style){return E('input',{'type':'text','id':'q-'+name,'data-q':name,'value':val||'','placeholder':ph||'','style':style||'width:140px;font-family:monospace'});}
-		function sel(name,val,opts,style){
+		function sel(name,val,opts,style,def){
 			var s=E('select',{'id':'q-'+name,'data-q':name,'style':style||'width:180px'});
-			s.appendChild(E('option',{'value':''},'--'));
-			var known=false;
-			opts.forEach(function(o){var a={'value':o};if(val===o){a.selected='selected';known=true;}s.appendChild(E('option',a,o));});
+			if(!def)s.appendChild(E('option',{'value':''},'--'));
+			var sv=val||def||'',known=false;
+			opts.forEach(function(o){var a={'value':o};if(sv===o){a.selected='selected';known=true;}s.appendChild(E('option',a,o));});
 			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},val+' (current)'));
 			return s;
 		}
@@ -457,39 +458,39 @@ return view.extend({
 		var enCb=chk('enabled',enChecked);
 		var enBadge=E('span',{'class':'qos-badge qos-amber','style':'margin-left:8px','id':'q-en-badge'},'');
 		this.updateEnBadge(enBadge,ctx,enChecked);
-		row('QoS Enabled',[enCb,enBadge]);
-		row('Bandwidth Up',txt('bw_up',w.bandwidth_up,'e.g. 100mbit'));
-		row('Bandwidth Down',txt('bw_down',w.bandwidth_down,'e.g. 100mbit'));
-		row('Overhead Type',sel('overhead',w.overhead_type,OVH,'width:180px'));
-		row('Queue Mode',sel('mode',w.mode,MODES,'width:148px'));
-		row('Ingress',chk('ingress',w.ingress!=='0'));
-		row('Egress',chk('egress',w.egress!=='0'));
-		row('NAT',chk('nat',w.nat!=='0'));
-		row('Host Isolate',chk('host_isolate',w.host_isolate!=='0'));
-		row('Autorate Ingress',chk('autorate',w.autorate_ingress==='1'));
-		row('Ingress Options',txt('ing_opts',w.ingress_options,'e.g. triple-isolate memlimit 32mb','width:100%;max-width:400px;font-family:monospace'));
-		row('Egress Options',txt('egr_opts',w.egress_options,'e.g. triple-isolate memlimit 32mb wash','width:100%;max-width:400px;font-family:monospace'));
-		row('Options',txt('opts',w.options||w.option,'e.g. overhead 44 mpu 84','width:100%;max-width:400px;font-family:monospace'));
+		row(_('QoS Enabled'),[enCb,enBadge]);
+		row(_('Bandwidth Up'),txt('bw_up',w.bandwidth_up,'e.g. 100mbit'));
+		row(_('Bandwidth Down'),txt('bw_down',w.bandwidth_down,'e.g. 100mbit'));
+		row(_('Overhead Type'),sel('overhead',w.overhead_type,OVH,'width:180px','none'));
+		row(_('Queue Mode'),sel('mode',w.mode,MODES,'width:148px'));
+		row(_('Ingress'),chk('ingress',w.ingress!=='0'));
+		row(_('Egress'),chk('egress',w.egress!=='0'));
+		row(_('NAT'),chk('nat',w.nat!=='0'));
+		row(_('Host Isolate'),chk('host_isolate',w.host_isolate!=='0'));
+		row(_('Autorate Ingress'),chk('autorate',w.autorate_ingress==='1'));
+		row(_('Ingress Options'),txt('ing_opts',w.ingress_options,'e.g. triple-isolate memlimit 32mb','width:100%;max-width:400px;font-family:monospace'));
+		row(_('Egress Options'),txt('egr_opts',w.egress_options,'e.g. triple-isolate memlimit 32mb wash','width:100%;max-width:400px;font-family:monospace'));
+		row(_('Options'),txt('opts',w.options||w.option,'e.g. overhead 44 mpu 84','width:100%;max-width:400px;font-family:monospace'));
 		nodes.push(tbl);
 		nodes.push(E('div',{'class':'cbi-page-actions'},
-			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveQuick();}},'Save & Apply')));
+			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveQuick();}},_('Save & Apply'))));
 		return nodes;
 	},
 
 	buildCtlSect:function(ctx){
 		var self=this;
-		var nodes=[E('legend',{},'Service Controls')];
+		var nodes=[E('legend',{},_('Service Controls'))];
 		var svcCt=E('div',{'class':'qos-svc','id':'qos-svc-btns'});
 		svcCt.appendChild(E('button',{
 			'class':'cbi-button '+(ctx.enabled?'qos-btn-en':'qos-btn-dis'),
-			'title':ctx.enabled?'Click to disable autostart':'Click to enable autostart',
+			'title':ctx.enabled?_('Click to disable autostart'):_('Click to enable autostart'),
 			'click':function(){return self.svcAction(ctx.enabled?'disable':'enable');}
-		},ctx.enabled?'Enabled':'Disabled'));
+		},ctx.enabled?_('Enabled'):_('Disabled')));
 		['start','stop','restart','reload'].forEach(function(a){
 			svcCt.appendChild(E('button',{
 				'class':'cbi-button cbi-button-'+(a==='stop'?'reset':'apply'),
 				'click':function(){return self.svcAction(a);}
-			},a.charAt(0).toUpperCase()+a.slice(1)));
+			},({start:_('Start'),stop:_('Stop'),restart:_('Restart'),reload:_('Reload')})[a]));
 		});
 		nodes.push(svcCt);
 		return nodes;
@@ -525,10 +526,10 @@ return view.extend({
 
 	updateEnBadge:function(el,ctx,enChecked){
 		dom.content(el,'');
-		if(ctx.active){el.className='qos-badge qos-green';dom.append(el,'Active');}
-		else if(ctx.running&&enChecked){el.className='qos-badge qos-amber';dom.append(el,'Enabled — Not Shaping (check config)');}
-		else if(enChecked){el.className='qos-badge qos-amber';dom.append(el,'Enabled — Not Running');}
-		else{el.className='qos-badge qos-red';dom.append(el,'Disabled');}
+		if(ctx.active){el.className='qos-badge qos-green';dom.append(el,_('Active'));}
+		else if(ctx.running&&enChecked){el.className='qos-badge qos-amber';dom.append(el,_('Enabled — Not Shaping (check config)'));}
+		else if(enChecked){el.className='qos-badge qos-amber';dom.append(el,_('Enabled — Not Running'));}
+		else{el.className='qos-badge qos-red';dom.append(el,_('Disabled'));}
 	},
 
 	renderSvcTable:function(ctx){
@@ -537,14 +538,14 @@ return view.extend({
 		function bdg(cls,t){return E('span',{'class':'qos-badge '+cls},t);}
 		var tbl=E('table',{'class':'qos-kv','width':'100%','id':'qos-svc-tbl'});
 		var b=E('tbody');tbl.appendChild(b);
-		b.appendChild(E('tr',{},[E('td',{},'Package'),E('td',{},ctx.hasBin?ok('Installed'):err('Not installed'))]));
-		b.appendChild(E('tr',{},[E('td',{},'Init Script'),E('td',{},ctx.hasInit?ok('Available'):err('Missing'))]));
-		b.appendChild(E('tr',{},[E('td',{},'Autostart'),E('td',{},bdg(ctx.enabled?'qos-green':'qos-red',ctx.enabled?'Enabled':'Disabled'))]));
+		b.appendChild(E('tr',{},[E('td',{},_('Package')),E('td',{},ctx.hasBin?ok(_('Installed')):err(_('Not installed')))]));
+		b.appendChild(E('tr',{},[E('td',{},_('Init Script')),E('td',{},ctx.hasInit?ok(_('Available')):err(_('Missing')))]));
+		b.appendChild(E('tr',{},[E('td',{},_('Autostart')),E('td',{},bdg(ctx.enabled?'qos-green':'qos-red',ctx.enabled?_('Enabled'):_('Disabled')))]));
 		var run;
-		if(ctx.running&&ctx.active)run=bdg('qos-green','Running & Shaping');
-		else if(ctx.running)run=bdg('qos-amber','Running — Not Shaping');
-		else run=bdg('qos-red','Not Running');
-		b.appendChild(E('tr',{},[E('td',{},'Running'),E('td',{},run)]));
+		if(ctx.running&&ctx.active)run=bdg('qos-green',_('Running & Shaping'));
+		else if(ctx.running)run=bdg('qos-amber',_('Running — Not Shaping'));
+		else run=bdg('qos-red',_('Not Running'));
+		b.appendChild(E('tr',{},[E('td',{},_('Running')),E('td',{},run)]));
 		return tbl;
 	},
 
@@ -556,14 +557,14 @@ return view.extend({
 		var b=E('tbody');tbl.appendChild(b);
 		function fileRow(path,exists,ok,sz,mod,extra){
 			var st;
-			if(ok)st=E('span',{'class':'qos-ok'},'\u2714 Valid');
-			else if(exists)st=E('span',{'class':'qos-warn'},'\u26a0 Found (empty or invalid)');
-			else st=E('span',{'class':'qos-err'},'\u2718 Missing');
+			if(ok)st=E('span',{'class':'qos-ok'},'\u2714 '+_('Valid'));
+			else if(exists)st=E('span',{'class':'qos-warn'},'\u26a0 '+_('Found (empty or invalid)'));
+			else st=E('span',{'class':'qos-err'},'\u2718 '+_('Missing'));
 			var meta=exists?E('span',{'style':'opacity:.7;margin-left:8px;font-size:12px'},'('+(extra||'')+fmtSize(sz)+', '+mod+')'):'';
 			b.appendChild(E('tr',{},[E('td',{},path),E('td',{},[st,meta])]));
 		}
 		fileRow(UCI_PATH,!!ctx.cfgStat,cfgOk,ctx.cfgStat?ctx.cfgStat.size:0,ctx.cfgStat?fmtMtime(ctx.cfgStat.mtime):'');
-		fileRow(RULES_PATH,!!ctx.rulesStat,rulesOk,ctx.rulesStat?ctx.rulesStat.size:0,ctx.rulesStat?fmtMtime(ctx.rulesStat.mtime):'',rulesN+' rules, ');
+		fileRow(RULES_PATH,!!ctx.rulesStat,rulesOk,ctx.rulesStat?ctx.rulesStat.size:0,ctx.rulesStat?fmtMtime(ctx.rulesStat.mtime):'',rulesN+' '+_('rules')+', ');
 		return tbl;
 	},
 
@@ -571,13 +572,13 @@ return view.extend({
 		var self=this;
 		var section=E('div',{'class':'qos-tab','id':'qos-cf','style':'display:none'});
 		var fs1=E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},'Config'),
-			E('div',{'class':'cbi-section-descr'},['UCI configuration — classes, interfaces, defaults. ',E('code',{},UCI_PATH)])
+			E('legend',{},_('Config')),
+			E('div',{'class':'cbi-section-descr'},[_('UCI configuration — classes, interfaces, defaults.')+' ',E('code',{},UCI_PATH)])
 		]);
 
 		// Reference panel
 		var ref=E('details',{'class':'qos-ref'});
-		ref.appendChild(E('summary',{},'Config Reference'));
+		ref.appendChild(E('summary',{},_('Config Reference')));
 		var refBody=E('div',{'style':'font-size:11px;margin:6px 0;font-family:monospace;line-height:1.8'});
 		refBody.innerHTML=[
 			'<strong>config defaults</strong><br/>',
@@ -615,12 +616,12 @@ return view.extend({
 		});
 		ref.appendChild(clsBox);
 		ref.appendChild(E('div',{'style':'opacity:.7;font-size:11px;margin:4px 0 2px'},
-			'DSCP codepoints: CS0–CS7, AF11–AF43, EF, LE. Prefix with + for priority boost (rules only).'));
+			_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, LE. Prefix with + for priority boost (rules only).')));
 		fs1.appendChild(ref);
 
 		// Quick Add Config
 		var qa=E('div',{'class':'qos-qa'});
-		qa.appendChild(E('strong',{'style':'font-size:13px;color:#aaa'},'Quick Add Config'));
+		qa.appendChild(E('strong',{'style':'font-size:13px;color:#aaa'},_('Quick Add Config')));
 		var qacRow=E('div',{'class':'qos-qa-row'});
 		var qacType=E('select',{'id':'qac-type','style':'width:130px','change':function(){self.qacSwitch();}});
 		[['defaults','config defaults'],['class','config class'],['interface','config interface']].forEach(function(o){
@@ -629,7 +630,7 @@ return view.extend({
 		qacRow.appendChild(qacType);
 		qacRow.appendChild(E('span',{'id':'qac-nm-w','style':'display:none'},
 			E('input',{'id':'qac-name','type':'text','placeholder':'section name','style':'width:120px;font-family:monospace'})));
-		qacRow.appendChild(E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd();}},'Add'));
+		qacRow.appendChild(E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd();}},_('Add')));
 		qa.appendChild(qacRow);
 
 		var clsNames=classes.map(function(c){return c.name;});
@@ -687,8 +688,8 @@ return view.extend({
 		ta.dataset.orig=ctx.cfgRaw;
 		fs1.appendChild(ta);
 		fs1.appendChild(E('div',{'class':'cbi-page-actions'},[
-			E('button',{'class':'cbi-button cbi-button-reset','style':'margin-right:6px','click':function(){return self.clearCfg();}},'Clear'),
-			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveConfig();}},'Save & Apply')
+			E('button',{'class':'cbi-button cbi-button-reset','style':'margin-right:6px','click':function(){return self.clearCfg();}},_('Clear')),
+			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveConfig();}},_('Save & Apply'))
 		]));
 
 		section.appendChild(fs1);
@@ -747,7 +748,7 @@ return view.extend({
 					]));
 				});
 			}else{
-				ref.appendChild(E('tr',{},E('td',{'colspan':2,'style':'opacity:.7'},E('em',{},'No classes defined in /etc/config/qosify'))));
+				ref.appendChild(E('tr',{},E('td',{'colspan':2,'style':'opacity:.7'},E('em',{},_('No classes defined in /etc/config/qosify')))));
 			}
 		}
 		var cbox=$('qos-cfg-cls');
@@ -766,14 +767,14 @@ return view.extend({
 		var self=this;
 		var section=E('div',{'class':'qos-tab','id':'qos-ru','style':'display:none'});
 		var fs1=E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},'Classification Rules'),
-			E('div',{'class':'cbi-section-descr'},['DSCP mapping rules loaded by qosify on startup. ',E('code',{},RULES_PATH)])
+			E('legend',{},_('Classification Rules')),
+			E('div',{'class':'cbi-section-descr'},[_('DSCP mapping rules loaded by qosify on startup.')+' ',E('code',{},RULES_PATH)])
 		]);
 
 		// Available classes
 		var classes=this.getClasses();
 		var ref=E('details',{'class':'qos-ref'});
-		ref.appendChild(E('summary',{},'Available Classes'));
+		ref.appendChild(E('summary',{},_('Available Classes')));
 		var refTbl=E('table',{'class':'qos-kv','style':'margin:6px 0 0','width':'100%'});
 		var refB=E('tbody',{'id':'qos-cls-ref'});refTbl.appendChild(refB);
 		if(classes.length){
@@ -784,19 +785,19 @@ return view.extend({
 				]));
 			});
 		}else{
-			refB.appendChild(E('tr',{},E('td',{'colspan':2,'style':'opacity:.7'},E('em',{},'No classes defined in /etc/config/qosify'))));
+			refB.appendChild(E('tr',{},E('td',{'colspan':2,'style':'opacity:.7'},E('em',{},_('No classes defined in /etc/config/qosify')))));
 		}
 		ref.appendChild(refTbl);
 		ref.appendChild(E('div',{'style':'opacity:.7;font-size:11px;margin:6px 0 2px'},
-			'Prefix with + for priority within class. Ports: tcp:443, udp:3074, ranges: tcp:5060-5061. DNS: dns:*teams*, regex: dns:/zoom[0-9]+. IP: 1.1.1.1, ff01::1'));
+			_('Prefix with + for priority within class. Ports: tcp:443, udp:3074, ranges: tcp:5060-5061. DNS: dns:*teams*, regex: dns:/zoom[0-9]+. IP: 1.1.1.1, ff01::1')));
 		fs1.appendChild(ref);
 
 		// Quick Add Rule
 		var qa=E('div',{'class':'qos-qa'});
-		qa.appendChild(E('strong',{'style':'font-size:13px;color:#aaa'},'Quick Add Rule'));
+		qa.appendChild(E('strong',{'style':'font-size:13px;color:#aaa'},_('Quick Add Rule')));
 		var qarRow=E('div',{'class':'qos-qa-row'});
 		var qarType=E('select',{'id':'qar-type','style':'width:140px','change':function(){self.qarPlaceholder();}});
-		[['tcp:','tcp port'],['udp:','udp port'],['both:','tcp+udp port'],['dns:','dns pattern'],['dnsr:','dns regex'],['dns_c:','dns_c pattern'],['dns_cr:','dns_c regex'],['ipv4:','IPv4 address'],['ipv6:','IPv6 address']].forEach(function(o){
+		[['tcp:',_('tcp port')],['udp:',_('udp port')],['both:',_('tcp+udp port')],['dns:',_('dns pattern')],['dnsr:',_('dns regex')],['dns_c:',_('dns_c pattern')],['dns_cr:',_('dns_c regex')],['ipv4:',_('IPv4 address')],['ipv6:',_('IPv6 address')]].forEach(function(o){
 			qarType.appendChild(E('option',{'value':o[0]},o[1]));
 		});
 		qarRow.appendChild(qarType);
@@ -805,8 +806,8 @@ return view.extend({
 		classes.forEach(function(c){qarCls.appendChild(E('option',{'value':c.name},c.name));});
 		qarRow.appendChild(qarCls);
 		qarRow.appendChild(E('label',{'style':'font-size:12px;color:#aaa;white-space:nowrap'},
-			[E('input',{'type':'checkbox','id':'qar-prio'}),' priority (+)']));
-		qarRow.appendChild(E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},'Add'));
+			[E('input',{'type':'checkbox','id':'qar-prio'}),' '+_('priority (+)')]));
+		qarRow.appendChild(E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},_('Add')));
 		qa.appendChild(qarRow);
 		fs1.appendChild(qa);
 
@@ -818,8 +819,8 @@ return view.extend({
 		ta.dataset.orig=ctx.rulesText;
 		fs1.appendChild(ta);
 		fs1.appendChild(E('div',{'class':'cbi-page-actions'},[
-			E('button',{'class':'cbi-button cbi-button-reset','style':'margin-right:6px','click':function(){return self.clearRules();}},'Clear'),
-			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveRules();}},'Save & Apply')
+			E('button',{'class':'cbi-button cbi-button-reset','style':'margin-right:6px','click':function(){return self.clearRules();}},_('Clear')),
+			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveRules();}},_('Save & Apply'))
 		]));
 
 		section.appendChild(fs1);
@@ -832,8 +833,8 @@ return view.extend({
 
 		// Backup
 		var fb=E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},'Backup Current Files'),
-			E('div',{'class':'cbi-section-descr'},'Download current config files before making changes.')
+			E('legend',{},_('Backup Current Files')),
+			E('div',{'class':'cbi-section-descr'},_('Download current config files before making changes.'))
 		]);
 		fb.appendChild(this.dlRow('/etc/config/qosify','qosify'));
 		fb.appendChild(this.dlRow('/etc/qosify/00-defaults.conf','00-defaults.conf'));
@@ -841,11 +842,11 @@ return view.extend({
 
 		// Upload
 		var fu=E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},'Upload Config Files'),
-			E('div',{'class':'cbi-section-descr'},'Select files and click Save & Apply to overwrite and restart qosify.')
+			E('legend',{},_('Upload Config Files')),
+			E('div',{'class':'cbi-section-descr'},_('Select files and click Save & Apply to overwrite and restart qosify.'))
 		]);
 		var u1=E('input',{'type':'file','id':'qos-up-cfg'});
-		var u2=E('input',{'type':'file','id':'qos-up-rules','accept':'.conf,text/plain'});
+		var u2=E('input',{'type':'file','id':'qos-up-rules'});
 		fu.appendChild(E('div',{'class':'cbi-value'},[
 			E('label',{'class':'cbi-value-title'},'/etc/config/qosify'),
 			E('div',{'class':'cbi-value-field'},u1)
@@ -855,16 +856,16 @@ return view.extend({
 			E('div',{'class':'cbi-value-field'},u2)
 		]));
 		fu.appendChild(E('div',{'class':'cbi-page-actions'},
-			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.uploadFiles();}},'Save & Apply')
+			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.uploadFiles();}},_('Save & Apply'))
 		));
 		section.appendChild(fu);
 
 		// Reset
 		section.appendChild(E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},'Reset to qosify Defaults'),
-			E('div',{'class':'cbi-section-descr'},'Replaces both config files with qosify defaults, qosify will be disabled.'),
+			E('legend',{},_('Reset to qosify Defaults')),
+			E('div',{'class':'cbi-section-descr'},_('Replaces both config files with qosify defaults, qosify will be disabled.')),
 			E('div',{'class':'cbi-page-actions'},
-				E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},'Reset to Defaults'))
+				E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},_('Reset to Defaults')))
 		]));
 		return section;
 	},
@@ -879,13 +880,13 @@ return view.extend({
 						var a=document.createElement('a');
 						a.href=URL.createObjectURL(b);a.download=fn;a.click();URL.revokeObjectURL(a.href);
 					});
-				}},'Download'))
+				}},_('Download')))
 		]);
 	},
 
 	tabStatus:function(ctx){
 		var section=E('div',{'class':'qos-tab','id':'qos-st','style':'display:none'});
-		var fs1=E('fieldset',{'class':'cbi-section'},E('legend',{},'qosify-status'));
+		var fs1=E('fieldset',{'class':'cbi-section'},E('legend',{},_('qosify-status')));
 		var body=E('div',{'id':'qos-st-body'});
 		this.fillStatus(body,ctx);
 		fs1.appendChild(body);
@@ -896,9 +897,9 @@ return view.extend({
 	fillStatus:function(body,ctx){
 		dom.content(body,'');
 		if(!ctx.running){
-			body.appendChild(E('div',{'class':'alert-message warning'},'qosify is not running. Start from the Overview tab.'));
+			body.appendChild(E('div',{'class':'alert-message warning'},_('qosify is not running. Start from the Overview tab.')));
 		}else if(!ctx.qstatus){
-			body.appendChild(E('p',{'style':'opacity:.7'},E('em',{},'qosify-status returned no output.')));
+			body.appendChild(E('p',{'style':'opacity:.7'},E('em',{},_('qosify-status returned no output.'))));
 		}else{
 			body.appendChild(E('pre',{'style':'background:#1e1e1e;color:#e0e0e0;padding:12px;border:1px solid #333;border-radius:4px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap'},ctx.qstatus));
 		}
@@ -908,7 +909,7 @@ return view.extend({
 
 	svcAction:function(action){
 		var self=this;
-		ui.showModal('Working',[E('p',{},'Sending ' +action+ ' to qosify...')]);
+		ui.showModal(_('Working'),[E('p',{},_('Sending %s to qosify...').format(action))]);
 		var p=callInit('qosify',action);
 		if(action==='start'||action==='restart')
 			p=p.then(function(){return self.waitForRunning(4000);}).then(function(){return callInit('qosify','reload');});
@@ -933,11 +934,11 @@ return view.extend({
 		var iopts=trim(get('ing_opts')),eopts=trim(get('egr_opts')),gopts=trim(get('opts'));
 		var safe=/^[\w\s\-\.]*$/;
 		if(!safe.test(iopts)||!safe.test(eopts)||!safe.test(gopts)){
-			notify('Error: invalid characters in options fields. Use alphanumeric, spaces, hyphens, dots only.','danger');
+			notify(_('Error: invalid characters in options fields. Use alphanumeric, spaces, hyphens, dots only.'),'danger');
 			return;
 		}
-		if(bwUp&&!/^\d+(\.\d+)?[kmg]?bit$/.test(bwUp)){notify('Error: bandwidth_up must look like 100mbit','danger');return;}
-		if(bwDn&&!/^\d+(\.\d+)?[kmg]?bit$/.test(bwDn)){notify('Error: bandwidth_down must look like 100mbit','danger');return;}
+		if(bwUp&&!/^\d+(\.\d+)?[kmg]?bit$/.test(bwUp)){notify(_('Error: bandwidth_up must look like 100mbit'),'danger');return;}
+		if(bwDn&&!/^\d+(\.\d+)?[kmg]?bit$/.test(bwDn)){notify(_('Error: bandwidth_down must look like 100mbit'),'danger');return;}
 
 		var sec=getWan();
 		uci.set('qosify',sec,'disabled',chk('enabled')?'0':'1');
@@ -955,18 +956,18 @@ return view.extend({
 		uci.set('qosify',sec,'options',gopts);
 		uci.unset('qosify',sec,'option');
 
-		ui.showModal('Saving',[E('p',{},'Saving settings and applying...')]);
+		ui.showModal(_('Saving'),[E('p',{},_('Saving settings and applying...'))]);
 		return uci.save().then(function(){return uci.apply();}).then(function(){
 			return self.applyService();
 		}).then(function(){
-			return self.checkShapingForSave('Settings saved');
+			return self.checkShapingForSave(_('Settings saved'));
 		}).then(function(msg){
 			ui.hideModal();
 			notify(msg.text,msg.kind);
 			return self.refreshOverviewFull();
 		}).catch(function(e){
 			ui.hideModal();
-			notify('Save failed: '+e,'danger');
+			notify(_('Save failed: %s').format(e),'danger');
 		});
 	},
 
@@ -976,7 +977,7 @@ return view.extend({
 		if(!ta)return;
 		var data=ta.value.replace(/\r\n/g,'\n');
 		if(data.length===0){
-			if(!confirm('Empty config will stop qosify. Continue?'))return;
+			if(!confirm(_('Empty config will stop qosify. Continue?')))return;
 			return L.resolveDefault(callUciRevert('qosify'),null).then(function(){
 				return fs.write(UCI_PATH,'');
 			}).then(function(){
@@ -985,14 +986,14 @@ return view.extend({
 				return L.resolveDefault(fs.exec('/usr/share/qosify-luci/cleanup',[]),null);
 			}).then(function(){
 				ta.dataset.orig='';
-				notify('Config cleared, qosify stopped.','info');
+				notify(_('Config cleared, qosify stopped.'),'info');
 				return self.refreshOverview();
 			});
 		}
 		if(!/(^|\n)config /.test(data)){
-			notify('Error: No valid config stanzas found.','danger');return;
+			notify(_('Error: No valid config stanzas found.'),'danger');return;
 		}
-		ui.showModal('Saving',[E('p',{},'Writing config and reloading qosify...')]);
+		ui.showModal(_('Saving'),[E('p',{},_('Writing config and reloading qosify...'))]);
 		return L.resolveDefault(callUciRevert('qosify'),null).then(function(){
 			return fs.write(UCI_PATH,data);
 		}).then(function(){
@@ -1001,7 +1002,7 @@ return view.extend({
 		}).then(function(){
 			return self.applyService();
 		}).then(function(){
-			return self.checkShapingForSave('Config saved');
+			return self.checkShapingForSave(_('Config saved'));
 		}).then(function(msg){
 			ta.dataset.orig=data;
 			ui.hideModal();
@@ -1010,7 +1011,7 @@ return view.extend({
 			return self.refreshOverviewFull();
 		}).catch(function(e){
 			ui.hideModal();
-			notify('Save failed: '+e,'danger');
+			notify(_('Save failed: %s').format(e),'danger');
 		});
 	},
 
@@ -1021,9 +1022,9 @@ return view.extend({
 		]).then(function(r){
 			var st=r[0].stdout||'';
 			var w=uci.get('qosify','wan')||{};
-			if(w.disabled==='1')return {text:prefix+', applied (QoS disabled).',kind:'info'};
-			if(detectActive(st))return {text:prefix+', applied.',kind:'info'};
-			return {text:'Warning: '+prefix+' but qosify is not shaping traffic — check for syntax errors.',kind:'warning'};
+			if(w.disabled==='1')return {text:_('%s, applied (QoS disabled).').format(prefix),kind:'info'};
+			if(detectActive(st))return {text:_('%s, applied.').format(prefix),kind:'info'};
+			return {text:_('Warning: %s but qosify is not shaping traffic — check for syntax errors.').format(prefix),kind:'warning'};
 		});
 	},
 
@@ -1033,12 +1034,12 @@ return view.extend({
 		if(!ta)return;
 		var data=ta.value.replace(/\r\n/g,'\n');
 		var verr=validateRules(data);
-		if(verr){notify('Error: '+verr,'danger');return;}
-		ui.showModal('Saving',[E('p',{},'Writing rules and reloading qosify...')]);
+		if(verr){notify(_('Error: %s').format(verr),'danger');return;}
+		ui.showModal(_('Saving'),[E('p',{},_('Writing rules and reloading qosify...'))]);
 		return fs.write(RULES_PATH,data).then(function(){
 			return self.applyService();
 		}).then(function(){
-			return self.checkShapingForSave('Rules saved');
+			return self.checkShapingForSave(_('Rules saved'));
 		}).then(function(msg){
 			ta.dataset.orig=data;
 			ui.hideModal();
@@ -1046,16 +1047,16 @@ return view.extend({
 			return self.refreshOverview();
 		}).catch(function(e){
 			ui.hideModal();
-			notify('Save failed: '+e,'danger');
+			notify(_('Save failed: %s').format(e),'danger');
 		});
 	},
 
 	clearCfg:function(){
-		if(!confirm('Clear config editor? Content will not be saved until you click Save.'))return;
+		if(!confirm(_('Clear config editor? Content will not be saved until you click Save.')))return;
 		var ta=$('qos-config-ta');if(ta)ta.value='';
 	},
 	clearRules:function(){
-		if(!confirm('Clear rules editor? Content will not be saved until you click Save.'))return;
+		if(!confirm(_('Clear rules editor? Content will not be saved until you click Save.')))return;
 		var ta=$('qos-rules-ta');if(ta)ta.value='';
 	},
 
@@ -1063,61 +1064,61 @@ return view.extend({
 		var self=this;
 		var u1=$('qos-up-cfg'),u2=$('qos-up-rules');
 		var f1=u1&&u1.files[0],f2=u2&&u2.files[0];
-		if(!f1&&!f2){notify('No files selected.','warning');return;}
-		if(!confirm('Upload and overwrite config files? qosify will reload.'))return;
+		if(!f1&&!f2){notify(_('No files selected.'),'warning');return;}
+		if(!confirm(_('Upload and overwrite config files? qosify will reload.')))return;
 
 		function readFile(f){
 			return new Promise(function(res,rej){
-				if(f.size<1)return rej('Empty file');
-				if(f.size>65536)return rej('File too large (max 64KB)');
+				if(f.size<1)return rej(_('Empty file'));
+				if(f.size>65536)return rej(_('File too large (max 64KB)'));
 				var r=new FileReader();
 				r.onload=function(){res(r.result);};
-				r.onerror=function(){rej('Read error');};
+				r.onerror=function(){rej(_('Read error'));};
 				r.readAsText(f);
 			});
 		}
 		function validateUci(d){
-			if(/\x00/.test(d))return 'Binary content rejected';
-			if(!/(^|\n)config /.test(d))return 'No valid UCI config stanzas';
+			if(/\x00/.test(d))return _('Binary content rejected');
+			if(!/(^|\n)config /.test(d))return _('No valid UCI config stanzas');
 			return null;
 		}
-		ui.showModal('Uploading',[E('p',{},'Reading and validating files...')]);
+		ui.showModal(_('Uploading'),[E('p',{},_('Reading and validating files...'))]);
 		var ops=[],names=[],errs=[];
 		if(f1)ops.push(readFile(f1).then(function(d){
 			var e=validateUci(d);
-			if(e){errs.push('Config: '+e);return null;}
+			if(e){errs.push(_('Config: %s').format(e));return null;}
 			return L.resolveDefault(callUciRevert('qosify'),null).then(function(){return fs.write(UCI_PATH,d);}).then(function(){names.push('/etc/config/qosify');});
-		},function(e){errs.push('Config: '+e);}));
+		},function(e){errs.push(_('Config: %s').format(e));}));
 		if(f2)ops.push(readFile(f2).then(function(d){
 			var e=validateRules(d);
-			if(e){errs.push('Rules: '+e);return null;}
+			if(e){errs.push(_('Rules: %s').format(e));return null;}
 			return fs.write(RULES_PATH,d).then(function(){names.push('00-defaults.conf');});
-		},function(e){errs.push('Rules: '+e);}));
+		},function(e){errs.push(_('Rules: %s').format(e));}));
 
 		return Promise.all(ops).then(function(){
 			if(names.length===0){
 				ui.hideModal();
-				notify('Upload error: '+errs.join('; '),'danger');
+				notify(_('Upload error: %s').format(errs.join('; ')),'danger');
 				return;
 			}
 			return self.applyService().then(function(){
 				ui.hideModal();
-				var msg=names.join(' & ')+' uploaded, qosify reloaded.';
-				if(errs.length)msg+=' Errors: '+errs.join('; ');
+				var msg=_('%s uploaded, qosify reloaded.').format(names.join(' & '));
+				if(errs.length)msg+=' '+_('Errors:')+' '+errs.join('; ');
 				notify(msg,errs.length?'warning':'info');
 				if(u1)u1.value='';if(u2)u2.value='';
 				return self.refreshAll();
 			});
 		}).catch(function(e){
 			ui.hideModal();
-			notify('Upload failed: '+e,'danger');
+			notify(_('Upload failed: %s').format(e),'danger');
 		});
 	},
 
 	resetDefaults:function(){
 		var self=this;
-		if(!confirm('Reset qosify config to defaults?'))return;
-		ui.showModal('Resetting',[E('p',{},'Restoring defaults...')]);
+		if(!confirm(_('Reset qosify config to defaults?')))return;
+		ui.showModal(_('Resetting'),[E('p',{},_('Restoring defaults...'))]);
 		return L.resolveDefault(callUciRevert('qosify'),null).then(function(){
 			return Promise.all([
 				fs.read('/usr/share/qosify-luci/qosify'),
@@ -1132,11 +1133,11 @@ return view.extend({
 			return self.applyService();
 		}).then(function(){
 			ui.hideModal();
-			notify('Reset to defaults, applied.','info');
+			notify(_('Reset to defaults, applied.'),'info');
 			return self.refreshAll();
 		}).catch(function(e){
 			ui.hideModal();
-			notify('Reset failed: '+e,'danger');
+			notify(_('Reset failed: %s').format(e),'danger');
 		});
 	},
 
@@ -1156,20 +1157,20 @@ return view.extend({
 		var val=trim($('qar-val').value);
 		var cls=$('qar-cls').value;
 		var pr=$('qar-prio').checked;
-		if(!val){alert('Enter a value.');return;}
-		if(!cls){alert('No classes defined. Add classes in the Config tab first.');return;}
+		if(!val){alert(_('Enter a value.'));return;}
+		if(!cls){alert(_('No classes defined. Add classes in the Config tab first.'));return;}
 		var pt=(ty==='tcp:'||ty==='udp:'||ty==='both:');
-		if(pt&&!/^\d+(-\d+)?$/.test(val)){alert('Port must be a number or range (e.g. 4500 or 5060-5061).');return;}
+		if(pt&&!/^\d+(-\d+)?$/.test(val)){alert(_('Port must be a number or range (e.g. 4500 or 5060-5061).'));return;}
 		if(pt){
 			var pp=val.split('-');
-			for(var j=0;j<pp.length;j++){var n=parseInt(pp[j]);if(n<1||n>65535){alert('Port must be 1-65535.');return;}}
-			if(pp.length===2&&+pp[0]>+pp[1]){alert('Range start must not exceed end.');return;}
-		}else if(/\s/.test(val)){alert('No spaces allowed in patterns or addresses.');return;}
+			for(var j=0;j<pp.length;j++){var n=parseInt(pp[j]);if(n<1||n>65535){alert(_('Port must be 1-65535.'));return;}}
+			if(pp.length===2&&+pp[0]>+pp[1]){alert(_('Range start must not exceed end.'));return;}
+		}else if(/\s/.test(val)){alert(_('No spaces allowed in patterns or addresses.'));return;}
 		if(ty==='ipv4:'){
 			var oc=val.split('.');
-			if(oc.length!==4||oc.some(function(x){return !/^\d{1,3}$/.test(x)||+x>255;})){alert('Enter a single IPv4 address (qosify does not accept CIDR).');return;}
+			if(oc.length!==4||oc.some(function(x){return !/^\d{1,3}$/.test(x)||+x>255;})){alert(_('Enter a single IPv4 address (qosify does not accept CIDR).'));return;}
 		}
-		if(ty==='ipv6:'&&(!/^[0-9a-fA-F:]+(%[a-zA-Z0-9]+)?$/.test(val)||val.indexOf(':')<0||val.length>45)){alert('Enter a single IPv6 address (qosify does not accept CIDR).');return;}
+		if(ty==='ipv6:'&&(!/^[0-9a-fA-F:]+(%[a-zA-Z0-9]+)?$/.test(val)||val.indexOf(':')<0||val.length>45)){alert(_('Enter a single IPv6 address (qosify does not accept CIDR).'));return;}
 		var pfx=pr?'+':'';
 		var ta=$('qos-rules-ta');if(!ta)return;
 		var lines=[];
@@ -1200,7 +1201,7 @@ return view.extend({
 		var nm='';
 		if(ty!=='defaults'){
 			nm=$('qac-name').value.replace(/[^a-zA-Z0-9_]/g,'');
-			if(!nm){alert('Enter a section name (alphanumeric/underscore).');return;}
+			if(!nm){alert(_('Enter a section name (alphanumeric/underscore).'));return;}
 		}
 		var s='config '+ty+(nm?" '"+nm+"'":'');
 		var div=$('qac-opts-'+ty);
@@ -1313,6 +1314,12 @@ install_keepd() {
 /etc/qosify/00-defaults.conf
 /root/qosify-luci.sh
 /lib/upgrade/keep.d/luci-app-qosify
+/usr/share/luci/menu.d/luci-app-qosify.json
+/usr/share/rpcd/acl.d/luci-app-qosify.json
+/usr/share/qosify-luci/qosify
+/usr/share/qosify-luci/00-defaults.conf
+/usr/share/qosify-luci/cleanup
+/www/luci-static/resources/view/qosify/main.js
 EOF
 }
 
@@ -1322,6 +1329,20 @@ save_installer() {
 	[ "$SRC" = "/root/qosify-luci.sh" ] && return 0
 	cp "$SRC" /root/qosify-luci.sh 2>/dev/null
 	chmod +x /root/qosify-luci.sh 2>/dev/null
+}
+
+install_files() {
+	echo "===== qosify LuCI file install v$VERSION (no package ops) ====="
+	clean_legacy
+	install_templates
+	install_defaults
+	install_menu
+	install_acl
+	install_view
+	install_keepd
+	save_installer
+	logger -t qosify-luci "LuCI app files installed v$VERSION"
+	echo "[OK] qosify LuCI app files written"
 }
 
 install_all() {
@@ -1349,8 +1370,9 @@ uninstall_all() {
 	/etc/init.d/qosify stop 2>/dev/null
 	/etc/init.d/qosify disable 2>/dev/null
 	sleep 1
-	for ifb in $(ls /sys/class/net 2>/dev/null | grep '^ifb-'); do
-		dev="${ifb#ifb-}"
+	for ifb in /sys/class/net/ifb-*; do
+		[ -e "$ifb" ] || continue
+		ifb="${ifb##*/}"; dev="${ifb#ifb-}"
 		tc qdisc del dev "$dev" clsact 2>/dev/null
 		tc qdisc del dev "$dev" root 2>/dev/null
 		ip link set "$ifb" down 2>/dev/null
@@ -1381,5 +1403,6 @@ case "$1" in
 	install) install_all ;;
 	uninstall) uninstall_all ;;
 	reset) install_templates; force_defaults; /etc/init.d/qosify restart 2>/dev/null ;;
-	*) echo "Usage: $0 {install|uninstall|reset}" ;;
+	files) install_files ;;
+	*) echo "Usage: $0 {install|uninstall|reset|files}" ;;
 esac
