@@ -29,7 +29,7 @@ Live `qosify-status` output showing CAKE qdisc stats for egress and ingress, aut
 
 SSH into your router and run:
 
-```sh
+```
 wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
@@ -37,13 +37,14 @@ chmod +x /root/qosify-luci.sh
 
 Or with curl:
 
-```sh
+```
 curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```
 
 The installer will:
+
 1. Install `qosify` if not already present
 2. Drop the LuCI menu entry, ACL definition, and JS view into the standard LuCI paths
 3. Create default config files
@@ -51,9 +52,25 @@ The installer will:
 
 Once complete, navigate to **Network → qosify** in LuCI.
 
+## ImageBuilder / custom firmware builds
+
+For baking the app into a firmware image, use `files` mode — it writes the LuCI app files only, with no package manager operations and no service restarts:
+
+```
+/root/qosify-luci.sh files
+```
+
+Include `qosify` in your package list and call the script from a uci-defaults firstboot script, e.g. place the installer in `files/root/` and add `files/etc/uci-defaults/99-qosify-luci`:
+
+```
+#!/bin/sh
+/root/qosify-luci.sh files
+exit 0
+```
+
 ## Uninstall
 
-```sh
+```
 /root/qosify-luci.sh uninstall
 ```
 
@@ -65,16 +82,21 @@ After install, use the **Quick Settings** form on the Overview tab to set your W
 
 For full control, the **Config** tab provides an inline editor for `/etc/config/qosify` with a Quick Add Config form for building class, defaults, and interface stanzas from dropdowns — all options are constrained to valid values (DSCP codepoints, CAKE overhead types, diffserv modes). The **Classification Rules** tab edits `/etc/qosify/00-defaults.conf` with a Quick Add form supporting all qosify match types (tcp/udp ports, DNS patterns, DNS regex, IPv4/IPv6 addresses). Alternatively, use the **Advanced** tab to upload pre-configured files.
 
+## Translations
+
+As of v2.5.5 all user-visible strings use LuCI's i18n system, so the app can be translated like any official LuCI app.
+
 ## Files
 
 | File | Purpose |
-|---|---|
+| --- | --- |
 | `/etc/config/qosify` | UCI config (classes, interfaces) |
 | `/etc/qosify/00-defaults.conf` | DSCP classification rules |
 | `/usr/share/luci/menu.d/luci-app-qosify.json` | LuCI menu entry |
 | `/usr/share/rpcd/acl.d/luci-app-qosify.json` | rpcd ACL grants |
 | `/www/luci-static/resources/view/qosify/main.js` | LuCI JS view (single-page) |
-| `/usr/share/qosify-luci/` | Default config templates (used by the Reset button) |
+| `/usr/share/qosify-luci/` | Default config templates, cleanup helper |
+| `/lib/upgrade/keep.d/luci-app-qosify` | Sysupgrade keep list (app survives firmware upgrades) |
 
 ## License
 
