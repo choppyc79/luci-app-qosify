@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.5.6"
+VERSION="2.5.7"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -225,7 +225,6 @@ install_view() {
 'require rpc';
 'require dom';
 
-var VER='__VERSION__';
 var UCI_PATH='/etc/config/qosify';
 var RULES_PATH='/etc/qosify/00-defaults.conf';
 var DSCP=['CS0','CS1','CS2','CS3','CS4','CS5','CS6','CS7','AF11','AF12','AF13','AF21','AF22','AF23','AF31','AF32','AF33','AF41','AF42','AF43','EF','VA','LE','DF'];
@@ -353,10 +352,6 @@ return view.extend({
 		root.appendChild(this.tabRules(ctx));
 		root.appendChild(this.tabAdvanced(ctx));
 		root.appendChild(this.tabStatus(ctx));
-
-		root.appendChild(E('div',{'style':'margin:8px 0 0'},[
-			E('span',{'style':'opacity:.6;font-size:12px'},'luci-app-qosify v'+VER)
-		]));
 
 		var hash=(location.hash||'').slice(1);
 		var map={overview:'ov',config:'cf',rules:'ru',advanced:'ad',status:'st'};
@@ -1302,7 +1297,6 @@ return view.extend({
 	}
 });
 JSEOF
-	sed -i "s/__VERSION__/$VERSION/" "$VIEW_DIR/main.js"
 	[ -s "$VIEW_DIR/main.js" ] || { echo "[ERROR] Failed writing $VIEW_DIR/main.js"; exit 1; }
 }
 
