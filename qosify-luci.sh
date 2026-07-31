@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.5.5"
+VERSION="2.5.6"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -932,7 +932,7 @@ return view.extend({
 		var bwUp=bw(get('bw_up')),bwDn=bw(get('bw_down'));
 		var ovh=get('overhead'),mode=get('mode');
 		var iopts=trim(get('ing_opts')),eopts=trim(get('egr_opts')),gopts=trim(get('opts'));
-		var safe=/^[\w\s\-\.]*$/;
+		var safe=/^[\w\s.-]*$/;
 		if(!safe.test(iopts)||!safe.test(eopts)||!safe.test(gopts)){
 			notify(_('Error: invalid characters in options fields. Use alphanumeric, spaces, hyphens, dots only.'),'danger');
 			return;
@@ -1216,7 +1216,7 @@ return view.extend({
 		var cv=ta.value.replace(/\s+$/,'');
 		ta.value=cv+(cv?'\n\n':'')+s+'\n';
 		if(nm)$('qac-name').value='';
-		for(var i=0;i<els.length;i++){
+		for(i=0;i<els.length;i++){
 			if(els[i].tagName==='SELECT')els[i].selectedIndex=0;
 			else els[i].value=els[i].defaultValue||'';
 		}
