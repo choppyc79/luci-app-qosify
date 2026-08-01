@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.8.2"
+VERSION="2.8.6"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -184,7 +184,6 @@ install_acl() {
 		"description": "Grant access to LuCI app qosify",
 		"read": {
 			"ubus": {
-				"luci": [ "setInitAction" ],
 				"service": [ "list" ],
 				"file": [ "read", "stat", "list" ]
 			},
@@ -192,23 +191,25 @@ install_acl() {
 			"file": {
 				"/etc/config/qosify": [ "read" ],
 				"/etc/qosify/00-defaults.conf": [ "read" ],
-				"/etc/init.d/qosify": [ "read", "exec" ],
+				"/etc/init.d/qosify": [ "read" ],
 				"/usr/sbin/qosify": [ "read" ],
-				"/usr/sbin/qosify-status": [ "exec" ],
-				"/usr/share/qosify-luci/cleanup": [ "exec" ],
 				"/usr/share/qosify-luci/qosify": [ "read" ],
 				"/usr/share/qosify-luci/00-defaults.conf": [ "read" ]
 			}
 		},
 		"write": {
 			"ubus": {
+				"luci": [ "setInitAction" ],
 				"file": [ "write", "exec" ],
 				"uci": [ "revert" ]
 			},
 			"uci": [ "qosify" ],
 			"file": {
 				"/etc/config/qosify": [ "write" ],
-				"/etc/qosify/00-defaults.conf": [ "write" ]
+				"/etc/qosify/00-defaults.conf": [ "write" ],
+				"/etc/init.d/qosify": [ "exec" ],
+				"/usr/sbin/qosify-status": [ "exec" ],
+				"/usr/share/qosify-luci/cleanup": [ "exec" ]
 			}
 		}
 	}
@@ -262,6 +263,8 @@ function isRunning(r){
 	return false;
 }
 
+function clsLabel(c){return c.name+(c.alias?' '+_('(alias)'):'');}
+function clsDesc(c){return _('Ingress: %s / Egress: %s').format(c.ingress||'',c.egress||'');}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]});}
 function trim(s){return (s||'').replace(/^\s+|\s+$/g,'');}
 function $(id){return document.getElementById(id);}
@@ -292,15 +295,21 @@ function validateRules(d){
 function fmtSize(n){return n<1024?n+'B':(n/1024).toFixed(1)+'K';}
 function fmtMtime(t){if(!t)return '';return new Date(t*1000).toLocaleString();}
 
-// The shaping section Quick Settings edits: [type,name] or null. Prefers the
-// first enabled section, and accepts `config device` since qosify.init feeds
-// both section types through add_interface().
+// The shaping section Quick Settings edits, or null. Prefers the first enabled
+// section, and accepts `config device` since qosify.init feeds both section
+// types through add_interface(). An anonymous section has a synthetic .name
+// (cfgXXXXXX / newXXXXXX) that never appears in the file, so name is left empty
+// for it and setOpts() locates the block by per-type ordinal instead.
 function ifSect(){
 	var a=[];
-	uci.sections('qosify','interface',function(s){a.push(['interface',s['.name'],s.disabled!=='1']);});
-	uci.sections('qosify','device',function(s){a.push(['device',s['.name'],s.disabled!=='1']);});
-	for(var i=0;i<a.length;i++)if(a[i][2])return [a[i][0],a[i][1]];
-	return a.length?[a[0][0],a[0][1]]:null;
+	['interface','device'].forEach(function(t){
+		var i=0;
+		uci.sections('qosify',t,function(s){
+			a.push({type:t,id:s['.name'],name:s['.anonymous']?'':s['.name'],idx:i++,on:s.disabled!=='1'});
+		});
+	});
+	for(var j=0;j<a.length;j++)if(a[j].on)return a[j];
+	return a.length?a[0]:null;
 }
 // --- Mirrors qosify.init add_interface() and cmd_add_qdisc() in interface.c ---
 // nat defaults to 1 for interfaces and 0 for devices; host_isolate defaults on.
@@ -336,22 +345,30 @@ function ifLint(s,dev){
 	});
 	return w;
 }
-// Locate config blocks in raw UCI text: {type,name,start,end} (end = last non-blank line).
+// Locate config blocks in raw UCI text: {type,name,start,end} (end = last non-blank
+// line). Headers may be bare, single- or double-quoted — all three are valid UCI.
+function unq(s){return String(s||'').replace(/^["']|["']$/g,'');}
 function cfgSections(txt){
 	var out=[],cur=null,lines=(txt||'').split('\n');
 	for(var i=0;i<lines.length;i++){
-		var m=/^\s*config\s+(\S+)(?:\s+'?([^'\s]+)'?)?\s*$/.exec(lines[i]);
-		if(m){cur={type:m[1],name:m[2]||'',start:i,end:i};out.push(cur);}
+		var m=/^\s*config\s+(\S+)(?:\s+(\S+))?\s*$/.exec(lines[i]);
+		if(m){cur={type:unq(m[1]),name:unq(m[2]),start:i,end:i};out.push(cur);}
 		else if(cur&&trim(lines[i])!=='')cur.end=i;
 	}
 	return out;
 }
-function qv(v){return String(v).replace(/'/g,'');}
+// Values are spliced into a single-quoted UCI string: strip quotes and line breaks,
+// or a stray newline injects arbitrary option/config lines into the file.
+function qv(v){return v==null?'':String(v).replace(/['"\r\n]/g,'');}
 // Set/remove options inside one config block, preserving every other byte of the
 // file (comments, ordering, lists, unknown options). kv[key]===null deletes.
-function setOpts(txt,type,name,kv){
-	var lines=(txt||'').split('\n'),secs=cfgSections(txt),s=null,i,k;
-	for(i=0;i<secs.length;i++)if(secs[i].type===type&&(!name||secs[i].name===name)){s=secs[i];break;}
+// idx = ordinal among sections of this type, used when name is empty (anonymous).
+function setOpts(txt,type,name,idx,kv){
+	var lines=(txt||'').split('\n'),secs=cfgSections(txt),s=null,n=0,i,k;
+	for(i=0;i<secs.length;i++){
+		if(secs[i].type!==type)continue;
+		if(name?secs[i].name===name:n++===idx){s=secs[i];break;}
+	}
 	if(!s){
 		var blk=["config "+type+(name?" '"+name+"'":'')];
 		for(k in kv)if(kv[k]!=null)blk.push("\toption "+k+" '"+qv(kv[k])+"'");
@@ -381,7 +398,11 @@ function ruleWarn(txt,names){
 		l=trim(l);if(!l)continue;
 		var f=l.split(/\s+/);if(f.length<2)continue;
 		var v=f[1].replace(/^\+/,'');
-		if(names.indexOf(v)<0&&DSCP.indexOf(v)<0&&!/^\d+$/.test(v)&&bad.indexOf(v)<0)bad.push(v);
+		if(names.indexOf(v)>=0||DSCP.indexOf(v)>=0)continue;
+		if(/^(0[xX][0-9a-fA-F]+|\d+)$/.test(v)){
+			if(parseInt(v,v.charAt(0)==='0'&&(v.charAt(1)==='x'||v.charAt(1)==='X')?16:10)<64)continue;
+		}
+		if(bad.indexOf(v)<0)bad.push(v);
 	}
 	return bad.length?_('Unknown class/DSCP target: %s').format(bad.slice(0,5).join(', ')):null;
 }
@@ -531,13 +552,13 @@ return view.extend({
 	buildQsSect:function(ctx){
 		var self=this;
 		var sn=ifSect();
-		var w=(sn&&uci.get('qosify',sn[1]))||{};
+		var w=(sn&&uci.get('qosify',sn.id))||{};
 		var enChecked=(w['.name']!=null&&w.disabled!=='1');
 
 		var nodes=[];
 		nodes.push(E('legend',{},_('Quick Settings')));
 		nodes.push(E('div',{'class':'cbi-section-descr'},
-			_('Common shaping settings — written straight to %s, section %s.').format(UCI_PATH,sn?'config '+sn[0]+" '"+sn[1]+"'":"config interface 'wan' (will be created)")));
+			_('Common shaping settings — written straight to %s, section %s.').format(UCI_PATH,sn?'config '+sn.type+(sn.name?" '"+sn.name+"'":' '+_('(unnamed section)')):"config interface 'wan' (will be created)")));
 		var tbl=E('table',{'class':'qos-kv','width':'100%'});
 		var bdy=E('tbody');tbl.appendChild(bdy);
 
@@ -545,6 +566,7 @@ return view.extend({
 		function chk(name,val){return E('input',{'type':'checkbox','id':'q-'+name,'data-q':name,'checked':val?'checked':null});}
 		function txt(name,val,ph,style){return E('input',{'type':'text','id':'q-'+name,'data-q':name,'value':val||'','placeholder':ph||'','style':style||'width:140px;font-family:monospace'});}
 		function sel(name,val,opts,style,def,hint){
+			val=qv(val);
 			var s=E('select',{'id':'q-'+name,'data-q':name,'style':style||'width:180px'});
 			if(!def)s.appendChild(E('option',{'value':''},hint?'-- ('+hint+')':'--'));
 			var sv=val||def||'',known=false;
@@ -557,6 +579,11 @@ return view.extend({
 		var enBadge=E('span',{'class':'qos-badge qos-amber','style':'margin-left:8px','id':'q-en-badge'},'');
 		this.updateEnBadge(enBadge,ctx,enChecked);
 		row(_('QoS Enabled'),[enCb,enBadge]);
+		// qosify.init passes `option name` to add_interface(); without it the daemon
+		// gets an empty device and the section is never applied, so offer it here
+		// whenever it is missing -- anonymous sections have no other way to set it.
+		if(!w.name)row(_('Device Name'),[txt('name',sn?sn.name:'wan','e.g. wan or eth0','width:140px'),
+			E('span',{'style':'opacity:.6;font-size:11px;margin-left:8px'},_('required — qosify skips sections with no name'))]);
 		row(_('Bandwidth Up'),txt('bw_up',w.bandwidth_up,'e.g. 100mbit'));
 		row(_('Bandwidth Down'),txt('bw_down',w.bandwidth_down,'e.g. 100mbit'));
 		row(_('Overhead Type'),sel('overhead',w.overhead_type,OVH,'width:180px','none'));
@@ -567,7 +594,7 @@ return view.extend({
 		row(_('Egress'),chk('egress',w.egress!=='0'));
 		// CAKE is only given nat/nonat when host_isolate is on; otherwise it gets
 		// flow isolation and nat has no effect at all.
-		var natDev=(sn&&sn[0]==='device');
+		var natDev=(sn&&sn.type==='device');
 		var natCb=chk('nat',(w.nat==null||w.nat==='')?!natDev:(w.nat!=='0'));
 		var hiCb=chk('host_isolate',w.host_isolate!=='0');
 		var natNote=E('span',{'style':'opacity:.65;font-size:11px;margin-left:8px'},
@@ -762,8 +789,8 @@ return view.extend({
 		var clsBox=E('div',{'id':'qos-cfg-cls'});
 		classes.forEach(function(c){
 			var box=E('div',{'style':'margin:4px 0;padding:4px 8px;border:1px solid #888;border-radius:3px'});
-			box.appendChild(E('strong',{'style':'font-size:12px'},c.name));
-			box.appendChild(E('span',{'style':'font-size:11px;opacity:.75;margin-left:8px'},'Ingress: '+(c.ingress||'')+' / Egress: '+(c.egress||'')));
+			box.appendChild(E('strong',{'style':'font-size:12px'},clsLabel(c)));
+			box.appendChild(E('span',{'style':'font-size:11px;opacity:.75;margin-left:8px'},clsDesc(c)));
 			clsBox.appendChild(box);
 		});
 		ref.appendChild(clsBox);
@@ -849,14 +876,20 @@ return view.extend({
 		return [E('strong',{'style':'font-size:12px'},'config defaults'),line];
 	},
 
+	// qosify.init runs add_class() over both `class` and `alias`, so alias names
+	// are equally valid rule targets and dscp_* values. ingress/egress fall back
+	// to `value`, mirroring "${ingress:-$value}" in add_class().
 	getClasses:function(){
 		var arr=[];
-		uci.sections('qosify','class',function(s){
-			arr.push({name:s['.name'],ingress:s.ingress||'',egress:s.egress||'',
-				dscp_prio:s.dscp_prio||'',dscp_bulk:s.dscp_bulk||'',
-				prio_max_avg_pkt_len:s.prio_max_avg_pkt_len||'',
-				bulk_trigger_pps:s.bulk_trigger_pps||'',
-				bulk_trigger_timeout:s.bulk_trigger_timeout||''});
+		['class','alias'].forEach(function(t){
+			uci.sections('qosify',t,function(s){
+				arr.push({name:s['.name'],alias:t==='alias',
+					ingress:s.ingress||s.value||'',egress:s.egress||s.value||'',
+					dscp_prio:s.dscp_prio||'',dscp_bulk:s.dscp_bulk||'',
+					prio_max_avg_pkt_len:s.prio_max_avg_pkt_len||'',
+					bulk_trigger_pps:s.bulk_trigger_pps||'',
+					bulk_trigger_timeout:s.bulk_trigger_timeout||''});
+			});
 		});
 		return arr;
 	},
@@ -872,14 +905,26 @@ return view.extend({
 			classes.forEach(function(c){sel.appendChild(E('option',{'value':c.name},c.name));});
 			if(cur&&classes.some(function(c){return c.name===cur;}))sel.value=cur;
 		}
+		var names=classes.map(function(c){return c.name;}).concat(DSCP);
+		['qac-opts-defaults','qac-opts-class'].forEach(function(id){
+			var p=$(id);if(!p)return;
+			var ss=p.querySelectorAll('select[data-opt^="dscp_"]');
+			for(var i=0;i<ss.length;i++){
+				var s=ss[i],cur=s.value;
+				dom.content(s,'');
+				s.appendChild(E('option',{'value':''},'--'));
+				names.forEach(function(o){s.appendChild(E('option',{'value':o},o));});
+				s.value=cur;
+			}
+		});
 		var ref=$('qos-cls-ref');
 		if(ref){
 			dom.content(ref,'');
 			if(classes.length){
 				classes.forEach(function(c){
 					ref.appendChild(E('tr',{},[
-						E('td',{'style':'width:140px'},c.name),
-						E('td',{},'Ingress: '+(c.ingress||'')+' / Egress: '+(c.egress||''))
+						E('td',{'style':'width:140px'},clsLabel(c)),
+						E('td',{},clsDesc(c))
 					]));
 				});
 			}else{
@@ -891,8 +936,8 @@ return view.extend({
 			dom.content(cbox,'');
 			classes.forEach(function(c){
 				var box=E('div',{'style':'margin:4px 0;padding:4px 8px;border:1px solid #888;border-radius:3px'});
-				box.appendChild(E('strong',{'style':'font-size:12px'},c.name));
-				box.appendChild(E('span',{'style':'font-size:11px;opacity:.75;margin-left:8px'},'Ingress: '+(c.ingress||'')+' / Egress: '+(c.egress||'')));
+				box.appendChild(E('strong',{'style':'font-size:12px'},clsLabel(c)));
+				box.appendChild(E('span',{'style':'font-size:11px;opacity:.75;margin-left:8px'},clsDesc(c)));
 				cbox.appendChild(box);
 			});
 		}
@@ -915,8 +960,8 @@ return view.extend({
 		if(classes.length){
 			classes.forEach(function(c){
 				refB.appendChild(E('tr',{},[
-					E('td',{'style':'width:140px'},c.name),
-					E('td',{},'Ingress: '+(c.ingress||'')+' / Egress: '+(c.egress||''))
+					E('td',{'style':'width:140px'},clsLabel(c)),
+					E('td',{},clsDesc(c))
 				]));
 			});
 		}else{
@@ -924,7 +969,7 @@ return view.extend({
 		}
 		ref.appendChild(refTbl);
 		ref.appendChild(E('div',{'style':'opacity:.7;font-size:11px;margin:6px 0 2px'},
-			_('Prefix with + to override only when the DSCP field is zero. Ports: tcp:443, udp:3074, ranges: tcp:5060-5061. DNS: dns:*teams*, regex: dns:/zoom[0-9]+, CNAME-only: dns_c:. IP: 1.1.1.1, ff01::1')));
+			_('Prefix with + to override only when the DSCP field is zero. Ports: tcp:443, udp:3074, ranges: tcp:5060-5061 (1-65534). DNS: dns:*teams*, regex: dns:/zoom[0-9]+, CNAME-only: dns_c:. IP: 1.1.1.1, ff01::1')));
 		fs1.appendChild(ref);
 
 		// Quick Add Rule
@@ -1095,7 +1140,7 @@ return view.extend({
 		var en=chk('enabled');
 		if(en&&(!bwUp||!bwDn))notify(_('Note: bandwidth not set — CAKE will run unlimited on that direction.'),'warning');
 
-		var s0=ifSect(),sty=s0?s0[0]:'interface',sec=s0?s0[1]:'wan';
+		var s0=ifSect(),sty=s0?s0.type:'interface',sec=s0?s0.name:'wan',sid=s0?s0.id:'',sidx=s0?s0.idx:0;
 		// null = remove the option, so clearing a field actually clears it
 		var kv={
 			disabled:en?'0':'1',
@@ -1114,14 +1159,19 @@ return view.extend({
 			option:null
 		};
 		kv.overhead=(ovh==='manual'&&ovhB)?ovhB:null;
-		if(!uci.get('qosify',sec,'name'))kv.name=sec;
+		var nmEl=$('q-name');
+		if(nmEl){
+			var nm=trim(nmEl.value);
+			if(nm&&!/^[\w.@:-]+$/.test(nm)){notify(_('Error: name must be a device or interface name'),'danger');return;}
+			kv.name=nm||null;
+		}else if(sec&&!uci.get('qosify',sid||sec,'name'))kv.name=sec;
 
 		self.lock();
 		ui.showModal(_('Saving'),[E('p',{},_('Saving settings and applying...'))]);
 		return L.resolveDefault(callUciRevert('qosify'),null).then(function(){
 			return L.resolveDefault(fs.read(UCI_PATH),'');
 		}).then(function(txt){
-			return fs.write(UCI_PATH,setOpts(txt,sty,sec,kv));
+			return fs.write(UCI_PATH,setOpts(txt,sty,sec,sidx,kv));
 		}).then(function(){
 			uci.unload('qosify');
 			return uci.load('qosify');
@@ -1201,7 +1251,7 @@ return view.extend({
 	},
 
 	checkShapingForSave:function(prefix){
-		var sn=ifSect(),w=(sn&&uci.get('qosify',sn[1]))||{};
+		var sn=ifSect(),w=(sn&&uci.get('qosify',sn.id))||{};
 		if(w.disabled==='1')return Promise.resolve({text:_('%s, applied (QoS disabled).').format(prefix),kind:'info'});
 		return this.waitForShaping(3).then(function(st){
 			if(detectActive(st))return {text:_('%s, applied.').format(prefix),kind:'info'};
@@ -1268,21 +1318,30 @@ return view.extend({
 		}
 		self.lock();
 		ui.showModal(_('Uploading'),[E('p',{},_('Reading and validating files...'))]);
-		var ops=[],names=[],errs=[],warns=[];
-		if(f1)ops.push(readFile(f1).then(function(d){
+		var names=[],errs=[],warns=[];
+		// Sequential on purpose: the uploaded UCI config is written and reloaded
+		// first, so ruleWarn() below sees the uploaded classes, not the old ones.
+		var p=Promise.resolve();
+		if(f1)p=p.then(function(){return readFile(f1).then(function(d){
 			var e=validateUci(d);
 			if(e){errs.push(_('Config: %s').format(e));return null;}
-			return L.resolveDefault(callUciRevert('qosify'),null).then(function(){return fs.write(UCI_PATH,d);}).then(function(){names.push('/etc/config/qosify');});
-		},function(e){errs.push(_('Config: %s').format(e));}));
-		if(f2)ops.push(readFile(f2).then(function(d){
+			return L.resolveDefault(callUciRevert('qosify'),null).then(function(){
+				return fs.write(UCI_PATH,d);
+			}).then(function(){
+				names.push('/etc/config/qosify');
+				uci.unload('qosify');
+				return uci.load('qosify');
+			});
+		},function(e){errs.push(_('Config: %s').format(e));});});
+		if(f2)p=p.then(function(){return readFile(f2).then(function(d){
 			var e=validateRules(d);
 			if(e){errs.push(_('Rules: %s').format(e));return null;}
 			var w=ruleWarn(d,self.getClasses().map(function(c){return c.name;}));
 			if(w)warns.push(w);
 			return fs.write(RULES_PATH,d).then(function(){names.push('00-defaults.conf');});
-		},function(e){errs.push(_('Rules: %s').format(e));}));
+		},function(e){errs.push(_('Rules: %s').format(e));});});
 
-		return Promise.all(ops).then(function(){
+		return p.then(function(){
 			if(names.length===0){
 				ui.hideModal();
 				notify(_('Upload error: %s').format(errs.join('; ')),'danger');
@@ -1359,14 +1418,14 @@ return view.extend({
 		if(pt&&!/^\d+(-\d+)?$/.test(val)){alert(_('Port must be a number or range (e.g. 4500 or 5060-5061).'));return;}
 		if(pt){
 			var pp=val.split('-');
-			for(var j=0;j<pp.length;j++){var n=parseInt(pp[j]);if(n<1||n>65535){alert(_('Port must be 1-65535.'));return;}}
+			for(var j=0;j<pp.length;j++){var n=parseInt(pp[j]);if(n<1||n>65534){alert(_('Port must be 1-65534 (qosify rejects 65535).'));return;}}
 			if(pp.length===2&&+pp[0]>+pp[1]){alert(_('Range start must not exceed end.'));return;}
-		}else if(/\s/.test(val)){alert(_('No spaces allowed in patterns or addresses.'));return;}
+		}else if(/[\s#]/.test(val)){alert(_('No spaces or # allowed in patterns or addresses.'));return;}
 		if(ty==='ipv4:'){
 			var oc=val.split('.');
 			if(oc.length!==4||oc.some(function(x){return !/^\d{1,3}$/.test(x)||+x>255;})){alert(_('Enter a single IPv4 address (qosify does not accept CIDR).'));return;}
 		}
-		if(ty==='ipv6:'&&(!/^[0-9a-fA-F:]+(%[a-zA-Z0-9]+)?$/.test(val)||val.indexOf(':')<0||val.length>45)){alert(_('Enter a single IPv6 address (qosify does not accept CIDR).'));return;}
+		if(ty==='ipv6:'&&(!/^[0-9a-fA-F:]+$/.test(val)||val.indexOf(':')<0||val.length>45)){alert(_('Enter a single IPv6 address (qosify does not accept CIDR).'));return;}
 		var pfx=pr?'+':'';
 		var ta=$('qos-rules-ta');if(!ta)return;
 		var lines=[];
@@ -1406,7 +1465,7 @@ return view.extend({
 		var els=div.querySelectorAll('[data-opt]');
 		for(var i=0;i<els.length;i++){
 			var v=els[i].value;if(!v)continue;
-			v=v.replace(/'/g,'');
+			v=qv(v);
 			var opt=els[i].getAttribute('data-opt');
 			var pre=els[i].getAttribute('data-pre')||'option';
 			s+="\n\t"+pre+" "+opt+" '"+v+"'";
@@ -1461,7 +1520,7 @@ return view.extend({
 			if(stb)self.fillStatus(stb,ctx);
 			var bd=$('q-en-badge');
 			if(bd){
-				var sn=ifSect(),w=(sn&&uci.get('qosify',sn[1]))||{};
+				var sn=ifSect(),w=(sn&&uci.get('qosify',sn.id))||{};
 				self.updateEnBadge(bd,ctx,w['.name']!=null&&w.disabled!=='1');
 			}
 			return ctx;
