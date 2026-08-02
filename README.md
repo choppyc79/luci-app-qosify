@@ -1,33 +1,39 @@
 # luci-app-qosify
 
-LuCI web interface for [qosify](https://openwrt.org/docs/guide-user/network/traffic-shaping/qosify) on OpenWrt.
+LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / ImmortalWrt.
 
-Adds a **Network → qosify** menu with tabs for Overview, Config editing, Classification Rules, Advanced, and Status.
+qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, and Status — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
+
+Current version: **2.8.7**
+
+## Tabs
 
 ### Overview
-Service status, Quick Settings form, config file validation, and service controls at a glance.
+Service status badge (Active / Enabled — Not Shaping / Not Running / Disabled), start/stop/restart/reload controls, autostart toggle, and config file validation with size, mtime, and rule count.
+
+The **Quick Settings** form writes straight to the interface or device section in `/etc/config/qosify`: bandwidth up/down, overhead type and bytes, queue mode, ingress, egress, NAT, host isolate, autorate ingress, and the ingress/egress/shared CAKE option strings. Values are validated before writing — bandwidth must match the `tc` format, overhead must be a whole number of bytes, and option strings are checked for characters qosify rejects.
 
 ### Config
-Edit the UCI configuration (`/etc/config/qosify`) directly — set bandwidth, classes, interfaces, and queue options. Includes a Config Reference panel showing all stanza types and current class details, plus a Quick Add Config form for building `config defaults`, `config class`, and `config interface` stanzas from dropdowns.
+Inline editor for `/etc/config/qosify` with a **Quick Add Config** form that builds `config defaults`, `config class`, `config alias`, `config interface`, and `config device` stanzas from constrained dropdowns — DSCP codepoints, CAKE overhead types, and diffserv modes only. A Config Reference panel documents every stanza type, lists the currently defined classes, and states the defaults qosify applies when a key is absent.
+
+The editor lints as you go and flags keys the daemon will silently drop — an interface section with no `name`, `nat` set without `host_isolate` (qosify only emits `nat`/`nonat` inside the host isolate branch), `overhead`/`overhead_encap` set while `overhead_type` is not `manual`, both directions disabled, missing bandwidth, and quotes inside values.
 
 ### Classification Rules
-Edit DSCP classification rules (`/etc/qosify/00-defaults.conf`) — map ports, protocols, IPs, and DNS patterns to traffic classes. Includes a Quick Add form supporting all qosify match types and an Available Classes reference.
+Editor for `/etc/qosify/00-defaults.conf`. The **Quick Add Rule** form covers every qosify match type: `tcp:`, `udp:`, both, `dns:` patterns, `dns:/` regex, `dns_c:` CNAME-only patterns and regex, and IPv4/IPv6 addresses, with an "only if unset" toggle for the `+` prefix. Ports are range-checked to 1–65534 (qosify rejects 65535), `#` and whitespace are blocked in patterns, CIDR is rejected, and rule targets are checked against the classes actually defined in the UCI config. Raw numeric and hex DSCP values are accepted and flagged if ≥ 64.
 
 ### Advanced
-Backup current config files, upload replacements, or reset both configs back to defaults.
+Download the current config files as a backup, upload replacements (validated, 64 KB cap, binary rejected), or reset both files back to qosify defaults.
 
 ### Status
-Live `qosify-status` output showing CAKE qdisc stats for egress and ingress, auto-refreshing every 5 seconds.
+Live `qosify-status` output — CAKE qdisc statistics for egress and ingress, polled every 5 seconds.
 
 ## Requirements
 
 - OpenWrt 22.03+ (or snapshot) with LuCI
-- `wget` or `curl` (for download)
 - `luci-base` (preinstalled with LuCI)
+- `wget` or `curl` to fetch the installer
 
 ## Install
-
-SSH into your router and run:
 
 ```
 wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
@@ -43,24 +49,20 @@ chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```
 
-The installer will:
+The installer installs `qosify` via apk or opkg if missing, writes the menu entry, ACL, and JS view to the standard LuCI paths, seeds default configs without overwriting existing ones, registers the app in `/lib/upgrade/keep.d/`, and restarts rpcd and the web server. Then open **Network → qosify** (Ctrl+F5 first).
 
-1. Install `qosify` if not already present
-2. Drop the LuCI menu entry, ACL definition, and JS view into the standard LuCI paths
-3. Create default config files
-4. Restart rpcd and the web server so the new menu appears
+## Commands
 
-Once complete, navigate to **Network → qosify** in LuCI.
+| Command | Action |
+| --- | --- |
+| `install` | Full install — package, files, configs, service restart |
+| `files` | App files only, no package operations and no service restarts |
+| `reset` | Restore both config files to qosify defaults and restart |
+| `uninstall` | Remove the app, qosify, configs, and any leftover qdiscs |
 
 ## ImageBuilder / custom firmware builds
 
-For baking the app into a firmware image, use `files` mode — it writes the LuCI app files only, with no package manager operations and no service restarts:
-
-```
-/root/qosify-luci.sh files
-```
-
-Include `qosify` in your package list and call the script from a uci-defaults firstboot script, e.g. place the installer in `files/root/` and add `files/etc/uci-defaults/99-qosify-luci`:
+Use `files` mode. Include `qosify` in your package list, place the installer in `files/root/`, and add `files/etc/uci-defaults/99-qosify-luci`:
 
 ```
 #!/bin/sh
@@ -68,35 +70,33 @@ Include `qosify` in your package list and call the script from a uci-defaults fi
 exit 0
 ```
 
-## Uninstall
+## Sysupgrade
 
-```
-/root/qosify-luci.sh uninstall
-```
-
-This removes qosify, all config files, and the LuCI app. `luci-base` is left in place.
+The app registers every file it owns in `/lib/upgrade/keep.d/luci-app-qosify`, so it survives sysupgrade — including attended sysupgrade and owut — with no runtime hooks or self-healing logic.
 
 ## Configuration
 
-After install, use the **Quick Settings** form on the Overview tab to set your WAN bandwidth, enable QoS, and adjust common CAKE options — no raw config editing needed. The default config ships with QoS **disabled** for safe first-run.
-
-For full control, the **Config** tab provides an inline editor for `/etc/config/qosify` with a Quick Add Config form for building class, defaults, and interface stanzas from dropdowns — all options are constrained to valid values (DSCP codepoints, CAKE overhead types, diffserv modes). The **Classification Rules** tab edits `/etc/qosify/00-defaults.conf` with a Quick Add form supporting all qosify match types (tcp/udp ports, DNS patterns, DNS regex, IPv4/IPv6 addresses). Alternatively, use the **Advanced** tab to upload pre-configured files.
+The shipped config has QoS **disabled** for a safe first run. Set your WAN bandwidth in Quick Settings on the Overview tab and enable it there; no raw editing is needed for common setups. The Config and Classification Rules tabs are there when you want full control, and the Advanced tab accepts pre-built files.
 
 ## Translations
 
-As of v2.5.5 all user-visible strings use LuCI's i18n system, so the app can be translated like any official LuCI app.
+All user-visible strings go through LuCI's i18n system, so the app translates like any official LuCI app. The template is `po/templates/qosify.pot`, generated with the upstream `i18n-scan.pl`.
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
-| `/etc/config/qosify` | UCI config (classes, interfaces) |
+| `/etc/config/qosify` | UCI config (defaults, classes, interfaces, devices) |
 | `/etc/qosify/00-defaults.conf` | DSCP classification rules |
 | `/usr/share/luci/menu.d/luci-app-qosify.json` | LuCI menu entry |
 | `/usr/share/rpcd/acl.d/luci-app-qosify.json` | rpcd ACL grants |
-| `/www/luci-static/resources/view/qosify/main.js` | LuCI JS view (single-page) |
+| `/www/luci-static/resources/view/qosify/main.js` | LuCI JS view (single page) |
 | `/usr/share/qosify-luci/` | Default config templates, cleanup helper |
-| `/lib/upgrade/keep.d/luci-app-qosify` | Sysupgrade keep list (app survives firmware upgrades) |
+| `/lib/upgrade/keep.d/luci-app-qosify` | Sysupgrade keep list |
+
+## Credits
+
+This builds on the work of [@nbd168](https://github.com/nbd168), who authored [qosify](https://github.com/openwrt/qosify). This app only adds a web interface on top of qosify — it does not modify or fork the daemon, its init script, or its defaults, and every setting it exposes is a documented qosify option.
 
 ## License
 
