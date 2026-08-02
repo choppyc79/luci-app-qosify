@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.8.6"
+VERSION="2.8.7"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -582,7 +582,14 @@ return view.extend({
 		// qosify.init passes `option name` to add_interface(); without it the daemon
 		// gets an empty device and the section is never applied, so offer it here
 		// whenever it is missing -- anonymous sections have no other way to set it.
-		if(!w.name)row(_('Device Name'),[txt('name',sn?sn.name:'wan','e.g. wan or eth0','width:140px'),
+		// Only `config interface` is named after the netifd interface; a `config
+		// device` section names a netdev and the two differ by convention -- the
+		// shipped config has `config device wandev` with `option name wan` -- so the
+		// section name is never a safe prefill there. Leave it empty and let ifLint()
+		// keep warning until a real netdev is entered.
+		var isDev=!!(sn&&sn.type==='device');
+		if(!w.name)row(isDev?_('Netdev Name'):_('Interface Name'),
+			[txt('name',sn?(isDev?'':sn.name):'wan',isDev?'e.g. eth0':'e.g. wan','width:140px'),
 			E('span',{'style':'opacity:.6;font-size:11px;margin-left:8px'},_('required — qosify skips sections with no name'))]);
 		row(_('Bandwidth Up'),txt('bw_up',w.bandwidth_up,'e.g. 100mbit'));
 		row(_('Bandwidth Down'),txt('bw_down',w.bandwidth_down,'e.g. 100mbit'));
@@ -594,8 +601,7 @@ return view.extend({
 		row(_('Egress'),chk('egress',w.egress!=='0'));
 		// CAKE is only given nat/nonat when host_isolate is on; otherwise it gets
 		// flow isolation and nat has no effect at all.
-		var natDev=(sn&&sn.type==='device');
-		var natCb=chk('nat',(w.nat==null||w.nat==='')?!natDev:(w.nat!=='0'));
+		var natCb=chk('nat',(w.nat==null||w.nat==='')?!isDev:(w.nat!=='0'));
 		var hiCb=chk('host_isolate',w.host_isolate!=='0');
 		var natNote=E('span',{'style':'opacity:.65;font-size:11px;margin-left:8px'},
 			_('qosify only passes this to CAKE together with Host Isolate — add nat to Options to force it'));
@@ -1140,7 +1146,7 @@ return view.extend({
 		var en=chk('enabled');
 		if(en&&(!bwUp||!bwDn))notify(_('Note: bandwidth not set — CAKE will run unlimited on that direction.'),'warning');
 
-		var s0=ifSect(),sty=s0?s0.type:'interface',sec=s0?s0.name:'wan',sid=s0?s0.id:'',sidx=s0?s0.idx:0;
+		var s0=ifSect(),sty=s0?s0.type:'interface',sec=s0?s0.name:'wan',sidx=s0?s0.idx:0;
 		// null = remove the option, so clearing a field actually clears it
 		var kv={
 			disabled:en?'0':'1',
@@ -1164,7 +1170,7 @@ return view.extend({
 			var nm=trim(nmEl.value);
 			if(nm&&!/^[\w.@:-]+$/.test(nm)){notify(_('Error: name must be a device or interface name'),'danger');return;}
 			kv.name=nm||null;
-		}else if(sec&&!uci.get('qosify',sid||sec,'name'))kv.name=sec;
+		}
 
 		self.lock();
 		ui.showModal(_('Saving'),[E('p',{},_('Saving settings and applying...'))]);
