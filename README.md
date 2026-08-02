@@ -4,7 +4,15 @@ LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / 
 
 qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, and Status — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-Current version: **2.8.7**
+Current version: **2.8.8**
+
+> **Now in the official OpenWrt LuCI feed.** This app was merged into [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master on 2 August 2026, so on snapshots (and any release built after the merge) install it with the package manager instead of this script:
+>
+> ```
+> apk add luci-app-qosify     # or: opkg install luci-app-qosify
+> ```
+>
+> The script installer stays here for stable releases that predate the merge (25.12 and earlier), where the package is not in the feeds. Already running the script install? See [Migrating to the package](#migrating-to-the-package).
 
 ## Tabs
 
@@ -59,6 +67,17 @@ The installer installs `qosify` via apk or opkg if missing, writes the menu entr
 | `files` | App files only, no package operations and no service restarts |
 | `reset` | Restore both config files to qosify defaults and restart |
 | `uninstall` | Remove the app, qosify, configs, and any leftover qdiscs |
+| `migrate` | Hand over to the `luci-app-qosify` package, keeping both config files |
+
+## Migrating to the package
+
+The script writes the app to the same paths the package owns, so `apk`/`opkg` will refuse to install over them. Run:
+
+```
+/root/qosify-luci.sh migrate
+```
+
+It deletes only the files the package owns — the menu entry, the ACL, the JS view, `/usr/share/qosify-luci/`, and the `keep.d` list — then installs `luci-app-qosify`. `/etc/config/qosify` and `/etc/qosify/00-defaults.conf` are left untouched, and both are conffiles of the `qosify` package, so they survive upgrades without the `keep.d` entry. qosify itself is never stopped or removed. If the package is not in your feeds the script install is put back automatically.
 
 ## ImageBuilder / custom firmware builds
 

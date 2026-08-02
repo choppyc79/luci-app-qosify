@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.8.7"
+VERSION="2.8.8"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -1673,10 +1673,41 @@ uninstall_all() {
 	echo "[*] Go to the LuCI main page and refresh (Ctrl+F5) — the old /qosify URL no longer exists."
 }
 
+migrate_pkg() {
+	echo "===== qosify LuCI migration to package v$VERSION ====="
+	echo "[*] Removing script-installed app files (configs preserved)..."
+	rm -f "$MENU_DIR/luci-app-qosify.json" "$ACL_DIR/luci-app-qosify.json"
+	rm -rf "$VIEW_DIR" "$TPL_DIR"
+	rm -f /lib/upgrade/keep.d/luci-app-qosify
+	clean_legacy
+	echo "[*] Installing luci-app-qosify..."
+	if command -v apk >/dev/null 2>&1; then
+		apk update >/dev/null 2>&1
+		apk add luci-app-qosify
+	elif command -v opkg >/dev/null 2>&1; then
+		opkg update >/dev/null 2>&1
+		opkg install luci-app-qosify
+	else
+		echo "[ERROR] No supported package manager"
+	fi
+	if [ -f "$VIEW_DIR/main.js" ]; then
+		restart_luci_services
+		logger -t qosify-luci "migrated to luci-app-qosify package"
+		echo "[OK] Migrated — the package owns the app files now"
+		echo "[*] /root/qosify-luci.sh is no longer needed and can be deleted."
+	else
+		echo "[!] Package install failed — restoring the script install"
+		install_files
+		restart_luci_services
+	fi
+	echo "[*] Refresh your browser (Ctrl+F5)."
+}
+
 case "$1" in
 	install) install_all ;;
 	uninstall) uninstall_all ;;
+	migrate) migrate_pkg ;;
 	reset) install_templates; force_defaults; /etc/init.d/qosify restart 2>/dev/null ;;
 	files) install_files ;;
-	*) echo "Usage: $0 {install|uninstall|reset|files}" ;;
+	*) echo "Usage: $0 {install|uninstall|migrate|reset|files}" ;;
 esac

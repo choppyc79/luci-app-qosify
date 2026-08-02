@@ -2,6 +2,11 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v2.8.8 — 2026-08-02
+
+- Merged into the official OpenWrt LuCI feed ([openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master) — snapshot users should install `luci-app-qosify` with apk/opkg rather than this script
+- New `migrate` command: removes the script-installed files the package owns and installs the package, keeping `/etc/config/qosify` and `/etc/qosify/00-defaults.conf` and leaving qosify running; falls back to the script install if the package is not in the feeds
+
 ## v2.8.7 — 2026-08-02
 
 - Device sections no longer prefill the name field — a netdev name must be entered deliberately
