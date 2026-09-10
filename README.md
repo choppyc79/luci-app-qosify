@@ -4,41 +4,33 @@ LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / 
 
 qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, and Status — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-Current version: **2.8.8**
-
-> **Now in the official OpenWrt LuCI feed.** This app was merged into [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master on 2 August 2026, so on snapshots (and any release built after the merge) install it with the package manager instead of this script:
->
-> ```
-> apk add luci-app-qosify     # or: opkg install luci-app-qosify
-> ```
->
-> The script installer stays here for stable releases that predate the merge (25.12 and earlier), where the package is not in the feeds. Already running the script install? See [Migrating to the package](#migrating-to-the-package).
+Current version: **2.9.0**
 
 ## Tabs
 
 ### Overview
-Service status badge (Active / Enabled — Not Shaping / Not Running / Disabled), start/stop/restart/reload controls, autostart toggle, and config file validation with size, mtime, and rule count.
+Service status badge (Active / Enabled — Not Shaping / Not Running / Disabled), start/stop/restart/reload controls, autostart toggle, and config file validation with size, mtime, and rule count. Service control goes through the `rc` ubus namespace, and a start or stop that does not take effect is reported as a failure rather than a silent no-op.
 
-The **Quick Settings** form writes straight to the interface or device section in `/etc/config/qosify`: bandwidth up/down, overhead type and bytes, queue mode, ingress, egress, NAT, host isolate, autorate ingress, and the ingress/egress/shared CAKE option strings. Values are validated before writing — bandwidth must match the `tc` format, overhead must be a whole number of bytes, and option strings are checked for characters qosify rejects.
+The **Quick Settings** form writes straight to the interface or device section in `/etc/config/qosify`: bandwidth up/down, overhead type and bytes, queue mode, ingress, egress, NAT, host isolate, autorate ingress, and the ingress/egress/shared CAKE option strings. Values are validated before writing: overhead must be a whole number of bytes, option strings are checked for the shell metacharacters that would break the `tc` command qosify builds, and bandwidth is checked against `tc` rate syntax (including `unlimited`) but passed through with a warning rather than blocked, since `tc` is the authority. A failed read of `/etc/config/qosify` aborts the save instead of replacing the file, and a file that changed on disk since the page loaded prompts before being overwritten.
 
 ### Config
 Inline editor for `/etc/config/qosify` with a **Quick Add Config** form that builds `config defaults`, `config class`, `config alias`, `config interface`, and `config device` stanzas from constrained dropdowns — DSCP codepoints, CAKE overhead types, and diffserv modes only. A Config Reference panel documents every stanza type, lists the currently defined classes, and states the defaults qosify applies when a key is absent.
 
-The editor lints as you go and flags keys the daemon will silently drop — an interface section with no `name`, `nat` set without `host_isolate` (qosify only emits `nat`/`nonat` inside the host isolate branch), `overhead`/`overhead_encap` set while `overhead_type` is not `manual`, both directions disabled, missing bandwidth, and quotes inside values.
+The editor lints as you go and flags keys the daemon will silently drop — an interface section with no `name`, `nat` set without `host_isolate` (qosify only emits `nat`/`nonat` inside the host isolate branch), `overhead`/`overhead_encap` set while `overhead_type` is not `manual`, both directions disabled, missing bandwidth, shell metacharacters in values, and booleans that do not survive the daemon's conversion — `option nat 'true'` reaches qosify through `json_add_boolean`, which uses `!!atoi()`, so it means *off*.
 
 ### Classification Rules
-Editor for `/etc/qosify/00-defaults.conf`. The **Quick Add Rule** form covers every qosify match type: `tcp:`, `udp:`, both, `dns:` patterns, `dns:/` regex, `dns_c:` CNAME-only patterns and regex, and IPv4/IPv6 addresses, with an "only if unset" toggle for the `+` prefix. Ports are range-checked to 1–65534 (qosify rejects 65535), `#` and whitespace are blocked in patterns, CIDR is rejected, and rule targets are checked against the classes actually defined in the UCI config. Raw numeric and hex DSCP values are accepted and flagged if ≥ 64.
+Editor for `/etc/qosify/00-defaults.conf`. The **Quick Add Rule** form covers every qosify match type: `tcp:`, `udp:`, both, `dns:` patterns, `dns:/` regex, `dns_c:` CNAME-only patterns and regex, and IPv4/IPv6 addresses, with an "only if unset" toggle for the `+` prefix. Ports are range-checked to 1–65534 (qosify rejects 65535), `#` and whitespace are blocked in patterns, CIDR is rejected, and rule targets are checked against the classes actually defined in the UCI config. Raw DSCP values are read the way the daemon reads them (`strtoul` base 0, so `077` is 63) and flagged if ≥ 64. Lines with no DSCP target are reported as lines qosify will skip rather than blocking the save.
 
 ### Advanced
 Download the current config files as a backup, upload replacements (validated, 64 KB cap, binary rejected), or reset both files back to qosify defaults.
 
 ### Status
-Live `qosify-status` output — CAKE qdisc statistics for egress and ingress, polled every 5 seconds.
+A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. Polled every 10 seconds, and only while the tab is open.
 
 ## Requirements
 
 - OpenWrt 22.03+ (or snapshot) with LuCI
-- `luci-base` (preinstalled with LuCI)
+- `luci-base` (preinstalled with LuCI) — the app uses the `rc` ubus namespace from the rpcd core, so nothing extra is needed
 - `wget` or `curl` to fetch the installer
 
 ## Install
@@ -66,18 +58,7 @@ The installer installs `qosify` via apk or opkg if missing, writes the menu entr
 | `install` | Full install — package, files, configs, service restart |
 | `files` | App files only, no package operations and no service restarts |
 | `reset` | Restore both config files to qosify defaults and restart |
-| `uninstall` | Remove the app, qosify, configs, and any leftover qdiscs |
-| `migrate` | Hand over to the `luci-app-qosify` package, keeping both config files |
-
-## Migrating to the package
-
-The script writes the app to the same paths the package owns, so `apk`/`opkg` will refuse to install over them. Run:
-
-```
-/root/qosify-luci.sh migrate
-```
-
-It deletes only the files the package owns — the menu entry, the ACL, the JS view, `/usr/share/qosify-luci/`, and the `keep.d` list — then installs `luci-app-qosify`. `/etc/config/qosify` and `/etc/qosify/00-defaults.conf` are left untouched, and both are conffiles of the `qosify` package, so they survive upgrades without the `keep.d` entry. qosify itself is never stopped or removed. If the package is not in your feeds the script install is put back automatically.
+| `uninstall` | Remove the app, qosify, configs, and qosify's own leftover qdiscs |
 
 ## ImageBuilder / custom firmware builds
 
@@ -91,7 +72,11 @@ exit 0
 
 ## Sysupgrade
 
-The app registers every file it owns in `/lib/upgrade/keep.d/luci-app-qosify`, so it survives sysupgrade — including attended sysupgrade and owut — with no runtime hooks or self-healing logic.
+The app registers every file it owns, including the stylesheet, in `/lib/upgrade/keep.d/luci-app-qosify`, so it survives sysupgrade — including attended sysupgrade and owut — with no runtime hooks or self-healing logic.
+
+## Read-only access
+
+A session with only *read* access to the `luci-app-qosify` ACL group gets a read-only page: the editors, Quick Add forms and service controls are disabled rather than offered and failing with a permission error. Backup downloads stay available.
 
 ## Configuration
 
@@ -110,6 +95,7 @@ All user-visible strings go through LuCI's i18n system, so the app translates li
 | `/usr/share/luci/menu.d/luci-app-qosify.json` | LuCI menu entry |
 | `/usr/share/rpcd/acl.d/luci-app-qosify.json` | rpcd ACL grants |
 | `/www/luci-static/resources/view/qosify/main.js` | LuCI JS view (single page) |
+| `/www/luci-static/resources/view/qosify/qosify.css` | View stylesheet (theme variables, no inline styles) |
 | `/usr/share/qosify-luci/` | Default config templates, cleanup helper |
 | `/lib/upgrade/keep.d/luci-app-qosify` | Sysupgrade keep list |
 

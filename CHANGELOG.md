@@ -2,10 +2,115 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
-## v2.8.8 — 2026-08-02
+## v2.9.0 — 2026-09-10
 
-- Merged into the official OpenWrt LuCI feed ([openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master) — snapshot users should install `luci-app-qosify` with apk/opkg rather than this script
-- New `migrate` command: removes the script-installed files the package owns and installs the package, keeping `/etc/config/qosify` and `/etc/qosify/00-defaults.conf` and leaving qosify running; falls back to the script install if the package is not in the feeds
+Full audit follow-up. Every finding from the package audit is fixed, along with the
+performance work that came out of it. Largest change since the upstream merge.
+
+### Service control was silently broken
+
+- `luci.setInitAction` was removed from `luci-base` (commit `4440b267d`, 2 Aug 2026) and
+  every service button called it. Because `rpc.declare` treats a remote exception as a
+  resolved value unless `reject` is set, the page reported success while doing nothing.
+  All service control now uses the `rc` ubus namespace, which is compiled into the rpcd
+  core binary — no new dependency
+- Start and stop wait for the daemon to actually change state and report a real failure
+  if it does not
+- The cleanup helper only runs once the daemon is confirmed stopped
+
+### Data loss paths
+
+- Quick Settings read `/etc/config/qosify` with an empty-string fallback; a failed read
+  became a "create" and replaced the whole file with a single section, taking every class
+  and the defaults section with it. The read now aborts the save, and a save is refused if
+  the file is non-empty on disk but came back empty
+- Both editors record the size and mtime they loaded from and prompt before overwriting a
+  file that changed underneath them
+- Saving one file no longer discards unsaved edits in the other editor
+- Reset writes the two files one at a time and names the one that failed
+- Downloads no longer revoke the object URL before the browser has taken it, and a failed
+  read no longer hands out an empty file as if it were a backup
+
+### Daemon semantics
+
+- Booleans are read the way their actual reader reads them: `ingress`, `egress`, `nat`,
+  `host_isolate` and `autorate_ingress` go through `json_add_boolean`, which converts with
+  `!!atoi()`, so `option nat 'true'` means **off**; `disabled` goes through
+  `config_get_bool`, which does accept the word forms. Values that do not survive the
+  conversion are now linted
+- `config` headers with a trailing `# comment` or a `;` separator are valid UCI and are
+  recognised — previously they were missed and a Quick Settings save could append a
+  duplicate section
+- The options lint flags every shell metacharacter, not just `'`: qosify assembles the `tc`
+  command as a string and runs it with `sh -c`
+- Raw DSCP values are read with `strtoul(base 0)` semantics, so `077` (63) is no longer
+  reported as out of range
+- Rule lines with a single field are reported as lines qosify will skip instead of blocking
+  the save; lines over 1023 characters are rejected, since the loader reads fixed-size lines
+- Ports accept hex (`0x1bb`) to match the daemon's parser, and IPv6 accepts the IPv4-mapped
+  form that `inet_pton` accepts
+- Bandwidth accepts `unlimited` and `tc`'s byte-rate and binary suffixes, and warns instead
+  of blocking on anything else — `tc` is the authority
+- `setOpts()` refuses to patch a key that exists as a `list` rather than writing an `option`
+  beside it
+- Quick Add reports an invalid section name instead of silently stripping characters, and
+  duplicate detection parses the buffer instead of regex-matching one quoting style
+- The non-existent `option option` fallback was dropped
+
+### LuCI conformance
+
+- Read-only sessions (`L.hasViewPermission()`) get a read-only page instead of live buttons
+  that fail with permission errors
+- All 15 `confirm()`/`alert()` calls replaced with `ui.showModal` and `ui.addNotification`
+- The last `innerHTML` — and the `esc()` helper that existed to feed it — is gone
+- Tabs use `ui.tabs.initTabGroup`; hash deep links still work, and the `setTimeout(0)` that
+  waited for DOM insertion is gone
+- CSS moved to a shipped `qosify.css` loaded with `L.resource`, replacing the inline
+  `<style>` block, the `!important` button overrides (now `cbi-button-positive`,
+  `cbi-button-negative`, `cbi-button-reload`) and the hardcoded light-theme colours. The
+  status pane follows the active theme instead of a fixed dark box
+- Form labels are associated with their controls
+- Every user-visible string goes through `_()`, including placeholders and examples, and the
+  rule count uses `N_()`. Template regenerated: 168 to 209 strings
+
+### Performance
+
+- A page load went from 10 backend calls with two shell forks to 5 calls with none: the dead
+  `/usr/sbin/qosify` stat is gone, autostart state comes from `rc.list` with
+  `skip_running_check` (a stat of `/etc/rc.d/S19qosify` instead of a fork, which also avoids
+  the init script's 10 s `ubus wait_for` against rpcd's 3 s cap), and shaping state comes
+  from `ubus call qosify status` instead of forking `qosify-status`, which itself forks `tc`
+  twice per active interface
+- The 10-second poll no longer re-reads both config files — their full contents were
+  crossing the wire twice a tick — and patches the service table in place instead of
+  rebuilding three fieldsets, so clicks and focus survive a refresh
+- Saves issue a `reload` rather than a `restart`: `ubus call qosify config` re-reads the rule
+  files and only touches interfaces whose config changed, so shaping is no longer torn down
+  and rebuilt and dynamic DNS/IP map entries survive a save
+- The Status tab polls every 10 s instead of 5, skips while a save holds the lock, and shows
+  a fork-free per-interface summary above the detailed `tc` output
+
+### Cleanup helper rewritten
+
+- No longer deletes the root qdisc on a hardcoded `pppoe-wan` — or, in the uninstaller, on
+  `br-lan` — which could destroy SQM's or a hand-built shaper's qdisc from a qosify Stop
+- Sections are enumerated with `config_foreach`, and `config interface` names are resolved to
+  their L3 device with `network_get_device`, so renamed, extra and anonymous sections are all
+  handled and egress-only sections are no longer missed
+- The ifb device name is derived the way qosify derives it instead of by reversing the prefix
+- A mkdir-based lock stops a double click or a stop-then-start race from removing qdiscs the
+  daemon has just created; orphaned `ifb-*` devices are still swept, but no foreign qdisc is
+  touched
+
+### Packaging
+
+- `LUCI_DEPENDS` gained `+luci-base`; it was missing, so nothing guaranteed `rpcd-mod-file`,
+  which the entire UI depends on
+- Redundant `LUCI_PKGARCH:=all` dropped; licence header and template provenance comment added
+- ACL rebuilt: `exec` grants moved to the write scope, the `/etc/init.d/qosify` and
+  `/usr/sbin/qosify` grants dropped entirely (no longer used), `list` dropped from the file
+  methods, `stat` paths granted the permission `file.stat` actually checks, and grants added
+  for `rc.list`, `rc.init` and `qosify.status`
 
 ## v2.8.7 — 2026-08-02
 
