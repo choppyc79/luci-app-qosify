@@ -4,17 +4,17 @@ LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / 
 
 qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, and Status — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-Current version: **2.9.0**
+Current version: **2.9.5**
 
 ## Tabs
 
 ### Overview
 Service status badge (Active / Enabled — Not Shaping / Not Running / Disabled), start/stop/restart/reload controls, autostart toggle, and config file validation with size, mtime, and rule count. Service control goes through the `rc` ubus namespace, and a start or stop that does not take effect is reported as a failure rather than a silent no-op.
 
-The **Quick Settings** form writes straight to the interface or device section in `/etc/config/qosify`: bandwidth up/down, overhead type and bytes, queue mode, ingress, egress, NAT, host isolate, autorate ingress, and the ingress/egress/shared CAKE option strings. Values are validated before writing: overhead must be a whole number of bytes, option strings are checked for the shell metacharacters that would break the `tc` command qosify builds, and bandwidth is checked against `tc` rate syntax (including `unlimited`) but passed through with a warning rather than blocked, since `tc` is the authority. A failed read of `/etc/config/qosify` aborts the save instead of replacing the file, and a file that changed on disk since the page loaded prompts before being overwritten.
+The **Quick Settings** form writes straight to the interface or device section in `/etc/config/qosify`: bandwidth up/down, overhead type and bytes, queue mode, ingress, egress, NAT, host isolate, autorate ingress, and the ingress/egress/shared CAKE option strings. Values are validated before writing: overhead must be a whole number of bytes, option strings are checked for the shell metacharacters that would break the `tc` command qosify builds, and bandwidth is checked against `tc` rate syntax (including `unlimited`) but passed through with a warning rather than blocked, since `tc` is the authority. A failed read of `/etc/config/qosify` aborts the save instead of replacing the file, and a file that changed on disk since the page loaded prompts before being overwritten. The same two checks cover the Config editor: emptying it and saving truncates the file, so a save is refused when the file is non-empty on disk but the editor never loaded it, and the cleanup helper only runs once the daemon is confirmed stopped.
 
 ### Config
-Inline editor for `/etc/config/qosify` with a **Quick Add Config** form that builds `config defaults`, `config class`, `config alias`, `config interface`, and `config device` stanzas from constrained dropdowns — DSCP codepoints, CAKE overhead types, and diffserv modes only. A Config Reference panel documents every stanza type, lists the currently defined classes, and states the defaults qosify applies when a key is absent.
+Inline editor for `/etc/config/qosify`, sized to the window height and draggable, with a **Quick Add Config** form that builds `config defaults`, `config class`, `config alias`, `config interface`, and `config device` stanzas from constrained dropdowns — DSCP codepoints, CAKE overhead types, and diffserv modes only. A Config Reference panel documents every stanza type, lists the currently defined classes, and states the defaults qosify applies when a key is absent.
 
 The editor lints as you go and flags keys the daemon will silently drop — an interface section with no `name`, `nat` set without `host_isolate` (qosify only emits `nat`/`nonat` inside the host isolate branch), `overhead`/`overhead_encap` set while `overhead_type` is not `manual`, both directions disabled, missing bandwidth, shell metacharacters in values, and booleans that do not survive the daemon's conversion — `option nat 'true'` reaches qosify through `json_add_boolean`, which uses `!!atoi()`, so it means *off*.
 
@@ -25,7 +25,7 @@ Editor for `/etc/qosify/00-defaults.conf`. The **Quick Add Rule** form covers ev
 Download the current config files as a backup, upload replacements (validated, 64 KB cap, binary rejected), or reset both files back to qosify defaults.
 
 ### Status
-A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. Polled every 10 seconds, and only while the tab is open.
+A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. The tab fetches as soon as it is opened, the summary appears before the `tc` output it does not depend on, and the scroll position survives a refresh. The output box fills the page height and can be dragged taller. Polled at the interval configured for LuCI (5 seconds by default), and only while the tab is open — a tick that would overlap a still-running `qosify-status` is skipped rather than queued.
 
 ## Requirements
 

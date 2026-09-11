@@ -2,6 +2,80 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v2.9.5 — 2026-09-11
+
+- The Config and Classification Rules editors size to the window the same way the Status
+  output now does — `height: calc(100vh - 300px)`, `min-height: 320px`, `resize: vertical` —
+  instead of a fixed 28 rows. Each is the last element on its tab, so only the Save & Apply
+  row sits below it. The `rows` attribute stays as the fallback for a page loaded without
+  the stylesheet
+
+## v2.9.4 — 2026-09-11
+
+- The `qosify-status` box on the Status tab now fills the page instead of stopping at a fixed
+  height: `height: calc(100vh - 310px)` for the LuCI header, the tab bar and the summary
+  table above it, with `min-height: 320px` catching short screens where the calc goes
+  negative, and `resize: vertical` so it can be dragged for anything the estimate gets
+  wrong. The tab holds nothing else, so there is nothing below it to push off screen
+
+## v2.9.3 — 2026-09-11
+
+- The Status tab now polls at the interval configured for LuCI (`LuCI.env.pollinterval`,
+  5 s by default) instead of a hardcoded 10 s, so the CAKE counters move at the same rate as
+  every other status page. v2.9.0 slowed it to 10 s because a tick rebuilt the pane and
+  re-ran the fork in series; with the summary and the `tc` output fetched separately, the
+  `<pre>` patched in place and overlapping refreshes dropped, the shorter interval costs no
+  more than one `qosify-status` run per tick. `Poll.step()` also withholds the next tick
+  until the promise the poller returns settles, so a fork slower than the interval skips
+  ticks rather than queueing them
+- Overview keeps its own 10 s tick: five ubus calls, no forks, and nothing on it changes
+  second to second
+
+## v2.9.2 — 2026-09-11
+
+Status tab responsiveness.
+
+- Opening the Status tab fetches immediately. The `qosify-status` output was only fetched by
+  the 10 s poller, so the tab could sit on "returned no output" for up to ten seconds after
+  a click. `initTabGroup` dispatches `cbi-tab-active` from a `requestAnimationFrame`, so the
+  pane is in the DOM and the fetch can be hung off the tab becoming active
+- "Not read yet" and "read, nothing came back" are no longer the same screen: the tab shows
+  "Reading tc output..." until the fork returns, and only reports no output once it has
+- The per-interface summary paints as soon as `ubus call qosify status` lands instead of
+  waiting behind the fork, which is the slow part — `qosify-status` runs `tc` twice per
+  active interface
+- The Status refresh makes its own three calls rather than reusing `gatherCtx()`'s six; the
+  two file stats and `rc.list` only ever fed the Overview. `gatherCtx()` no longer carries
+  the exec at all, and overlapping refreshes are dropped instead of queued
+- The `<pre>` is patched in place rather than rebuilt, so a poll tick no longer resets the
+  scroll position mid-read, and the box grew from a fixed 460 px to `min-height: 340px` /
+  `max-height: 75vh` with horizontal scrolling instead of wrapped `tc` lines
+- Template regenerated: 211 to 212 strings
+
+## v2.9.1 — 2026-09-11
+
+Review fixes for the v2.9.0 upstream PR. No new features.
+
+- Emptying the Config editor and clicking Save & Apply truncates `/etc/config/qosify`, and
+  that path skipped both guards the rest of the commit adds. It now goes through
+  `confirmFresh()` and refuses outright when the file is non-empty on disk but the editor
+  never loaded it — a failed `gatherCtx()` read leaves the editor empty while stamping the
+  real size and mtime, so `fileMoved()` sees nothing wrong and one click would have wiped
+  the file the notification just promised not to touch. `dataset.orig` separates "the user
+  emptied it" from "it never loaded"
+- The same path dropped the `waitForStopped()` result and ran the cleanup helper regardless,
+  tearing down the root/clsact qdiscs and the ifb devices under a live daemon. It now only
+  runs once qosify is confirmed down, the same guard `svcAction('stop')` uses, and reports
+  when it is skipped
+- The cleanup helper takes an `flock` on an open fd instead of an mkdir lock with an `EXIT`
+  trap. rpcd SIGKILLs the script at its exec timeout (`rpc_file_exec_timeout_cb()` in
+  `file.c`, 120 s by default), the trap never ran, and the leftover directory made every
+  later invocation `exit 0` silently — the opposite of the lock's intent. The kernel drops
+  an flock however the process dies. The lock path changed so a stale directory from an
+  earlier version cannot break the new redirect, and a busybox built without `flock` runs
+  unlocked rather than not at all
+- Template regenerated: 209 to 211 strings
+
 ## v2.9.0 — 2026-09-10
 
 Full audit follow-up. Every finding from the package audit is fixed, along with the

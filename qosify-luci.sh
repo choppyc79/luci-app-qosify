@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.9.0"
+VERSION="2.9.5"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -133,11 +133,19 @@ EOF
 . /lib/functions.sh
 . /lib/functions/network.sh
 
-LOCK="/var/lock/qosify-luci-cleanup"
+# The lock is an flock on an open fd, not a directory plus an EXIT trap: rpcd
+# SIGKILLs this script at its exec timeout (rpc_file_exec_timeout_cb() in
+# file.c), the trap never runs, and the leftover directory would then make every
+# later run exit 0 without doing anything. The kernel drops an flock on process
+# exit however the process dies. The path differs from the old directory so a
+# stale one left by an earlier version cannot break the redirect. Without
+# busybox flock, run unlocked rather than not at all -- the worst a concurrent
+# run can do is repeat a tc delete.
+LOCK="/var/lock/qosify-luci-cleanup.lock"
 
 mkdir -p /var/lock
-mkdir "$LOCK" 2>/dev/null || exit 0
-trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+exec 9>"$LOCK"
+command -v flock >/dev/null && { flock -n 9 || exit 0; }
 
 # Mirrors interface_ifb_name() in qosify: "ifb-<dev>" while strlen(dev) + 4 is
 # below IFNAMSIZ. Longer names take a different branch upstream which we do not
@@ -630,6 +638,10 @@ return view.extend({
 			pane.addEventListener('cbi-tab-active',function(){
 				self.currentTab=t[0];
 				try{history.replaceState(null,'','#'+names[t[0]]);}catch(e){}
+				// The Status tab costs a fork per active interface, so it is fetched
+				// when it is opened rather than on every page load; initTabGroup fires
+				// this from a requestAnimationFrame, so the pane is in the DOM.
+				if(t[0]==='st')self.refreshStatus();
 			});
 			group.appendChild(pane);
 		});
@@ -646,10 +658,16 @@ return view.extend({
 		return root;
 	},
 
+	// Overview is five ubus calls and no forks, so it keeps its own 10 s tick. The
+	// Status tab follows the poll interval the user configured for LuCI, so the tc
+	// counters move at the same rate as every other status page. Poll.step() holds
+	// the next tick until the promise this returns settles, and refreshStatus()
+	// drops an overlapping call, so a fork slower than the interval skips ticks
+	// instead of stacking up.
 	installPollers:function(){
 		var self=this;
 		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();},10);
-		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();},10);
+		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();},L.env.pollinterval||5);
 	},
 
 	tabOverview:function(ctx){
@@ -1261,7 +1279,11 @@ return view.extend({
 	tabStatus:function(ctx){
 		var section=E('div',{'id':'qos-st'});
 		var fs1=E('fieldset',{'class':'cbi-section'},E('legend',{},_('qosify-status')));
-		var body=E('div',{'id':'qos-st-body'});
+		var body=E('div',{'id':'qos-st-body'},[
+			E('div',{'id':'qos-st-sum'}),
+			E('pre',{'id':'qos-st-pre','class':'qos-pre','style':'display:none'}),
+			E('div',{'id':'qos-st-msg'})
+		]);
 		this.fillStatus(body,ctx);
 		fs1.appendChild(body);
 		section.appendChild(fs1);
@@ -1281,16 +1303,29 @@ return view.extend({
 		return out;
 	},
 
+	// Runs on every poll tick and twice per open, so only the summary table is
+	// rebuilt: replacing the <pre> would throw away the scroll position while it
+	// is being read. ctx.qstatus null means the fork has not returned yet, '' means
+	// it returned nothing -- the two used to look the same on screen.
 	fillStatus:function(body,ctx){
-		dom.content(body,'');
+		var sum=body.querySelector('#qos-st-sum'),pre=body.querySelector('#qos-st-pre'),msg=body.querySelector('#qos-st-msg');
+		if(!sum||!pre||!msg)return;
+		var note=function(t){dom.content(msg,E('p',{'class':'qos-muted'},E('em',{},t)));};
 		if(!ctx.running){
-			body.appendChild(E('div',{'class':'alert-message warning'},_('qosify is not running. Start from the Overview tab.')));
+			dom.content(sum,'');
+			pre.style.display='none';
+			dom.content(msg,E('div',{'class':'alert-message warning'},_('qosify is not running. Start from the Overview tab.')));
 			return;
 		}
-		body.appendChild(this.statusSummary(ctx.status));
-		if(ctx.qstatus)body.appendChild(E('pre',{'class':'qos-pre'},ctx.qstatus));
-		else if(this.readonly)body.appendChild(E('p',{'class':'qos-muted'},E('em',{},_('The detailed tc output needs write access to this page.'))));
-		else body.appendChild(E('p',{'class':'qos-muted'},E('em',{},_('qosify-status returned no output.'))));
+		dom.content(sum,this.statusSummary(ctx.status));
+		pre.style.display=ctx.qstatus?'':'none';
+		if(ctx.qstatus){
+			if(pre.textContent!==ctx.qstatus)pre.textContent=ctx.qstatus;
+			dom.content(msg,'');
+		}
+		else if(this.readonly)note(_('The detailed tc output needs write access to this page.'));
+		else if(ctx.qstatus==null)note(_('Reading tc output...'));
+		else note(_('qosify-status returned no output.'));
 	},
 
 	// ubus call qosify status, so the per-interface summary costs no forks
@@ -1432,10 +1467,35 @@ return view.extend({
 		var ta=$('qos-config-ta');
 		if(!ta)return;
 		var data=ta.value.replace(/\r\n/g,'\n');
-		if(data.length===0){
-			return confirmDialog(_('Clear configuration'),
-				_('An empty %s stops all shaping. Continue?').format(UCI_PATH),_('Write empty file'),true).then(function(go){
+		if(data.length===0)return self.clearConfig(ta);
+		if(!/(^|\n)config /.test(data)){
+			notify(_('Error: No valid config stanzas found.'),'danger');return;
+		}
+		return self.confirmFresh(ta,UCI_PATH).then(function(go){
+			if(!go)return null;
+			return self.writeConfig(ta,data);
+		});
+	},
+
+	// Truncating the file gets the file-changed check every other write gets, plus
+	// one of its own: when gatherCtx()'s read fails the editor is left empty but
+	// still carries the size and mtime it found on disk, so fileMoved() sees
+	// nothing wrong and confirmFresh() would wave a wipe through. dataset.orig is
+	// what separates "the user emptied it" from "it never loaded".
+	clearConfig:function(ta){
+		var self=this;
+		return L.resolveDefault(fs.stat(UCI_PATH),null).then(function(st){
+			if(st&&st.size>0&&!(ta.dataset.orig||'').length){
+				notify(_('%s is %d bytes on disk but was never loaded into the editor — refusing to truncate it. Reload the page first.').format(UCI_PATH,st.size),'danger');
+				return null;
+			}
+			return self.confirmFresh(ta,UCI_PATH).then(function(go){
 				if(!go)return null;
+				return confirmDialog(_('Clear configuration'),
+					_('An empty %s stops all shaping. Continue?').format(UCI_PATH),_('Write empty file'),true);
+			}).then(function(go){
+				if(!go)return null;
+				var stopped=false;
 				self.lock();
 				return callUciRevert('qosify').then(function(){
 					return fs.write(UCI_PATH,'');
@@ -1443,26 +1503,24 @@ return view.extend({
 					return callRcInit('qosify','stop');
 				}).then(function(){
 					return self.waitForStopped(4000);
-				}).then(function(){
+				}).then(function(down){
+					// cleanup deletes the root and clsact qdiscs and the ifb devices, so
+					// it only runs once the daemon is confirmed down -- the same guard
+					// svcAction() applies to a plain stop.
+					stopped=down;
+					if(!down){notify(_('qosify is still running — leaving the qdiscs alone'),'warning');return null;}
 					return L.resolveDefault(fs.exec('/usr/share/qosify-luci/cleanup',[]),null);
 				}).then(function(){
 					uci.unload('qosify');
 					return uci.load('qosify');
 				}).then(function(){
 					ta.dataset.orig='';
-					notify(_('Config cleared, qosify stopped.'),'info');
+					notify(stopped?_('Config cleared, qosify stopped.'):_('Config cleared.'),'info');
 					return self.refreshAll('cfg');
 				}).catch(function(e){
 					notify(_('Save failed: %s').format(e),'danger');
 				}).finally(function(){self.unlock();});
 			});
-		}
-		if(!/(^|\n)config /.test(data)){
-			notify(_('Error: No valid config stanzas found.'),'danger');return;
-		}
-		return self.confirmFresh(ta,UCI_PATH).then(function(go){
-			if(!go)return null;
-			return self.writeConfig(ta,data);
 		});
 	},
 
@@ -1771,7 +1829,7 @@ return view.extend({
 
 	// === Refreshers ===
 
-	gatherCtx:function(withFiles,withText){
+	gatherCtx:function(withFiles){
 		var self=this;
 		return Promise.all([
 			L.resolveDefault(callServiceList('qosify'),{}),
@@ -1780,8 +1838,7 @@ return view.extend({
 			L.resolveDefault(fs.stat(UCI_PATH),null),
 			L.resolveDefault(fs.stat(RULES_PATH),null),
 			withFiles?fs.read(UCI_PATH).catch(function(){return null;}):null,
-			withFiles?fs.read(RULES_PATH).catch(function(){return null;}):null,
-			(withText&&!self.readonly)?L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),{stdout:''}):null
+			withFiles?fs.read(RULES_PATH).catch(function(){return null;}):null
 		]).then(function(d){
 			var rc=d[1]&&d[1].qosify;
 			var ctx={
@@ -1795,7 +1852,7 @@ return view.extend({
 				rulesStat:d[4],
 				cfgRaw:d[5],
 				rulesText:d[6],
-				qstatus:(d[7]&&d[7].stdout)||''
+				qstatus:null
 			};
 			if(withFiles){
 				self._rulesN=countRules(ctx.rulesText);
@@ -1839,12 +1896,22 @@ return view.extend({
 	},
 
 	refreshStatus:function(){
-		if(this.currentTab!=='st')return;
 		var self=this;
-		return this.gatherCtx(false,true).then(function(ctx){
+		if(self.currentTab!=='st'||self._st)return Promise.resolve();
+		self._st=true;
+		var ex=self.readonly?Promise.resolve(null):L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),null);
+		return Promise.all([
+			L.resolveDefault(callServiceList('qosify'),{}),
+			L.resolveDefault(callQosifyStatus(),{})
+		]).then(function(d){
+			var ctx={running:isRunning(d[0]),status:d[1]||{},qstatus:self.readonly?'':null};
 			var stb=$('qos-st-body');
 			if(stb)self.fillStatus(stb,ctx);
-		});
+			return ex.then(function(r){
+				ctx.qstatus=self.readonly?'':((r&&r.stdout)||'');
+				if(stb)self.fillStatus(stb,ctx);
+			});
+		}).finally(function(){self._st=false;});
 	},
 
 	// which = 'cfg' | 'rules' | undefined: the editor for the file just written is
@@ -1983,14 +2050,38 @@ JSEOF
 .qos-pre {
 	margin: 0;
 	padding: 10px;
-	max-height: 460px;
+	min-height: 340px;
+	max-height: 75vh;
 	overflow: auto;
+	white-space: pre;
 	font-family: var(--font-mono, monospace);
 	font-size: 12px;
 	background: var(--background-color-low, rgba(128, 128, 128, .12));
 	color: inherit;
 	border: 1px solid var(--border-color-medium, rgba(128, 128, 128, .5));
 	border-radius: 3px;
+}
+
+/* The tc output is the only thing on the Status tab, so it takes the rest of the
+   window: the viewport less the LuCI header, the tab bar and the summary table
+   above it. calc() going negative on a short screen is caught by min-height, and
+   the box is draggable for anything the estimate gets wrong. */
+#qos-st-pre {
+	height: calc(100vh - 310px);
+	min-height: 320px;
+	max-height: none;
+	resize: vertical;
+}
+
+/* Each editor is the last thing on its tab, with only the action buttons under
+   it, so it takes the rest of the window instead of a fixed 28 rows; the
+   reference and Quick Add panels above it scroll off first. The rows attribute
+   stays as the fallback if this sheet does not load. */
+#qos-config-ta,
+#qos-rules-ta {
+	height: calc(100vh - 300px);
+	min-height: 320px;
+	resize: vertical;
 }
 
 .qos-item {
