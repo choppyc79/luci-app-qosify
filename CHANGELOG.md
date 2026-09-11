@@ -2,6 +2,21 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v2.9.6 — 2026-09-11
+
+Review fixes for the v2.9.5 upstream PR. No new features.
+
+- The Status tab is back on a fixed 10 s tick. v2.9.3 moved it to `LuCI.env.pollinterval`,
+  whose shipped default is 5 (`luci-base/root/etc/config/luci`), so while the tab was open
+  the `qosify-status` fork — and the two `tc` forks per active interface behind it — ran
+  twice as often as before, which is the opposite of what the change set out to do. The
+  `|| 5` fallback was dead either way: `Poll.add()` already falls back to `env.pollinterval`
+  when the interval is null
+- `min-height: 340px` and `max-height: 75vh` dropped from `.qos-pre`. `#qos-st-pre` is the
+  only element carrying that class, and the rule below it overrode both with
+  `min-height: 320px` / `max-height: none`, so the two declarations were dead and the two
+  min-heights disagreed. The now-redundant `max-height: none` goes with them
+
 ## v2.9.5 — 2026-09-11
 
 - The Config and Classification Rules editors size to the window the same way the Status

@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.9.5"
+VERSION="2.9.6"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -658,16 +658,15 @@ return view.extend({
 		return root;
 	},
 
-	// Overview is five ubus calls and no forks, so it keeps its own 10 s tick. The
-	// Status tab follows the poll interval the user configured for LuCI, so the tc
-	// counters move at the same rate as every other status page. Poll.step() holds
-	// the next tick until the promise this returns settles, and refreshStatus()
-	// drops an overlapping call, so a fork slower than the interval skips ticks
-	// instead of stacking up.
+	// Both tabs tick at 10 s: Overview is five ubus calls and no forks, Status forks
+	// qosify-status, which runs tc twice per active interface. Poll.step() holds the
+	// next tick until the promise this returns settles, and refreshStatus() drops an
+	// overlapping call, so a fork slower than the interval skips ticks instead of
+	// stacking up.
 	installPollers:function(){
 		var self=this;
 		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();},10);
-		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();},L.env.pollinterval||5);
+		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();},10);
 	},
 
 	tabOverview:function(ctx){
@@ -2050,8 +2049,6 @@ JSEOF
 .qos-pre {
 	margin: 0;
 	padding: 10px;
-	min-height: 340px;
-	max-height: 75vh;
 	overflow: auto;
 	white-space: pre;
 	font-family: var(--font-mono, monospace);
@@ -2069,7 +2066,6 @@ JSEOF
 #qos-st-pre {
 	height: calc(100vh - 310px);
 	min-height: 320px;
-	max-height: none;
 	resize: vertical;
 }
 

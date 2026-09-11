@@ -4,7 +4,7 @@ LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / 
 
 qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, and Status — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-Current version: **2.9.5**
+Current version: **2.9.6**
 
 ## Tabs
 
@@ -25,7 +25,7 @@ Editor for `/etc/qosify/00-defaults.conf`. The **Quick Add Rule** form covers ev
 Download the current config files as a backup, upload replacements (validated, 64 KB cap, binary rejected), or reset both files back to qosify defaults.
 
 ### Status
-A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. The tab fetches as soon as it is opened, the summary appears before the `tc` output it does not depend on, and the scroll position survives a refresh. The output box fills the page height and can be dragged taller. Polled at the interval configured for LuCI (5 seconds by default), and only while the tab is open — a tick that would overlap a still-running `qosify-status` is skipped rather than queued.
+A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. The tab fetches as soon as it is opened, the summary appears before the `tc` output it does not depend on, and the scroll position survives a refresh. The output box fills the page height and can be dragged taller. Polled every 10 seconds, and only while the tab is open — a tick that would overlap a still-running `qosify-status` is skipped rather than queued.
 
 ## Requirements
 
