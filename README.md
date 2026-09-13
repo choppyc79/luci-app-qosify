@@ -46,7 +46,7 @@ Per-class packet totals are a colour-coded horizontal bar chart rather than a ta
 
 ## Requirements
 
-- OpenWrt 22.03+ (or snapshot) with LuCI
+- OpenWrt 22.03+ (snapshot only with latest qosify) with LuCI
 - `luci-base` (preinstalled with LuCI) — the app uses the `rc` ubus namespace from the rpcd core, so nothing extra is needed
 - `wget` or `curl` to fetch the installer
 
