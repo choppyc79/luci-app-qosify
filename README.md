@@ -1,3 +1,4 @@
+# Development for Snapshot only
 # luci-app-qosify
 
 LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / ImmortalWrt.
