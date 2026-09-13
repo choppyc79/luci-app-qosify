@@ -52,7 +52,7 @@ Per-class packet totals are a colour-coded horizontal bar chart rather than a ta
 ## Install
 
 ```
-wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
+wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```
@@ -60,7 +60,7 @@ chmod +x /root/qosify-luci.sh
 Or with curl:
 
 ```
-curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
+curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```
