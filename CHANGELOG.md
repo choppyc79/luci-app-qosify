@@ -2,6 +2,406 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v2.20.3 — 2026-09-13
+
+- Map entries: the Traffic column is dropped where the running daemon has no
+  per-entry counters, with one line saying why, instead of a dash on every row.
+  24.10 pins qosify at 2024-09-20 (`1501e09`), whose `get_stats` answers with
+  `qosify_map_stats()` at the top level — one table per class with `packets`, no
+  `dns` table anywhere. Master opens that table even when it is empty, so its
+  absence identifies the build rather than a quiet period; before the first
+  counters reply the column is kept, and the box is rebuilt on the next tick
+
+## v2.20.2 — 2026-09-13
+
+- Map entries: the header is pinned properly now. The declarations moved out of
+  `qosify.css` and onto the header cells themselves: the stylesheet a menu node
+  declares is emitted with no cache-busting query, so a browser holding the old
+  copy keeps the old rules, and the theme variable the background came from is
+  not defined by every theme — a variable that *is* defined but invalid computes
+  to `unset`, which leaves the cell transparent and the rows visible through it.
+  The cells now set `position: sticky`, `z-index: 3` and a background/colour pair
+  that falls back to the system colours together, so it stays a readable pair
+- Map entries: rows are ordered by the DSCP value behind the entry, highest
+  first — EF at the top, LE and CS0 at the end. `blobmsg_add_dscp()` prints a
+  class name where the class flag is set, so class names are resolved through the
+  section that defined them (`egress`, then `ingress`, both falling back to
+  `value` as `add_class()` does); a raw value goes through the same bases
+  `strtoul(base 0)` takes, and anything `__qosify_map_dscp_value()` would have
+  rejected sorts last. Dynamic entries keep their place below the file entries
+  and are ordered the same way within that block. Port ranges still collapse —
+  they are merged on the way in, while the reply is still in ascending order
+
+## v2.20.1 — 2026-09-13
+
+- Map entries: the table header stays at the top of the scroll box instead of
+  scrolling away with the rows. `.table` is `border-collapse`, so the cells carry
+  `position: sticky` rather than the `<tr>`, and the rule under the header is an
+  inset shadow — a border on a sticky cell is dropped
+- Map entries: entries the daemon added itself from a DNS lookup are listed after
+  the ones the config loaded. They carry a timeout and no counters of their own,
+  and a DNS-driven config has hundreds of them, so the 200-row cap now falls on
+  addresses that come back on the next lookup rather than on the rules. Port
+  ranges still collapse, and an entry present in both a file and the dynamic set
+  stays with the file entries
+- Map entries: a DNS row shows hits as well as packets. `qosify_map_dns_stats()`
+  reports both, and `qosify_map_lookup_dns_entry()` counts a hit on every pattern
+  that matches a name, not only the one whose DSCP wins. Packets are accounted in
+  the eBPF datapath against the `pattern_id` in the address map entry, which
+  `__qosify_map_set_entry()` writes only where the DSCP changes — always true for
+  a new address, never for one already in the map at that DSCP, which keeps the
+  `pattern_id` of whatever put it there
+
+## v2.20.0 — 2026-09-13
+
+- The Classification Rules editor now checks the match side of a rule, not just
+  the DSCP target. Everything it flags is something `qosify_map_parse_line()`
+  drops without a word, so the only symptom used to be a rule missing from
+  Map entries:
+  - a key with no recognised prefix and no `:` or `.` matches no branch at all
+  - a bare key with a letter in it was meant as a hostname — a dotted quad holds
+    none — so it needs `dns:`, `dns_q:` or `dns_c:`
+  - ports get the `qosify_map_set_port()` rules: base-0 parsing, non-zero start,
+    end not below start, nothing from 65535 up
+  - bare addresses get the `inet_pton()` rules — no prefix length, no zone suffix
+  - a `dns:/` or `dns_c:/` regex is checked for balance, and for uppercase:
+    `__qosify_map_alloc_entry()` lowercases the pattern *before* `regcomp()`, so
+    `[A-Z]` silently becomes `[a-z]`
+  - an empty `dns:` pattern or empty regex matches nothing
+- `dns_q:` is recognised. It sets `CL_MAP_DNS` with `only_cname` clear, so it is
+  the plain-pattern form and behaves exactly like `dns:`
+- A third field on a rule line is flagged. The parser ends the key at the first
+  space and takes all of the remainder as one DSCP target, so `tcp:80 voice extra`
+  parses as nothing
+
+## v2.19.0 — 2026-09-13
+
+- Class and alias sections are linted, against `qosify_map_create_class()` in
+  `map.c` rather than the init script:
+  - a class's own `ingress`/`egress`/`value` goes through
+    `__qosify_map_dscp_value()`, not `qosify_map_dscp_value()`, so it takes a
+    codepoint or a raw number and nothing else. Naming another class there fails
+    and the daemon frees the slot, dropping the whole class — and every rule that
+    targets it. Quick Add already offered codepoints only; a hand-edited config
+    had nothing to warn it
+  - a class with no `value`, `ingress` or `egress` is not an error to qosify:
+    `json_add_string` always emits the key and `strtoul("")` yields 0, so the
+    class silently becomes CS0
+  - `QOSIFY_MAX_CLASS_ENTRIES` is 16 and covers `class` and `alias` together;
+    `qosify_map_get_class_id()` returns -1 once the slots are gone, so sections
+    past the sixteenth are dropped. The count is flagged with how many are lost
+
+## v2.18.2 — 2026-09-13
+
+- The Counters row reads **eBPF IP map entries**.
+  `qosify_map_get_ebpf_entry_count()` sums the IPv4 and IPv6 address maps and
+  nothing else — the port maps are fixed 65536-entry arrays and are never
+  counted — so the old label over-claimed
+- The Config Reference notes that `NQB` needs a qosify newer than the one
+  OpenWrt pinned for 24.10. `1501e09` has no `NQB` entry in its codepoint table,
+  so `__qosify_map_dscp_value()` rejects the value and the rule disappears
+- The rule line-length limit is 1022 characters of raw line, not 1023 of the
+  comment-stripped remainder. `__qosify_map_load_file_data()` reads with
+  `fgets()` into `char line[1024]`, which takes at most 1023 bytes *including*
+  the newline, and the comment is stripped after the read rather than before
+
+## v2.18.1 — 2026-09-12
+
+- Advanced is laid out like Overview: every section is a `cbi-section` holding one
+  ruled two-column `qos-kv` table, with its buttons in a `qos-svc` row under a
+  dividing line, instead of the mix of `cbi-value` rows and bare page actions it
+  had. Both tabs now read the same way
+- The file rows carry `<label for>` on the upload inputs and the Counters
+  checkbox, so the label is clickable
+- `dlRow()` became `dlBtn()` and the shared `kvTable()` helper now builds these
+  tables, so the Advanced sections are declarative and the download button can
+  sit in the same table as everything else
+- Reset spells out what it replaces, one row per file
+
+## v2.18.0 — 2026-09-12
+
+- The Counters tab toggle survives logout. It moved from `session` (sessionStorage,
+  cleared with the browser session) to `localStorage`, so it is a per-browser view
+  preference that stays put — still not in UCI, since qosify owns
+  `/etc/config/qosify` and `/etc/config/luci` would mean widening the ACL for a
+  cosmetic setting. Access is guarded, because a private-mode browser throws on
+  it. `'require session'` is gone with it
+- Advanced is one section per job, in the order you would use them: **Backup**,
+  **Restore**, **Reset**, **Display**. The toggle lives under Display with the
+  what-it-does line beside the checkbox instead of above the section
+- Descriptions shortened across the app and kept to what qosify actually does —
+  the page header, Quick Settings, Config, Classification Rules, both Counters
+  sections, the bar-chart note and the three map-table footnotes. Examples:
+  the map footnote is now "Timeouts apply to dynamic entries only.", and the
+  Counters section reads "Totals since qosify last reloaded."
+
+## v2.17.0 — 2026-09-12
+
+- The map listing has its own poll queue entry at three times the page interval,
+  rather than riding the page tick. It is the one heavy read here — a DNS-driven
+  config is hundreds of entries and tens of kilobytes per reply — while its
+  contents change far more slowly than the counters beside it, so at the 5 s
+  default the counters still move every 5 s and the listing every 15 s
+- `poll.add()` keeps an interval per queue entry, so this stays inside LuCI's own
+  machinery: the slower entry still stops with the auto-refresh toggle, still
+  tracks `luci.main.pollinterval` as a multiple of it, and still gets
+  `poll.step()`'s overlap protection. No timers of our own
+- The listing's Traffic column reuses the `get_stats` reply the counters just
+  fetched instead of asking again, so `refreshMapEntries()` is exactly one ubus
+  call and `refreshCounters()` is two
+- Opening the tab fetches both at once, and the box shows a reading placeholder
+  until the first listing lands rather than sitting empty
+
+## v2.16.0 — 2026-09-12
+
+- The page poller follows LuCI rather than its own clock. `poll.add()` is called
+  with no interval, so `L.env.pollinterval` applies — `uci get
+  luci.main.pollinterval`, 5 s by default (`header.ut` falls back to 5, and
+  `poll.add()` substitutes `env.pollinterval` for a null interval) — instead of
+  the hardcoded 10 s. Both Status and Counters follow it, as does Overview
+- That also means the theme's auto-refresh toggle stops and starts these tabs
+  like any other LuCI page, and changing `luci.main.pollinterval` changes them
+  with it
+- Unchanged: one poller for the whole page dispatched on the open tab, and
+  `poll.step()` holding the next tick until the current one settles, so a
+  `qosify-status` fork slower than the interval skips ticks rather than stacking
+  up — which matters more now the default interval is half what it was
+
+## v2.15.1 — 2026-09-12
+
+- Fixed `TypeError: Cannot read properties of undefined (reading 'getLocalData')`
+  when the page loaded. `session` is one of luci-base's preloadable classes, not
+  a property of `L`: it is reached through the module header, so the view now
+  declares `'require session'` and calls `session.getLocalData()` /
+  `setLocalData()` directly. Present on every supported branch — 22.03, 23.05,
+  24.10 and master all ship it
+
+## v2.15.0 — 2026-09-12
+
+- The per-class chart is packet totals on a log axis and nothing else: the unit
+  and scale select is gone, along with the linear and byte modes behind it
+- Each class gets its own colour, assigned by the class name's position in the
+  sorted set so a class keeps its colour as the bars reorder by size, with a
+  matching swatch in the label
+- The **Classes** counters table is gone — it duplicated the chart. The chart now
+  carries the figures: packet total and share of all classified packets per row,
+  and a total row closing it out. A non-zero share under a tenth of a percent
+  reads `<0.1%` instead of `0.0%`, which read as nothing counted at all
+- Row hover gives the exact packet and byte totals, and highlights the row
+- Restyled: taller tracks, rounded fills at 85% opacity, swatch in a monospace
+  label column, tabular-aligned figures with the share in its own right-aligned
+  column, a ruled total row, and wider columns on narrow screens
+- The DSCP and DNS-pattern tables are unchanged and still carry the rest of the
+  `get_stats` reply
+
+## v2.14.0 — 2026-09-12
+
+- The Counters graph is now a horizontal bar chart of **totals per class**, not
+  packets per second. `get_stats` reports cumulative counts, so the totals are
+  the daemon's own numbers since its last reload — no sampling, no history kept
+  in the browser, and nothing lost by leaving the tab closed. The rate sampler,
+  its 60-sample window and the SVG polyline graph are gone
+- One select drives the chart: packets or bytes, linear or log scale. A bulk
+  class can outweigh voice by four orders of magnitude, which leaves every other
+  bar a sliver on a linear axis, so the log option is offered and labelled as one
+  rather than quietly distorting the linear bars. Bars are sorted by size, scaled
+  against the largest class, and keep a sliver for any non-zero class. Byte
+  options are taken off the select unless the reply carries byte totals, which
+  the 24.10 daemon does not
+- Plain CSS flex bars using `currentColor` over a neutral track, tabular-aligned
+  values and a monospace label column, narrowing on small screens. No SVG, no
+  charting library, nothing added to `LUCI_DEPENDS`
+- The Counters tab is hidden by default and shown from **Advanced → Page**, which
+  is only sensible now the numbers are totals. `initTabGroup()` puts `data-tab`
+  on each menu `<li>`, so the entry is taken off the menu without rebuilding the
+  group; the preference lives in `L.session` (luci-base's per-session store), not
+  in `/etc/config/qosify`, which qosify owns. A link to `#counters` shows the tab
+  regardless
+- The visibility checkbox and the chart select carry `data-ro-ok`, so read-only
+  sessions keep both — the whole tab works without write access
+
+## v2.13.0 — 2026-09-12
+
+- New **Counters** tab. Daemon counters and Map entries move off the Status tab,
+  which goes back to being the shaper's own view of itself — ubus status plus the
+  `qosify-status` fork. The new tab is two ubus calls and no forks, so it works
+  under read-only access, and it polls on the same single 10 s tick only while it
+  is open
+- Packets-per-second graph per class, plotted over the last 60 samples. `get_stats`
+  reports cumulative counts, so each point is the difference between two samples
+  over the elapsed time; a count that goes backwards means the daemon restarted,
+  so that class is dropped from the sample rather than drawn as a spike
+- The graph is inline SVG built through `createElementNS` — `E()` goes through
+  `createElement()`, which cannot make SVG nodes, and `innerHTML` is not an
+  option. No charting library, no new dependency. Gridlines, labels and the time
+  caption use `currentColor` so the theme decides; only the series colours are
+  fixed, which is what luci-mod-status does for its realtime graphs
+- Map entries sits in a scrollable box, rebuilt in place on each tick with its
+  scroll offset preserved, so a 200-row listing stays readable while it updates
+- `refreshStatus()` dropped its `get_stats` call, since the Status tab no longer
+  renders counters
+
+## v2.12.0 — 2026-09-12
+
+- **Map entries** gained a Traffic column: the packets and bytes each DNS pattern
+  has matched, read from the `dns` table of `get_stats` and joined to the dump
+  rows by pattern. `refreshMap()` now fetches both methods together so the
+  numbers and the entries come from the same moment
+- The column is honest about where the daemon stops counting.
+  `qosify_map_dns_stats()` sums the per-CPU `pattern_stats` map, which exists for
+  DNS patterns only; the port and address maps hold a DSCP byte and no counters,
+  so those rows show `-` and a note points at the class and DSCP totals in Daemon
+  counters. A pattern missing from the stats reply is shown as zero, since
+  `qosify_map_dns_stats()` omits patterns with no hits and no traffic — but only
+  when the reply has a `dns` table at all, otherwise every row shows `-`
+
+## v2.11.4 — 2026-09-12
+
+- Removed the **File** selector and its file count from the Classification Rules
+  tab, along with `switchRules()` and `loadRules()` behind it — one mapping file
+  is what the shipped `list defaults` resolves to, so the selector was scaffolding
+- The edited path is now resolved from the defaults list in `load()`, before the
+  file is read, rather than after it in `gatherCtx()`: the editor content and the
+  path shown in the section description can no longer come from different files
+
+## v2.11.3 — 2026-09-12
+
+- Map entries notes once, under the table, that qosify only reports a timeout for
+  dynamically added entries (`qosify_map_dump()` emits `timeout` for `user`
+  entries only), instead of leaving a column of dashes against every file entry
+  looking like a fault
+
+## v2.11.2 — 2026-09-12
+
+- **Map entries** collapses expanded port ranges. `qosify_map_set_port()` in
+  `map.c` loops `start_port..end_port` and stores one map entry per port, so a
+  single `udp:6881-7000` rule filled 120 of the table's 200 rows and pushed
+  everything else past the cap. Consecutive ports that agree on type, DSCP,
+  source and timeout are now shown as the range they came from — ports arrive in
+  ascending order because the avl key holds them in network byte order, and a
+  reply in any other order simply does not collapse. Nothing else is merged
+- The table now always prints its row and entry counts, so an empty panel is
+  distinguishable from one that has not been fetched
+- The open Map entries panel refreshes with the rest of the Status tab instead of
+  only when it is toggled, so dynamically added entries and their timeouts move
+  while it is on screen
+
+## v2.11.1 — 2026-09-12
+
+- **Daemon counters** now render only what `get_stats` actually returns. The
+  reply shape follows the daemon build: the commit OpenWrt pins on master
+  (2026-06-22) reports `ebpf_map_entries`, `last_reload_time`, `dns_cache` and
+  the `classes`/`dscp`/`dns` tables, while the commit pinned for 24.10
+  (2024-09-20, `1501e09`) returns `qosify_map_stats()` at the top level — one
+  table per class, `packets` only, no wrapper and none of the other keys. On that
+  older daemon the panel showed `eBPF map entries -`, `Last reload -` and no
+  counter tables at all; it now shows the per-class packet counts the daemon
+  does report, and omits the rows it does not
+- Byte totals are only printed when the daemon sends `bytes`, since the 24.10
+  build counts packets only
+- Map entries no longer disappears with the counters: it comes from `dump`, which
+  is identical in both commits, so the panel follows the running state instead of
+  the counters reply
+- Corrected the `rpc.declare` comment: `get_stats` and `dump` are both present in
+  the 24.10-pinned commit — it is the fields inside `get_stats` that are newer,
+  not the methods
+
+## v2.11.0 — 2026-09-12
+
+Audit pass over the installer itself rather than the view: the shell wrapper, the
+service lifecycle and the cleanup helper, each finding checked against `luci-base`,
+`rpcd` and `qosify` source before it was changed.
+
+- The cleanup helper now skips `disabled` sections. `add_interface()` in
+  `qosify.init` returns early on `disabled`, so qosify never created a qdisc on
+  those devices — deleting the root qdisc there took out whatever else owned the
+  device (sqm-scripts, a manual `tc` setup), which is exactly what the helper's
+  own comment promises it will not do. Their `ifb-*` devices are still swept up
+  by the orphan pass, which only removes devices qosify creates
+- `install` no longer restarts the web server. ACL files are globbed per login in
+  `rpc_login_setup_acls()` (rpcd `session.c`), the ucode dispatcher keys its page
+  tree cache on an ino/mtime/size hash of `menu.d` and prunes stale entries
+  itself (`dispatcher.uc`), and nothing but the browser caches `/www` — so the
+  `uhttpd`/`nginx` restart only dropped every in-flight connection, including the
+  session running the install. `rpcd restart` and the Ctrl+F5 note stay
+- One service transition per install instead of four. `install_deps` no longer
+  starts qosify before the templates are written, and the `sleep 1; reload` after
+  the final `restart` is gone: `service_running()` in `qosify.init` waits for the
+  ubus object and calls `reload_service()` itself, so the manual reload fired
+  while the daemon was often still absent and its `ubus call qosify config`
+  failed silently
+- Every install write is verified through one `ck()` helper — templates, menu,
+  ACL, keep list, seeded configs and both view files. Previously only `main.js`
+  and `qosify.css` were checked, so a full or read-only overlay produced a
+  half-installed app that still printed `[OK]`
+- `uninstall` waits for the qosify ubus object to disappear (up to 5 s) before
+  running cleanup, instead of a fixed `sleep 1` — the same guard the UI applies
+  to a stop
+- The stylesheet is declared as `"css"` on the menu entry, which the theme header
+  emits as `dispatched.css` before the view runs, removing the flash of unstyled
+  content; the view still injects the link, but only when it is absent
+- A poll tick no longer lists `/etc/qosify`. The listing feeds the Rules tab file
+  selector only, which is built from the load-time context, so the 10 s Overview
+  tick is back to the five ubus calls its comment claims
+- `save_installer` checks that `$0` really is this installer before copying it to
+  `/root`, which it is not when the script is piped into `sh`
+- An unknown or missing command exits 1 instead of 0
+- `qosify.pot` regenerated with the upstream `i18n-scan.pl`: it was 30 msgids
+  behind the view
+- SPDX identifier added to the installer, which every file it writes already had
+
+## v2.10.1 — 2026-09-12
+
+- Fixes the Config, Classification Rules, Advanced and Status tabs disappearing in
+  v2.10.0. `ui.tabs.initTabGroup()` sets `display:none` on the menu entry of any pane
+  `dom.isEmpty()` reports as empty, and v2.10.0 handed it four panes that were empty
+  by design, to be filled when first activated. Each pane now holds a placeholder
+  element before the tab group is built, and the fill replaces it with `dom.content()`
+
+## v2.10.0 — 2026-09-12
+
+Shipped upstream as a six-patch series against `openwrt/luci` master; the installer
+carries the same view, stylesheet and ACL.
+
+- The in-tree package was several releases behind this repo, so the sync brings the
+  2.9.6 view, the split stylesheet and the audited ACL with it. The ACL fix matters
+  on its own: in-tree still granted `exec` on `qosify-status` and on the cleanup
+  helper, plus `luci setInitAction`, from the **read** group, so a read-only ACL
+  user could run both
+- `LUCI_DEPENDS` gains `+luci-base`. `luci.mk` copies `LUCI_DEPENDS` straight into
+  `DEPENDS` and adds no implicit base dependency, so the package could be installed
+  without the JS runtime its view needs
+- The in-tree `cleanup` helper hardcoded `qosify.wan`, `qosify.wandev` and a literal
+  `pppoe-wan`; it missed every section not named that and deleted the root qdisc on
+  `pppoe-wan` whether or not qosify put it there. This repo's `config_foreach` /
+  `network_get_device` version replaces it
+- Tab panes are built when first activated instead of all five before the page is
+  shown, so a page load no longer pays for the Config Reference table, three Quick
+  Add panels and both editors when nobody opens those tabs. A pane built later gets
+  `applyReadonly()`, an editor is brought up to date from disk rather than showing
+  what was read at page load, and Overview refreshes itself the way the poller would
+- The two 10 s pollers become one, dispatched on the open tab — the second only ever
+  tested the same `currentTab` and returned, and one poller cannot interleave an
+  Overview refresh with a Status fork
+- The Rules tab can edit any file in the `defaults` list, not just
+  `00-defaults.conf`. Files dropped in `/etc/qosify` were loaded by the daemon and
+  invisible here. ACL read/write widen to `/etc/qosify/*.conf` with a `list` grant on
+  the directory, and UCI is loaded before the first `gatherCtx()` rather than
+  alongside it, since the defaults list is what says which files to look for
+- Status gains **Daemon counters** (`ubus call qosify get_stats`) and **Map entries**
+  (`ubus call qosify dump`), both read-only and both feature-detected. `get_stats`
+  rides the existing tick; `dump` is fetched when expanded, since a DNS-driven map
+  runs to thousands of entries
+- `po/templates/qosify.pot` is regenerated with the upstream `i18n-scan.pl`. The
+  previously shipped template was missing `Config cleared.` and
+  `Reading tc output...`
+
+Considered and not done: moving Quick Settings from a text rewrite of
+`/etc/config/qosify` to `uci.set`/`uci.save`. Doing it properly means `uci.apply()`
+and LuCI's rollback flow, which replaces the app's own service handling and sits
+awkwardly beside two editors that write files directly — an architecture change to
+the write path, not a fix, so it wants its own PR.
+
 ## v2.9.6 — 2026-09-11
 
 Review fixes for the v2.9.5 upstream PR. No new features.

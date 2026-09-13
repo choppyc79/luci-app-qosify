@@ -1,6 +1,7 @@
 #!/bin/sh
+# SPDX-License-Identifier: MIT
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.9.6"
+VERSION="2.20.3"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -12,14 +13,20 @@ LEGACY_CTRL="/usr/lib/lua/luci/controller/qosify.lua"
 LEGACY_VIEW="/usr/lib/lua/luci/view/qosify"
 LEGACY_CBI="/usr/lib/lua/luci/model/cbi/qosify"
 
+# Every install write goes through this: a full or read-only overlay must fail
+# loudly instead of leaving a half-installed app that still reports [OK].
+ck() {
+	[ -s "$1" ] || { echo "[ERROR] Failed writing $1"; exit 1; }
+}
+
+# rpcd globs /usr/share/rpcd/acl.d/*.json per login (rpc_login_setup_acls in
+# rpcd session.c), so a new ACL only applies to a new session -- restarting rpcd
+# forces that. Nothing else needs restarting: the ucode dispatcher keys its page
+# tree cache on an ino|mtime|size hash of menu.d and prunes stale files itself,
+# and no webserver caches anything under /www -- only the browser does, hence
+# the Ctrl+F5 note at the end of an install.
 restart_luci_services() {
-	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null
-	rm -rf /tmp/luci-modulecache 2>/dev/null
-	[ -f /etc/init.d/rpcd ] && /etc/init.d/rpcd restart 2>/dev/null
-	sleep 1
-	if [ -f /etc/init.d/uhttpd ]; then /etc/init.d/uhttpd restart 2>/dev/null
-	elif [ -f /etc/init.d/nginx ]; then /etc/init.d/nginx restart 2>/dev/null
-	fi
+	[ -f /etc/init.d/rpcd ] && /etc/init.d/rpcd restart
 	return 0
 }
 
@@ -39,11 +46,11 @@ install_deps() {
 	else
 		echo "[ERROR] No supported package manager"; exit 1
 	fi
-	if ! command -v qosify >/dev/null 2>&1; then
+	# Matches the menu entry's fs dependency, not just $PATH.
+	if [ ! -x /usr/sbin/qosify ]; then
 		echo "[ERROR] qosify not found after install"; exit 1
 	fi
-	/etc/init.d/qosify enable 2>/dev/null
-	/etc/init.d/qosify start 2>/dev/null
+	/etc/init.d/qosify enable
 	echo "[OK] qosify ready"
 }
 
@@ -69,6 +76,7 @@ tcp:443		+besteffort
 udp:80		+besteffort
 udp:443		+besteffort
 EOF
+	ck "$TPL_DIR/00-defaults.conf"
 	cat > "$TPL_DIR/qosify" << 'EOF'
 config defaults
 	list defaults /etc/qosify/*.conf
@@ -118,6 +126,7 @@ config device wandev
 	option name wan
 	option bandwidth 100mbit
 EOF
+	ck "$TPL_DIR/qosify"
 	cat > "$TPL_DIR/cleanup" << 'EOF'
 #!/bin/sh
 # SPDX-License-Identifier: MIT
@@ -176,7 +185,13 @@ clear_dev() {
 # to the l3 device before touching tc, so resolve it the same way.
 clear_interface() {
 	local cfg="$1"
-	local name dev
+	local name dev disabled
+
+	# add_interface() in qosify.init returns early on disabled, so qosify never
+	# created a qdisc here -- deleting the root qdisc of a disabled section would
+	# take out whatever else owns the device (sqm-scripts, a manual tc setup).
+	config_get_bool disabled "$cfg" disabled 0
+	[ "$disabled" -gt 0 ] && return 0
 
 	config_get name "$cfg" name
 	[ -n "$name" ] || return 0
@@ -188,7 +203,10 @@ clear_interface() {
 # `config device` names a netdev directly.
 clear_device() {
 	local cfg="$1"
-	local name
+	local name disabled
+
+	config_get_bool disabled "$cfg" disabled 0
+	[ "$disabled" -gt 0 ] && return 0
 
 	config_get name "$cfg" name
 	clear_dev "$name"
@@ -210,22 +228,23 @@ done
 
 exit 0
 EOF
+	ck "$TPL_DIR/cleanup"
 	chmod +x "$TPL_DIR/cleanup"
 }
 
 install_defaults() {
 	echo "[*] Seeding default configs (existing files preserved)..."
 	mkdir -p "$CONFIG_DIR"
-	[ -f "$DEFAULTS_FILE" ] || cp "$TPL_DIR/00-defaults.conf" "$DEFAULTS_FILE"
-	[ -f "$UCI_CONFIG" ]    || cp "$TPL_DIR/qosify" "$UCI_CONFIG"
+	[ -f "$DEFAULTS_FILE" ] || { cp "$TPL_DIR/00-defaults.conf" "$DEFAULTS_FILE"; ck "$DEFAULTS_FILE"; }
+	[ -f "$UCI_CONFIG" ]    || { cp "$TPL_DIR/qosify" "$UCI_CONFIG"; ck "$UCI_CONFIG"; }
 }
 
 force_defaults() {
 	echo "[*] Overwriting configs with qosify defaults..."
 	rm -f "$UCI_CONFIG" "$DEFAULTS_FILE"
 	mkdir -p "$CONFIG_DIR"
-	cp "$TPL_DIR/00-defaults.conf" "$DEFAULTS_FILE"
-	cp "$TPL_DIR/qosify" "$UCI_CONFIG"
+	cp "$TPL_DIR/00-defaults.conf" "$DEFAULTS_FILE"; ck "$DEFAULTS_FILE"
+	cp "$TPL_DIR/qosify" "$UCI_CONFIG"; ck "$UCI_CONFIG"
 }
 
 install_menu() {
@@ -240,6 +259,7 @@ install_menu() {
 			"type": "view",
 			"path": "qosify/main"
 		},
+		"css": "view/qosify/qosify.css",
 		"depends": {
 			"acl": [ "luci-app-qosify" ],
 			"fs": { "/usr/sbin/qosify": "executable" }
@@ -247,6 +267,7 @@ install_menu() {
 	}
 }
 EOF
+	ck "$MENU_DIR/luci-app-qosify.json"
 }
 
 install_acl() {
@@ -258,15 +279,16 @@ install_acl() {
 		"description": "Grant access to LuCI app qosify",
 		"read": {
 			"ubus": {
-				"qosify": [ "status" ],
+				"qosify": [ "status", "get_stats", "dump" ],
 				"rc": [ "list" ],
 				"service": [ "list" ],
-				"file": [ "read", "stat" ]
+				"file": [ "read", "stat", "list" ]
 			},
 			"uci": [ "qosify" ],
 			"file": {
 				"/etc/config/qosify": [ "read", "list" ],
-				"/etc/qosify/00-defaults.conf": [ "read", "list" ],
+				"/etc/qosify": [ "list" ],
+				"/etc/qosify/*.conf": [ "read", "list" ],
 				"/usr/share/qosify-luci/qosify": [ "read" ],
 				"/usr/share/qosify-luci/00-defaults.conf": [ "read" ]
 			}
@@ -280,7 +302,7 @@ install_acl() {
 			"uci": [ "qosify" ],
 			"file": {
 				"/etc/config/qosify": [ "write" ],
-				"/etc/qosify/00-defaults.conf": [ "write" ],
+				"/etc/qosify/*.conf": [ "write" ],
 				"/usr/sbin/qosify-status": [ "exec" ],
 				"/usr/share/qosify-luci/cleanup": [ "exec" ]
 			}
@@ -288,6 +310,7 @@ install_acl() {
 	}
 }
 EOF
+	ck "$ACL_DIR/luci-app-qosify.json"
 }
 
 install_view() {
@@ -305,11 +328,47 @@ install_view() {
 'require dom';
 
 var UCI_PATH='/etc/config/qosify';
-var RULES_PATH='/etc/qosify/00-defaults.conf';
+var CONFIG_DIR='/etc/qosify';
+var RULES_PATH=CONFIG_DIR+'/00-defaults.conf';
 var DSCP=['CS0','CS1','CS2','CS3','CS4','CS5','CS6','CS7','AF11','AF12','AF13','AF21','AF22','AF23','AF31','AF32','AF33','AF41','AF42','AF43','EF','VA','NQB','LE','DF'];
 var OVH=['none','manual','conservative','ethernet','docsis','pppoe-ptm','bridged-ptm','pppoe-vcmux','pppoe-llcsnap','pppoa-vcmux','pppoa-llc','bridged-vcmux','bridged-llcsnap','ipoa-vcmux','ipoa-llcsnap'];
 var ENCAP=['atm','noatm','ptm'];
 var MODES=['diffserv3','diffserv4','diffserv8','besteffort','precedence'];
+var MAP_ROWS=200;
+// codepoints[] in map.c. The map listing is ordered by the value behind each
+// entry's DSCP, highest first, so EF sits at the top and LE and CS0 at the end.
+var DSCP_VAL={CS0:0,DF:0,LE:1,CS1:8,AF11:10,AF12:12,AF13:14,CS2:16,AF21:18,AF22:20,
+	AF23:22,CS3:24,AF31:26,AF32:28,AF33:30,CS4:32,AF41:34,AF42:36,AF43:38,CS5:40,
+	VA:44,NQB:45,EF:46,CS6:48,CS7:56};
+// The Map entries header stays at the top of the scroll box. It is inline rather
+// than in qosify.css because the stylesheet the menu node declares is emitted
+// without a cache-busting query, so a browser holding an older copy keeps the
+// old rules; and .table is border-collapse, which drops a border on a sticky
+// cell and does not paint a sticky <tr> in every browser -- so the cells carry
+// the position and the rule under them is an inset shadow. A theme that defines
+// neither colour variable falls back to system colours, which stay a readable
+// pair either way.
+var MAP_TH={'class':'th','style':'position:sticky;top:0;z-index:3;'+
+	'background:var(--background-color-medium,Canvas);color:var(--text-color-high,CanvasText);'+
+	'box-shadow:inset 0 -1px 0 var(--border-color-medium,rgba(128,128,128,.5))'};
+// QOSIFY_MAX_CLASS_ENTRIES in qosify-bpf.h: the class map holds 16 slots, and
+// qosify_map_get_class_id() returns -1 once they are all taken.
+var MAX_CLASSES=16;
+// One colour per class, assigned by the class name's position in the sorted set
+// so a class keeps its colour when the bars reorder by size. luci-mod-status
+// hardcodes its graph colours too -- the theme exposes no palette to borrow.
+var CN_COLORS=['#377eb8','#4daf4a','#ff7f00','#984ea3','#e41a1c','#17becf','#a65628','#f781bf'];
+// The Counters tab is a per-browser view setting, so it is kept in localStorage
+// and survives logout: qosify owns /etc/config/qosify and this app adds no keys
+// to it, and /etc/config/luci would mean a wider ACL for a cosmetic toggle.
+// Private-mode browsers throw on access, hence the guards.
+var CN_KEY='luci-app-qosify.counters';
+function prefShow(){
+	try{return localStorage.getItem(CN_KEY)==='1';}catch(e){return false;}
+}
+function prefSetShow(v){
+	try{localStorage.setItem(CN_KEY,v?'1':'0');}catch(e){}
+}
 // qosify.init handles 'alias' with add_class and 'device' with add_interface,
 // so those section types share the option set of class / interface.
 var QAC_PANEL={defaults:'defaults','class':'class',alias:'class','interface':'interface',device:'interface'};
@@ -334,6 +393,19 @@ var callRcList=rpc.declare({
 var callQosifyStatus=rpc.declare({
 	object:'qosify',
 	method:'status',
+	expect:{'':{}}
+});
+// get_stats and dump are read-only and are both present in the qosify commit
+// OpenWrt has pinned since 24.10; what the reply contains still varies by build,
+// which statsNodes() handles. A Method-not-found reply leaves the table empty.
+var callQosifyStats=rpc.declare({
+	object:'qosify',
+	method:'get_stats',
+	expect:{'':{}}
+});
+var callQosifyDump=rpc.declare({
+	object:'qosify',
+	method:'dump',
 	expect:{'':{}}
 });
 var callServiceList=rpc.declare({
@@ -405,18 +477,55 @@ function countRules(text){
 	return n;
 }
 
+// __qosify_map_load_file_data() reads with fgets() into char line[1024], so it
+// takes at most 1023 bytes including the newline: 1022 characters of content.
+// The comment is stripped after the read, not before, so the whole raw line
+// counts towards the limit.
 function validateRules(d){
 	if(/\x00/.test(d))return _('Binary content rejected');
 	var lines=d.split('\n');
-	for(var i=0;i<lines.length;i++){
-		var l=lines[i],h=l.indexOf('#');
-		if(h>=0)l=l.slice(0,h);
-		l=trim(l);
-		if(l.length>1023)return _('Line %d is longer than 1023 characters — the rule loader reads fixed-size lines and would split it').format(i+1);
-	}
+	for(var i=0;i<lines.length;i++)
+		if(lines[i].length>1022)return _('Line %d is longer than 1022 characters — the rule loader reads at most 1023 bytes per line, newline included, and would split it').format(i+1);
 	return null;
 }
 function fmtSize(n){return n<1024?n+'B':(n/1024).toFixed(1)+'K';}
+// A class can be a rounding error next to a bulk one, and 0.0% reads as nothing
+// counted at all, so anything non-zero under a tenth of a percent says so.
+function fmtShare(p){
+	if(!p)return _('0%');
+	if(p<0.1)return _('<0.1%');
+	return _('%s%%').format(p<10?p.toFixed(1):Math.round(p));
+}
+
+// The mapping files qosify actually reads: every entry of every `list defaults`,
+// with globs expanded the way add_defaults() leaves them for the shell. Only
+// globs inside CONFIG_DIR are expanded, since that is the one directory the ACL
+// grants a listing of; anything else is taken literally. Order is the order the
+// daemon loads them in, so the first entry is the file the Rules tab edits.
+function globRe(p){
+	return new RegExp('^'+p.replace(/[.+^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'[^/]*').replace(/\?/g,'[^/]')+'$');
+}
+function ruleFiles(names){
+	var pats=[],out=[];
+	uci.sections('qosify','defaults',function(s){
+		var v=s.defaults;
+		if(v==null)return;
+		(Array.isArray(v)?v:String(v).split(/\s+/)).forEach(function(f){if(f)pats.push(f);});
+	});
+	pats.forEach(function(pat){
+		if(!/[*?]/.test(pat)){
+			if(out.indexOf(pat)<0)out.push(pat);
+			return;
+		}
+		if(pat.indexOf(CONFIG_DIR+'/')!==0||pat.indexOf('/',CONFIG_DIR.length+1)>=0)return;
+		var re=globRe(pat);
+		names.forEach(function(n){
+			var f=CONFIG_DIR+'/'+n;
+			if(re.test(f)&&out.indexOf(f)<0)out.push(f);
+		});
+	});
+	return out.length?out:[RULES_PATH];
+}
 function fmtMtime(t){if(!t)return '';return new Date(t*1000).toLocaleString();}
 
 // The shaping section Quick Settings edits, or null. Prefers the first enabled
@@ -471,6 +580,31 @@ function ifLint(s,dev){
 		w.push(_('disabled is set to "%s" — config_get_bool does not recognise that, so the section stays enabled').format(s.disabled));
 	['bandwidth_up','bandwidth_down','bandwidth','mode','ingress_options','egress_options','options'].forEach(function(k){
 		if(s[k]&&/['"`$;&|<>(){}\\]/.test(String(s[k])))w.push(_('%s contains shell metacharacters — qosify assembles the tc command as a string and runs it with sh -c, so the command will break or execute them').format(k));
+	});
+	return w;
+}
+// --- Mirrors qosify_map_create_class() in map.c ---
+// A class ingress/egress value goes through __qosify_map_dscp_value(), not
+// qosify_map_dscp_value(), so it takes a codepoint or a raw number and nothing
+// else: naming a class there fails and qosify frees the slot, dropping the whole
+// class. An empty string is not an error -- strtoul("") yields 0 -- so a class
+// with no value at all silently becomes CS0.
+function clsLint(c,names){
+	var w=[],both=!c.ingress&&!c.egress;
+	if(both)w.push(_('no value, ingress or egress — qosify reads the empty string as 0, so this class is CS0 in both directions'));
+	['ingress','egress'].forEach(function(k){
+		var v=String(c[k]||'').replace(/^\+/,'');
+		if(!v){
+			if(!both)w.push(_('%s is unset and there is no value — qosify reads the empty string as 0, so it is CS0').format(k));
+			return;
+		}
+		if(names.indexOf(v)>=0){
+			w.push(_('%s names the class %s — a class value is never resolved against other classes, so qosify drops this class entirely').format(k,v));
+			return;
+		}
+		if(DSCP.indexOf(v)>=0)return;
+		var n=dscpNum(v);
+		if(n===null||n>=64)w.push(_('%s is "%s" — neither a DSCP codepoint nor a number below 64, so qosify drops this class entirely').format(k,c[k]));
 	});
 	return w;
 }
@@ -532,14 +666,73 @@ function dscpNum(v){
 	if(/^(0|[1-9]\d*)$/.test(v))return parseInt(v,10);
 	return null;
 }
+// qosify_map_set_port() parses with strtoul(base 0), accepts <port>-<endport>,
+// and rejects a zero start, an end below the start, and anything from 65535 up.
+function portWarn(v){
+	var p=v.split('-');
+	if(p.length>2)return _('"%s" is not a port or a port range').format(v);
+	var a=dscpNum(trim(p[0])),b=p.length>1?dscpNum(trim(p[1])):a;
+	if(a===null||b===null)return _('"%s" is not a port or a port range').format(v);
+	if(a<1)return _('port 0 is rejected — qosify requires a non-zero start port');
+	if(b<a)return _('port range "%s" ends below where it starts').format(v);
+	if(b>65534)return _('port %d is out of range — qosify rejects 65535 and above').format(b);
+	return null;
+}
+// Bare addresses go to inet_pton(), which takes a single address and nothing
+// else: no prefix length, no zone suffix.
+function ip4Warn(v){
+	// A dotted quad holds no letters, so a key with one was meant as a hostname.
+	if(/[a-zA-Z]/.test(v))return _('"%s" has no prefix, so qosify reads it as an IPv4 address — a hostname needs dns:, dns_q: or dns_c:').format(v);
+	var o=v.split('.');
+	if(o.length!==4||o.some(function(x){return !/^\d{1,3}$/.test(x)||+x>255;}))
+		return _('"%s" is not a single IPv4 address — qosify uses inet_pton() and takes no prefix length').format(v);
+	return null;
+}
+function ip6Warn(v){
+	if(!/^[0-9a-fA-F:.]+$/.test(v)||v.indexOf(':')<0||v.length>45)
+		return _('"%s" is not a single IPv6 address — qosify uses inet_pton(), which takes no prefix length and no zone suffix').format(v);
+	return null;
+}
+// __qosify_map_alloc_entry() lowercases the pattern and only then calls
+// regcomp(), so uppercase inside a /regex is silently case-folded; a regex that
+// does not compile takes the whole entry with it. The compile check here is
+// JS RegExp rather than POSIX ERE, so it catches the unbalanced-bracket class of
+// mistake and not much else.
+function dnsWarn(p){
+	if(!p)return _('an empty DNS pattern matches nothing');
+	if(p.charAt(0)!=='/')return null;
+	var re=p.slice(1);
+	if(!re)return _('an empty DNS regex matches nothing');
+	if(/[A-Z]/.test(re))return _('the regex "%s" is lowercased before it is compiled, so uppercase in it does not mean what it reads as').format(re);
+	try{new RegExp(re);}catch(e){return _('the regex "%s" does not compile, so qosify drops the rule').format(re);}
+	return null;
+}
+// Mirrors the prefix chain in qosify_map_parse_line(): the prefix picks the map,
+// and a key with none has to hold a ':' or a '.' to be read as an address at
+// all. Anything else matches no branch and the line is dropped in silence.
+function keyWarn(key){
+	var m=/^(?:dns|dns_q|dns_c):([\s\S]*)$/.exec(key);
+	if(m)return dnsWarn(m[1]);
+	m=/^(?:tcp|udp):([\s\S]*)$/.exec(key);
+	if(m)return portWarn(m[1]);
+	if(key.indexOf(':')>=0)return ip6Warn(key);
+	if(key.indexOf('.')>=0)return ip4Warn(key);
+	return _('"%s" matches nothing — qosify reads dns:, dns_q:, dns_c:, tcp:, udp: or a bare IP address').format(key);
+}
 function ruleWarn(txt,names){
-	var w=[],bad=[],bare=[],lines=(txt||'').split('\n');
+	var w=[],bad=[],bare=[],keys=[],junk=[],lines=(txt||'').split('\n');
 	for(var i=0;i<lines.length;i++){
 		var l=lines[i],h=l.indexOf('#');
 		if(h>=0)l=l.slice(0,h);
 		l=trim(l);if(!l)continue;
 		var f=l.split(/\s+/);
 		if(f.length<2){if(bare.length<5)bare.push(String(i+1));continue;}
+		// qosify_map_parse_line() ends the key at the first space and takes
+		// everything after it as one value, so a third field is part of the value
+		// and makes the whole line unparseable.
+		if(f.length>2&&junk.length<5)junk.push(String(i+1));
+		var kw=keyWarn(f[0]);
+		if(kw&&keys.indexOf(kw)<0&&keys.length<5)keys.push(kw);
 		var v=f[1].replace(/^\+/,'');
 		if(names.indexOf(v)>=0||DSCP.indexOf(v)>=0)continue;
 		var n=dscpNum(v);
@@ -547,6 +740,8 @@ function ruleWarn(txt,names){
 		if(bad.indexOf(v)<0)bad.push(v);
 	}
 	if(bare.length)w.push(_('No DSCP target on line %s — qosify skips single-field lines').format(bare.join(', ')));
+	if(junk.length)w.push(_('More than two fields on line %s — qosify takes everything after the match as one DSCP target and drops the line').format(junk.join(', ')));
+	keys.forEach(function(t){w.push(t);});
 	if(bad.length)w.push(_('Unknown class/DSCP target: %s').format(bad.slice(0,5).join(', ')));
 	return w;
 }
@@ -602,11 +797,22 @@ return view.extend({
 	currentTab:'ov',
 	readonly:false,
 
+	rulesPath:RULES_PATH,
+
+	// The edited file is the first entry of the defaults list -- the list qosify
+	// itself loads -- which the shipped config resolves to 00-defaults.conf. It is
+	// settled before anything is read, so the editor content and the path it was
+	// read from cannot disagree.
 	load:function(){
-		return Promise.all([
-			uci.load('qosify').catch(function(){return null;}),
-			this.gatherCtx(true)
-		]);
+		var self=this;
+		return uci.load('qosify').catch(function(){return null;}).then(function(r){
+			return L.resolveDefault(fs.list(CONFIG_DIR),[]).then(function(l){
+				self.rulesPath=ruleFiles((l||[]).filter(function(e){
+					return e.type!=='directory';
+				}).map(function(e){return e.name;}).sort())[0];
+				return self.gatherCtx(true);
+			}).then(function(ctx){return [r,ctx];});
+		});
 	},
 
 	render:function(d){
@@ -617,37 +823,71 @@ return view.extend({
 		if(d[0]===null)notify(_('The qosify UCI configuration could not be loaded — class and interface lists may be incomplete.'),'warning');
 
 		var root=E('div',{'class':'cbi-map','id':'qos-app'});
-		root.appendChild(E('link',{'rel':'stylesheet','href':L.resource('view/qosify/qosify.css')}));
+		// The menu entry declares this stylesheet and the theme header emits it as
+		// dispatched.css, which avoids a flash of unstyled content; themes that
+		// ignore the key still need the link, so add it only when it is absent.
+		var cssHref=L.resource('view/qosify/qosify.css');
+		if(!document.querySelector('link[rel=stylesheet][href="'+cssHref+'"]'))
+			root.appendChild(E('link',{'rel':'stylesheet','href':cssHref}));
 		root.appendChild(E('h2',{},_('qosify')));
-		root.appendChild(E('div',{'class':'cbi-map-descr'},_('Traffic shaping and DSCP classification via qosify')));
+		root.appendChild(E('div',{'class':'cbi-map-descr'},_('CAKE shaping with eBPF DSCP classification.')));
 
-		var names={ov:'overview',cf:'config',ru:'rules',ad:'advanced',st:'status'};
+		var names={ov:'overview',cf:'config',ru:'rules',ad:'advanced',st:'status',cn:'counters'};
 		var hash=(location.hash||'').slice(1),want='ov',k;
 		for(k in names)if(names[k]===hash)want=k;
+		// Counters is a diagnostic tab and stays hidden until it is asked for, since
+		// its numbers are totals and nothing accumulates while it is away. A link
+		// straight to #counters counts as asking.
+		this.showCounters=(want==='cn')||prefShow();
 
+		// Only the pane that opens is built here. The other four cost a reference
+		// table, three Quick Add panels and two editors between them, none of which
+		// is on screen; initTabGroup fires cbi-tab-active from a
+		// requestAnimationFrame, so a pane is in the DOM by the time it is filled.
 		var group=E('div',{});
-		[['ov',_('Overview'),this.tabOverview(ctx)],
-		 ['cf',_('Config'),this.tabConfig(ctx)],
-		 ['ru',_('Classification Rules'),this.tabRules(ctx)],
-		 ['ad',_('Advanced'),this.tabAdvanced(ctx)],
-		 ['st',_('Status'),this.tabStatus(ctx)]].forEach(function(t){
-			var pane=t[2];
-			pane.setAttribute('data-tab',t[0]);
-			pane.setAttribute('data-tab-title',t[1]);
-			if(t[0]===want)pane.setAttribute('data-tab-active','true');
+		[['ov',_('Overview'),'tabOverview'],
+		 ['cf',_('Config'),'tabConfig'],
+		 ['ru',_('Classification Rules'),'tabRules'],
+		 ['ad',_('Advanced'),'tabAdvanced'],
+		 ['st',_('Status'),'tabStatus'],
+		 ['cn',_('Counters'),'tabCounters']].forEach(function(t){
+			// The placeholder child is load-bearing: initTabGroup() sets
+			// display:none on the menu entry of any pane dom.isEmpty() reports as
+			// empty, so a pane filled later has to hold an element before the tab
+			// group is built or its tab never appears.
+			var pane=E('div',{'data-tab':t[0],'data-tab-title':t[1]},E('div'));
+			if(t[0]===want){
+				dom.content(pane,self[t[2]](ctx));
+				pane.setAttribute('data-tab-active','true');
+				pane.dataset.built='1';
+			}
 			pane.addEventListener('cbi-tab-active',function(){
 				self.currentTab=t[0];
 				try{history.replaceState(null,'','#'+names[t[0]]);}catch(e){}
+				if(!pane.dataset.built){
+					dom.content(pane,self[t[2]](ctx));
+					pane.dataset.built='1';
+					self.applyReadonly(pane);
+					// ctx carries the file contents read at page load, so an editor
+					// built later is brought up to date from disk.
+					if(t[0]==='cf')self.reloadEditor('qos-config-ta',UCI_PATH,false);
+					if(t[0]==='ru')self.reloadEditor('qos-rules-ta',self.rulesPath,false);
+					if(t[0]==='ov')self.refreshOverview();
+				}
 				// The Status tab costs a fork per active interface, so it is fetched
-				// when it is opened rather than on every page load; initTabGroup fires
-				// this from a requestAnimationFrame, so the pane is in the DOM.
+				// when it is opened rather than on every page load.
 				if(t[0]==='st')self.refreshStatus();
+				if(t[0]==='cn'){
+					self.refreshCounters();
+					self.refreshMapEntries();
+				}
 			});
 			group.appendChild(pane);
 		});
 		root.appendChild(group);
 		ui.tabs.initTabGroup(group.childNodes);
 		this.currentTab=want;
+		this.applyTabVisibility(root);
 
 		if(this.readonly){
 			this.applyReadonly(root);
@@ -658,15 +898,33 @@ return view.extend({
 		return root;
 	},
 
-	// Both tabs tick at 10 s: Overview is five ubus calls and no forks, Status forks
-	// qosify-status, which runs tc twice per active interface. Poll.step() holds the
-	// next tick until the promise this returns settles, and refreshStatus() drops an
-	// overlapping call, so a fork slower than the interval skips ticks instead of
+	// One poller for the whole page, dispatched on the open tab: Overview is five
+	// ubus calls and no forks, Status forks qosify-status, which runs tc twice per
+	// active interface, Counters is three ubus calls and no forks, and the other
+	// three tabs poll nothing. No interval is passed, so poll.add() uses
+	// L.env.pollinterval -- the interval from `uci get luci.main.pollinterval`,
+	// 5 s by default -- and the tab honours the theme's auto-refresh toggle like
+	// any other LuCI page. Poll.step() holds the next tick until the promise this
+	// returns settles, so a fork slower than the interval skips ticks instead of
 	// stacking up.
 	installPollers:function(){
 		var self=this;
-		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();},10);
-		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();},10);
+		poll.add(function(){
+			if(self._n)return;
+			if(self.currentTab==='ov')return self.refreshOverview();
+			if(self.currentTab==='st')return self.refreshStatus();
+			if(self.currentTab==='cn')return self.refreshCounters();
+		});
+		// The map listing is the one heavy read on the page: a DNS-driven config is
+		// hundreds of entries and tens of kilobytes per reply, and entries change far
+		// more slowly than the counters beside them. poll.add() keeps an interval per
+		// queue entry, so a second entry at a multiple of the page interval is the
+		// ordinary way to mix costs -- it still stops with the auto-refresh toggle
+		// and still tracks luci.main.pollinterval.
+		poll.add(function(){
+			if(self._n||self.currentTab!=='cn')return;
+			return self.refreshMapEntries();
+		},(L.env.pollinterval||5)*3);
 	},
 
 	tabOverview:function(ctx){
@@ -695,7 +953,7 @@ return view.extend({
 		var nodes=[];
 		nodes.push(E('legend',{},_('Quick Settings')));
 		nodes.push(E('div',{'class':'cbi-section-descr'},
-			_('Common shaping settings — written straight to %s, section %s.').format(UCI_PATH,sn?'config '+sn.type+(sn.name?" '"+sn.name+"'":' '+_('(unnamed section)')):"config interface 'wan' (will be created)")));
+			_('Written to %s, %s.').format(UCI_PATH,sn?'config '+sn.type+(sn.name?" '"+sn.name+"'":' '+_('(unnamed section)')):"config interface 'wan' (will be created)")));
 		var tbl=E('table',{'class':'qos-kv','width':'100%'});
 		var bdy=E('tbody');tbl.appendChild(bdy);
 
@@ -896,7 +1154,7 @@ return view.extend({
 			b.appendChild(E('tr',{},[E('td',{},path),E('td',{},[st,meta])]));
 		}
 		fileRow(UCI_PATH,!!ctx.cfgStat,cfgOk,ctx.cfgStat?ctx.cfgStat.size:0,ctx.cfgStat?fmtMtime(ctx.cfgStat.mtime):'');
-		fileRow(RULES_PATH,!!ctx.rulesStat,rulesOk,ctx.rulesStat?ctx.rulesStat.size:0,ctx.rulesStat?fmtMtime(ctx.rulesStat.mtime):'',N_(rulesN,'%d rule','%d rules').format(rulesN)+', ');
+		fileRow(this.rulesPath,!!ctx.rulesStat,rulesOk,ctx.rulesStat?ctx.rulesStat.size:0,ctx.rulesStat?fmtMtime(ctx.rulesStat.mtime):'',N_(rulesN,'%d rule','%d rules').format(rulesN)+', ');
 		return tbl;
 	},
 
@@ -905,7 +1163,7 @@ return view.extend({
 		var section=E('div',{'id':'qos-cf'});
 		var fs1=E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Config')),
-			E('div',{'class':'cbi-section-descr'},[_('UCI configuration — classes, interfaces, defaults.')+' ',E('code',{},UCI_PATH)])
+			E('div',{'class':'cbi-section-descr'},[_('Classes, interfaces and defaults.')+' ',E('code',{},UCI_PATH)])
 		]);
 
 		// Quick Add Config — built first so the reference table can be derived from it
@@ -985,7 +1243,7 @@ return view.extend({
 		});
 		ref.appendChild(clsBox);
 		ref.appendChild(E('div',{'class':'qos-muted','style':'margin:4px 0 2px'},
-			_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF. Any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero.')));
+			_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF. Any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero. NQB needs a qosify newer than the one shipped with 24.10, which has no codepoint for it and drops the rule.')));
 		ref.appendChild(E('div',{'class':'qos-muted','style':'margin:2px 0'},
 			_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).')));
 		fs1.appendChild(ref);
@@ -1150,7 +1408,7 @@ return view.extend({
 		var section=E('div',{'id':'qos-ru'});
 		var fs1=E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Classification Rules')),
-			E('div',{'class':'cbi-section-descr'},[_('DSCP mapping rules loaded by qosify on startup.')+' ',E('code',{},RULES_PATH)])
+			E('div',{'class':'cbi-section-descr'},[_('DSCP rules qosify loads at startup.')+' ',E('code',{'id':'qos-rules-path'},this.rulesPath)])
 		]);
 
 		// Available classes
@@ -1210,71 +1468,85 @@ return view.extend({
 		return section;
 	},
 
-	tabAdvanced:function(ctx){
-		var self=this;
-		var section=E('div',{'id':'qos-ad'});
+	// Same shape as Overview: one cbi-section per job, each holding a single
+	// ruled two-column table, with actions in a qos-svc button row underneath.
+	tabAdvanced:function(){
+		var self=this,section=E('div',{'id':'qos-ad'});
+		function sect(title,descr,body,actions){
+			var nodes=[E('legend',{},title),E('div',{'class':'cbi-section-descr'},descr),body];
+			if(actions)nodes.push(E('div',{'class':'qos-svc qos-actions'},actions));
+			return E('fieldset',{'class':'cbi-section'},nodes);
+		}
+		function fileIn(id){return E('input',{'type':'file','id':id,'class':'cbi-input-file'});}
 
-		// Backup
-		var fb=E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},_('Backup Current Files')),
-			E('div',{'class':'cbi-section-descr'},_('Download current config files before making changes.'))
-		]);
-		fb.appendChild(this.dlRow('/etc/config/qosify','qosify'));
-		fb.appendChild(this.dlRow('/etc/qosify/00-defaults.conf','00-defaults.conf'));
-		section.appendChild(fb);
+		section.appendChild(sect(_('Backup'),_('Download the current files.'),
+			this.kvTable([
+				[UCI_PATH,this.dlBtn(UCI_PATH,'qosify')],
+				[RULES_PATH,this.dlBtn(RULES_PATH,'00-defaults.conf')]
+			])));
 
-		// Upload
-		var fu=E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},_('Upload Config Files')),
-			E('div',{'class':'cbi-section-descr'},_('Select files and click Save & Apply to overwrite and restart qosify.'))
-		]);
-		var u1=E('input',{'type':'file','id':'qos-up-cfg'});
-		var u2=E('input',{'type':'file','id':'qos-up-rules'});
-		fu.appendChild(E('div',{'class':'cbi-value'},[
-			E('label',{'class':'cbi-value-title'},'/etc/config/qosify'),
-			E('div',{'class':'cbi-value-field'},u1)
-		]));
-		fu.appendChild(E('div',{'class':'cbi-value'},[
-			E('label',{'class':'cbi-value-title'},'/etc/qosify/00-defaults.conf'),
-			E('div',{'class':'cbi-value-field'},u2)
-		]));
-		fu.appendChild(E('div',{'class':'cbi-page-actions'},
-			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.uploadFiles();}},_('Save & Apply'))
-		));
-		section.appendChild(fu);
+		section.appendChild(sect(_('Restore'),_('Overwrite a file and restart qosify.'),
+			this.kvTable([
+				[E('label',{'for':'qos-up-cfg'},UCI_PATH),fileIn('qos-up-cfg')],
+				[E('label',{'for':'qos-up-rules'},RULES_PATH),fileIn('qos-up-rules')]
+			]),
+			E('button',{'class':'cbi-button cbi-button-apply',
+				'click':function(){return self.uploadFiles();}},_('Save & Apply'))));
 
-		// Reset
-		section.appendChild(E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},_('Reset to qosify Defaults')),
-			E('div',{'class':'cbi-section-descr'},_('Replaces both config files with qosify defaults, qosify will be disabled.')),
-			E('div',{'class':'cbi-page-actions'},
-				E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},_('Reset to Defaults')))
-		]));
+		section.appendChild(sect(_('Reset'),_('Restore qosify defaults. QoS is left disabled.'),
+			this.kvTable([
+				[UCI_PATH,_('replaced from the package template')],
+				[RULES_PATH,_('replaced from the package template')]
+			]),
+			E('button',{'class':'cbi-button cbi-button-negative',
+				'click':function(){return self.resetDefaults();}},_('Reset to Defaults'))));
+
+		section.appendChild(sect(_('Display'),_('Kept in this browser, not in the qosify config.'),
+			this.kvTable([[
+				E('label',{'for':'qos-ad-cn'},_('Counters tab')),
+				[E('input',{'id':'qos-ad-cn','type':'checkbox','class':'cbi-input-checkbox',
+					'data-ro-ok':'1','checked':self.showCounters?'':null,
+					'change':function(ev){
+						self.showCounters=!!ev.target.checked;
+						prefSetShow(self.showCounters);
+						self.applyTabVisibility();
+					}}),
+					E('div',{'class':'qos-muted'},_('Per-class totals and the daemon map.'))]
+			]])));
 		return section;
 	},
 
-	dlRow:function(path,fn){
-		return E('div',{'class':'cbi-value'},[
-			E('label',{'class':'cbi-value-title'},path),
-			E('div',{'class':'cbi-value-field'},
-				E('button',{'class':'cbi-button cbi-button-action','data-ro-ok':'1','click':function(){
-					return fs.read(path).then(function(content){
-						var b=new Blob([content||''],{type:'application/octet-stream'});
-						var url=URL.createObjectURL(b);
-						var a=E('a',{'href':url,'download':fn,'style':'display:none'});
-						document.body.appendChild(a);
-						a.click();
-						setTimeout(function(){
-							URL.revokeObjectURL(url);
-							if(a.parentNode)a.parentNode.removeChild(a);
-						},2000);
-					}).catch(function(e){
-						notify(_('Could not read %s: %s').format(path,e),'danger');
-					});
-				}},_('Download')))
-		]);
+	// The two-column ruled table the Overview sections are built from, so every
+	// tab reads the same way.
+	kvTable:function(rows){
+		var t=E('table',{'class':'qos-kv','width':'100%'}),b=E('tbody');
+		t.appendChild(b);
+		rows.forEach(function(r){
+			b.appendChild(E('tr',{},[E('td',{},r[0]),E('td',{},r[1])]));
+		});
+		return t;
 	},
 
+	dlBtn:function(path,fn){
+		return E('button',{'class':'cbi-button cbi-button-action','data-ro-ok':'1','click':function(){
+			return fs.read(path).then(function(content){
+				var b=new Blob([content||''],{type:'application/octet-stream'});
+				var url=URL.createObjectURL(b);
+				var a=E('a',{'href':url,'download':fn,'style':'display:none'});
+				document.body.appendChild(a);
+				a.click();
+				setTimeout(function(){
+					URL.revokeObjectURL(url);
+					if(a.parentNode)a.parentNode.removeChild(a);
+				},2000);
+			}).catch(function(e){
+				notify(_('Could not read %s: %s').format(path,e),'danger');
+			});
+		}},_('Download'));
+	},
+
+	// The daemon counters and the map listing live on the Counters tab; this one is
+	// the shaper's own view of itself: ubus status plus the qosify-status fork.
 	tabStatus:function(ctx){
 		var section=E('div',{'id':'qos-st'});
 		var fs1=E('fieldset',{'class':'cbi-section'},E('legend',{},_('qosify-status')));
@@ -1283,10 +1555,336 @@ return view.extend({
 			E('pre',{'id':'qos-st-pre','class':'qos-pre','style':'display:none'}),
 			E('div',{'id':'qos-st-msg'})
 		]);
-		this.fillStatus(body,ctx);
 		fs1.appendChild(body);
 		section.appendChild(fs1);
+		this.fillStatus(body,ctx);
 		return section;
+	},
+
+	// ubus call qosify get_stats. The reply shape is whatever the installed daemon
+	// emits: the current one adds ebpf_map_entries, last_reload_time, dns_cache and
+	// the classes/dscp/dns tables (qosify_map_stats/_dscp_stats/_dns_stats in
+	// map.c), while the build pinned by OpenWrt 24.10 returns qosify_map_stats() at
+	// the top level -- one table per class, packets only. Nothing is rendered that
+	// the reply does not contain, so an older daemon shows the counters it has
+	// instead of a table of dashes.
+	isCounter:function(v){return !!v&&typeof v==='object'&&(v.packets!=null||v.bytes!=null);},
+	statsNodes:function(st){
+		var out=[],b=null;
+		function tbl(title){
+			var t=E('table',{'class':'qos-kv','width':'100%'});
+			b=E('tbody');
+			t.appendChild(b);
+			out.push(E('div',{'class':'qos-item'},E('strong',{},title)),t);
+		}
+		function row(k,v){
+			b.appendChild(E('tr',{},[E('td',{},k),E('td',{},v)]));
+		}
+		function traffic(e){
+			if(e.bytes==null)return _('%d packets').format(e.packets||0);
+			return _('%d packets, %s').format(e.packets||0,'%1024.2mB'.format(e.bytes));
+		}
+		var head=[];
+		// qosify_map_get_ebpf_entry_count() sums the IPv4 and IPv6 address maps only;
+		// the port maps are fixed 65536-entry arrays and are not counted.
+		if(st.ebpf_map_entries!=null)head.push([_('eBPF IP map entries'),String(st.ebpf_map_entries)]);
+		if(st.last_reload_time)head.push([_('Last reload'),fmtMtime(st.last_reload_time)]);
+		if(st.dns_cache)head.push([_('DNS cache'),_('%d entries, %d hits, %d misses')
+			.format(st.dns_cache.size||0,st.dns_cache.hits||0,st.dns_cache.misses||0)]);
+		if(head.length){
+			tbl(_('Daemon'));
+			head.forEach(function(r){row(r[0],r[1]);});
+		}
+		// Per-class totals are the bar chart above, so only the DSCP table is left.
+		var k,n=0;
+		for(k in st.dscp)n++;
+		if(n){
+			tbl(_('DSCP'));
+			for(k in st.dscp)row(k,traffic(st.dscp[k]||{}));
+		}
+		n=0;
+		for(k in st.dns)n++;
+		if(n){
+			tbl(_('DNS patterns'));
+			for(k in st.dns){
+				var e=st.dns[k]||{};
+				row(k,_('%s, %d hits, %s').format(e.dscp||'-',e.hits||0,traffic(e)));
+			}
+		}
+		return out;
+	},
+
+	// ubus call qosify dump: the entries the daemon is matching on, so a rule that
+	// did not load is visible as an absence rather than having to be inferred.
+	// qosify_map_set_port() in map.c loops start_port..end_port and stores one map
+	// entry per port, so `udp:6881-7000` comes back as 120 entries. Runs of
+	// consecutive ports that agree on type, dscp, source and timeout are shown as
+	// the range they were expanded from; ports arrive in ascending order because
+	// the avl key holds them in network byte order. Nothing else is merged, and a
+	// reply in another order simply does not collapse.
+	// A raw DSCP as a number, or -1 for anything the daemon would not have taken:
+	// __qosify_map_dscp_value() reads a codepoint or a number below 64 and nothing
+	// else, and dscpNum() takes the same bases strtoul(base 0) does.
+	dscpVal:function(v){
+		var s=String(v==null?'':v).replace(/^\+/,'').toUpperCase(),n;
+		if(DSCP_VAL[s]!=null)return DSCP_VAL[s];
+		n=dscpNum(s);
+		return n===null||n>=64?-1:n;
+	},
+	// dump reports an entry's DSCP as the daemon holds it: a codepoint, a raw
+	// value, or a class name -- blobmsg_add_dscp() prints map_class[]->name, with a
+	// leading + where the fallback flag is set. Class names are resolved through
+	// the section that defined them, egress first, both sides already falling back
+	// to `value` in getClasses().
+	dscpRanks:function(){
+		var m={},self=this;
+		this.getClasses().forEach(function(c){m[c.name]=self.dscpVal(c.egress||c.ingress);});
+		return m;
+	},
+	// Ordered by DSCP, highest first, so the classes that matter are at the top and
+	// bulk is at the end. Entries the daemon added itself from a DNS lookup carry a
+	// timeout and no counters of their own, and a DNS-driven config has hundreds of
+	// them, so they follow the entries the config loaded and the MAP_ROWS cut falls
+	// on addresses that come back on the next lookup rather than on the rules.
+	// Ports are collapsed on the way in, where the reply still has them in
+	// ascending order, and ties keep that order afterwards.
+	mapRows:function(entries){
+		var rows=[],dyn=[],cls=this.dscpRanks(),self=this,i,e,n,a,last,rk;
+		for(i=0;i<entries.length;i++){
+			e=entries[i]||{};
+			a=(e.user&&!e.file)?dyn:rows;
+			n=((e.type==='tcp_port'||e.type==='udp_port')&&/^\d+$/.test(String(e.addr)))?parseInt(e.addr,10):null;
+			last=a[a.length-1];
+			if(n!==null&&last&&last.end===n-1&&last.type===e.type&&last.dscp===e.dscp&&
+			   last.file===!!e.file&&last.user===!!e.user&&last.timeout===e.timeout){
+				last.end=n;
+				last.n++;
+				continue;
+			}
+			rk=String(e.dscp==null?'':e.dscp).replace(/^\+/,'');
+			a.push({type:e.type,addr:e.addr,dscp:e.dscp,file:!!e.file,user:!!e.user,
+				timeout:e.timeout,start:n,end:n,n:1,ix:a.length,
+				rk:cls[rk]!=null?cls[rk]:self.dscpVal(rk)});
+		}
+		function byDscp(x,y){return y.rk-x.rk||x.ix-y.ix;}
+		return rows.sort(byDscp).concat(dyn.sort(byDscp));
+	},
+	// dns is the `dns` table of get_stats, keyed by pattern. qosify counts traffic
+	// per entry for DNS patterns only -- qosify_map_dns_stats() sums the per-CPU
+	// pattern_stats map -- while the port and address maps hold a DSCP byte and no
+	// counters at all, so those rows have nothing to show and the class and DSCP
+	// totals in Daemon counters are as far down as the daemon counts.
+	// hits is on the row as well as the packet counters: hits counts the lookups
+	// the pattern matched -- every matching pattern is counted, not just the one
+	// whose DSCP wins -- while packets are accounted in the datapath against the
+	// pattern_id in the address map entry. __qosify_map_set_entry() writes that
+	// entry only where the DSCP changes, which a new address always does, so an
+	// address that was already in the map at the same DSCP keeps the pattern_id
+	// of whatever put it there: hits then move on the pattern while its packets
+	// are counted somewhere else, or not at all.
+	// hasDns false means the running daemon has no per-pattern counters at all --
+	// see refreshCounters() -- so the column goes rather than carrying a dash on
+	// every row. null is "not asked yet" and keeps it; the box is rebuilt on the
+	// next tick anyway.
+	mapNodes:function(entries,dns,hasDns){
+		var tcol=hasDns!==false;
+		var hdr=[E('th',MAP_TH,_('Type')),E('th',MAP_TH,_('Match')),E('th',MAP_TH,_('DSCP')),
+			E('th',MAP_TH,_('Source'))];
+		if(tcol)hdr.push(E('th',MAP_TH,_('Traffic')));
+		hdr.push(E('th',MAP_TH,_('Timeout')));
+		var tbl=E('table',{'class':'table'},E('tr',{'class':'tr table-titles'},hdr));
+		// A pattern with no traffic is left out of the stats reply, so it is zero
+		// rather than unknown -- but only once the reply has a dns table at all.
+		function traffic(r){
+			if(r.type!=='dns'||!dns)return '-';
+			var e=dns[r.addr]||{};
+			if(e.bytes==null)return _('%d hits, %d packets').format(e.hits||0,e.packets||0);
+			return _('%d hits, %d packets, %s').format(e.hits||0,e.packets||0,'%1024.2mB'.format(e.bytes));
+		}
+		var rows=this.mapRows(entries);
+		rows.slice(0,MAP_ROWS).forEach(function(r){
+			var src=[];
+			if(r.file)src.push(_('file'));
+			if(r.user)src.push(_('dynamic'));
+			var td=[E('td',{'class':'td'},r.type||'-'),
+				E('td',{'class':'td'},r.n>1?(r.start+'-'+r.end):String(r.addr!=null?r.addr:'-')),
+				E('td',{'class':'td'},r.dscp||'-'),
+				E('td',{'class':'td'},src.join(', ')||'-')];
+			if(tcol)td.push(E('td',{'class':'td'},traffic(r)));
+			td.push(E('td',{'class':'td'},r.timeout!=null?_('%d s').format(r.timeout):'-'));
+			tbl.appendChild(E('tr',{'class':'tr'},td));
+		});
+		var out=[tbl];
+		// qosify_map_dump() only emits `timeout` for user entries, so every file
+		// entry shows none -- say so once rather than leaving a column of dashes
+		// looking like a failure.
+		if(rows.some(function(r){return r.file&&r.timeout==null;}))
+			out.push(E('div',{'class':'qos-muted'},
+				_('Timeouts apply to dynamic entries only.')));
+		if(!tcol)
+			out.push(E('div',{'class':'qos-muted'},
+				_('The running qosify reports no per-entry counters — its get_stats has no dns table.')));
+		else if(rows.some(function(r){return r.type!=='dns';}))
+			out.push(E('div',{'class':'qos-muted'},
+				_('qosify counts traffic per entry for DNS patterns only.')));
+		out.push(E('div',{'class':'qos-muted'},rows.length>MAP_ROWS
+			?_('Showing %d of %d rows (%d entries). Port ranges are collapsed.').format(MAP_ROWS,rows.length,entries.length)
+			:_('%d rows, %d entries.').format(rows.length,entries.length)));
+		return out;
+	},
+
+	// Two ubus calls and no forks, both read-only: get_stats feeds the chart and
+	// the tables. The map listing is a separate, slower queue entry -- see
+	// installPollers() -- because it is an order of magnitude more data.
+	refreshCounters:function(){
+		var self=this;
+		if(self.currentTab!=='cn'||self._cn)return Promise.resolve();
+		self._cn=true;
+		return Promise.all([
+			L.resolveDefault(callServiceList('qosify'),{}),
+			L.resolveDefault(callQosifyStats(),null)
+		]).then(function(d){
+			var ctx={running:isRunning(d[0]),stats:d[1]};
+			self._cnStats=ctx.running?ctx.stats:null;
+			// 24.10 pins qosify at 2024-09-20 (1501e09), whose get_stats answers with
+			// qosify_map_stats() at the top level: one table per class with packets,
+			// and no dns table anywhere. Master opens the table even when empty, so
+			// its absence is the build, not a quiet period.
+			if(ctx.stats)self._cnDns=ctx.stats.dns!=null;
+			self.fillCounters(ctx);
+		}).finally(function(){self._cn=false;});
+	},
+
+	// The DNS traffic column comes from the counters already on hand, so the
+	// listing costs exactly one call.
+	refreshMapEntries:function(){
+		var self=this;
+		if(self.currentTab!=='cn'||self._cnMap)return Promise.resolve();
+		self._cnMap=true;
+		return L.resolveDefault(callQosifyDump(),null).then(function(r){
+			self.fillMap(r,self._cnStats&&self._cnStats.dns,
+				self._cnDns==null?null:self._cnDns);
+		}).finally(function(){self._cnMap=false;});
+	},
+
+	// initTabGroup() puts data-tab on each menu <li>, so a pane can be taken off
+	// the menu without rebuilding the group. The pane itself stays in the DOM: it
+	// is empty until it is opened.
+	applyTabVisibility:function(root){
+		var li=(root||document).querySelector('ul.cbi-tabmenu > li[data-tab="cn"]');
+		if(li)li.style.display=this.showCounters?'':'none';
+	},
+
+	tabCounters:function(){
+		var section=E('div',{'id':'qos-cn'});
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Daemon counters')),
+			E('div',{'class':'cbi-section-descr'},_('Totals since qosify last reloaded.')),
+			E('div',{'id':'qos-cn-bars'}),
+			E('div',{'class':'qos-muted'},_('Bar length is log-scaled; the figures are exact.')),
+			E('div',{'id':'qos-cn-tbl'}),
+			E('div',{'id':'qos-cn-msg'})
+		]));
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Map entries')),
+			E('div',{'class':'cbi-section-descr'},_('Entries qosify is matching on right now.')),
+			E('div',{'id':'qos-cn-map','class':'qos-scroll'},
+				E('p',{'class':'qos-muted'},E('em',{},_('Reading map entries...'))))
+		]));
+		return section;
+	},
+
+	// Cumulative totals per class, straight from get_stats -- no sampling, so the
+	// numbers are what the daemon has counted since its last reload and nothing is
+	// lost by leaving the tab closed. Bars are scaled against the largest class,
+	// with a sliver kept for any non-zero class so it stays visible beside one that
+	// dwarfs it, and the rows are ordered by size.
+	classTotals:function(st){
+		var cls=st&&st.classes,k,rows=[],names=[],total=0,self=this;
+		if(!cls){
+			cls={};
+			for(k in st)if(self.isCounter(st[k]))cls[k]=st[k];
+		}
+		for(k in cls)if(cls[k].packets!=null)names.push(k);
+		names.sort();
+		names.forEach(function(n,ix){
+			var v=cls[n].packets||0;
+			total+=v;
+			rows.push({name:n,v:v,bytes:cls[n].bytes,color:CN_COLORS[ix%CN_COLORS.length]});
+		});
+		rows.sort(function(a,b){return b.v-a.v||(a.name<b.name?-1:1);});
+		rows.total=total;
+		return rows;
+	},
+
+	// Packet totals per class on a log axis: a bulk class can outweigh voice by
+	// four orders of magnitude, and on a linear axis everything but bulk is a
+	// sliver, so the bar length is log-scaled while the figures beside it stay the
+	// daemon's own. Share is of all packets the daemon has classified.
+	barChart:function(st){
+		var rows=this.classTotals(st),max=0,total=rows.total||0;
+		if(!rows.length)
+			return E('p',{'class':'qos-muted'},E('em',{},_('The daemon reported no per-class counters.')));
+		rows.forEach(function(r){if(r.v>max)max=r.v;});
+		var box=E('div',{'class':'qos-bars'});
+		rows.forEach(function(r){
+			var pct=Math.max(r.v?2:0,max?(Math.log(1+r.v)/Math.log(1+max))*100:0);
+			var share=total?(r.v/total)*100:0;
+			box.appendChild(E('div',{'class':'qos-bar-row','title':r.bytes!=null
+				?_('%s: %d packets, %s').format(r.name,r.v,'%1024.2mB'.format(r.bytes))
+				:_('%s: %d packets').format(r.name,r.v)},[
+				E('div',{'class':'qos-bar-label'},[
+					E('span',{'class':'qos-swatch','style':'background:'+r.color}),
+					E('span',{},r.name)
+				]),
+				E('div',{'class':'qos-bar-track'},
+					E('div',{'class':'qos-bar-fill','style':'width:'+pct.toFixed(1)+'%;background:'+r.color})),
+				E('div',{'class':'qos-bar-val'},[
+					E('span',{'class':'qos-bar-num'},_('%d pkt').format(r.v)),
+					E('span',{'class':'qos-bar-pct'},fmtShare(share))
+				])
+			]));
+		});
+		box.appendChild(E('div',{'class':'qos-bar-row qos-bar-total'},[
+			E('div',{'class':'qos-bar-label'},_('total')),
+			E('div',{'class':'qos-bar-track'}),
+			E('div',{'class':'qos-bar-val'},[
+				E('span',{'class':'qos-bar-num'},_('%d pkt').format(total)),
+				E('span',{'class':'qos-bar-pct'},_('%s%%').format(100))
+			])
+		]));
+		return box;
+	},
+
+	drawBars:function(){
+		var box=$('qos-cn-bars');
+		if(box)dom.content(box,this._cnStats?this.barChart(this._cnStats):'');
+	},
+
+	fillCounters:function(ctx){
+		var msg=$('qos-cn-msg'),tbl=$('qos-cn-tbl');
+		if(!ctx.running){
+			if(tbl)dom.content(tbl,'');
+			this.drawBars();
+			if(msg)dom.content(msg,E('div',{'class':'alert-message warning'},
+				_('qosify is not running. Start from the Overview tab.')));
+			return;
+		}
+		if(msg)dom.content(msg,ctx.stats?'':E('p',{'class':'qos-muted'},
+			E('em',{},_('The daemon returned no counters.'))));
+		this.drawBars();
+		if(tbl)dom.content(tbl,ctx.stats?this.statsNodes(ctx.stats):'');
+	},
+
+	// Rebuilt in place on every tick, so the scroll offset of the box is put back:
+	// losing your place in 200 rows every ten seconds makes it unreadable.
+	fillMap:function(r,dns,hasDns){
+		var box=$('qos-cn-map');
+		if(!box)return;
+		var e=r&&r.entries,top=box.scrollTop;
+		dom.content(box,e&&e.length?this.mapNodes(e,dns,hasDns)
+			:E('p',{'class':'qos-muted'},E('em',{},_('The daemon reported no map entries.'))));
+		box.scrollTop=top;
 	},
 
 	lintAll:function(){
@@ -1299,6 +1897,15 @@ return view.extend({
 		}
 		walk('interface',false);
 		walk('device',true);
+		// qosify.init feeds class then alias to add_class() in that order, so the
+		// sections past the sixteenth slot are the last ones here too.
+		var cls=this.getClasses(),names=cls.map(function(c){return c.name;});
+		cls.forEach(function(c){
+			clsLint(c,names).forEach(function(t){out.push(c.name+': '+t);});
+		});
+		if(cls.length>MAX_CLASSES)
+			out.push(_('%d class and alias sections are defined but qosify holds %d — the last %d are dropped, with every rule that targets them')
+				.format(cls.length,MAX_CLASSES,cls.length-MAX_CLASSES));
 		return out;
 	},
 
@@ -1393,8 +2000,8 @@ return view.extend({
 			notify(_('Error: invalid characters in options fields. Use alphanumeric, spaces, hyphens, dots, colons only.'),'danger');
 			return;
 		}
-		if(bwUp&&!rate.test(bwUp))notify(_('bandwidth_up does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
-		if(bwDn&&!rate.test(bwDn))notify(_('bandwidth_down does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
+		if(bwUp&&!rate.test(bwUp))notify(_('bandwidth_up does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway'),'warning');
+		if(bwDn&&!rate.test(bwDn))notify(_('bandwidth_down does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway'),'warning');
 		if(ovh==='manual'&&ovhB&&!/^\d+$/.test(ovhB)){notify(_('Error: overhead must be a whole number of bytes'),'danger');return;}
 		var en=chk('enabled');
 		if(en&&(!bwUp||!bwDn))notify(_('Note: bandwidth not set — CAKE will run unlimited on that direction.'),'warning');
@@ -1565,6 +2172,7 @@ return view.extend({
 		});
 	},
 
+
 	saveRules:function(){
 		var self=this;
 		var ta=$('qos-rules-ta');
@@ -1573,7 +2181,7 @@ return view.extend({
 		var verr=validateRules(data);
 		if(verr){notify(_('Error: %s').format(verr),'danger');return;}
 		var rwarn=ruleWarn(data,self.getClasses().map(function(c){return c.name;}));
-		return self.confirmFresh(ta,RULES_PATH).then(function(go){
+		return self.confirmFresh(ta,self.rulesPath).then(function(go){
 			if(!go)return null;
 			return self.writeRules(ta,data,rwarn);
 		});
@@ -1583,7 +2191,7 @@ return view.extend({
 		var self=this;
 		self.lock();
 		ui.showModal(_('Saving'),[E('p',{},_('Writing rules and reloading qosify...'))]);
-		return fs.write(RULES_PATH,data).then(function(){
+		return fs.write(self.rulesPath,data).then(function(){
 			return self.applyService();
 		}).then(function(){
 			return self.checkShapingForSave(_('Rules saved'));
@@ -1835,9 +2443,9 @@ return view.extend({
 			L.resolveDefault(callRcList('qosify',true),{}),
 			L.resolveDefault(callQosifyStatus(),{}),
 			L.resolveDefault(fs.stat(UCI_PATH),null),
-			L.resolveDefault(fs.stat(RULES_PATH),null),
+			L.resolveDefault(fs.stat(self.rulesPath),null),
 			withFiles?fs.read(UCI_PATH).catch(function(){return null;}):null,
-			withFiles?fs.read(RULES_PATH).catch(function(){return null;}):null
+			withFiles?fs.read(self.rulesPath).catch(function(){return null;}):null
 		]).then(function(d){
 			var rc=d[1]&&d[1].qosify;
 			var ctx={
@@ -1921,7 +2529,7 @@ return view.extend({
 			self.refreshClasses();
 			return Promise.all([
 				self.reloadEditor('qos-config-ta',UCI_PATH,which==='cfg'),
-				self.reloadEditor('qos-rules-ta',RULES_PATH,which==='rules')
+				self.reloadEditor('qos-rules-ta',self.rulesPath,which==='rules')
 			]);
 		});
 	},
@@ -1947,7 +2555,7 @@ return view.extend({
 	}
 });
 JSEOF
-	[ -s "$VIEW_DIR/main.js" ] || { echo "[ERROR] Failed writing $VIEW_DIR/main.js"; exit 1; }
+	ck "$VIEW_DIR/main.js"
 	cat > "$VIEW_DIR/qosify.css" << 'CSSEOF'
 /* SPDX-License-Identifier: MIT */
 
@@ -2012,6 +2620,14 @@ JSEOF
 	margin: 0 3px 3px 0;
 }
 
+/* Button row under a section table: the table's last row drops its own rule, so
+   the border here continues the ruled look instead of doubling it. */
+.qos-actions {
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: 1px solid var(--border-color-medium, rgba(128, 128, 128, .35));
+}
+
 .qos-ref,
 .qos-qa {
 	margin: 0 0 10px;
@@ -2044,6 +2660,99 @@ JSEOF
 	font-family: var(--font-mono, monospace);
 	font-size: 12px;
 	border: 1px solid var(--border-color-medium, rgba(128, 128, 128, .5));
+}
+
+.qos-scroll {
+	max-height: 24rem;
+	overflow: auto;
+	border: 1px solid rgba(128,128,128,.35);
+	border-radius: 3px;
+	padding: 0 .5em;
+}
+
+.qos-bars {
+	margin: .5em 0 .5em;
+}
+
+.qos-bar-row {
+	display: flex;
+	align-items: center;
+	gap: .75em;
+	padding: .2em .25em;
+	border-radius: 3px;
+}
+
+.qos-bar-row:hover {
+	background: rgba(128,128,128,.08);
+}
+
+.qos-bar-label {
+	flex: 0 0 10em;
+	display: flex;
+	align-items: center;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: monospace;
+}
+
+.qos-swatch {
+	flex: 0 0 auto;
+	display: inline-block;
+	width: .7em;
+	height: .7em;
+	border-radius: 2px;
+	margin-right: .5em;
+}
+
+.qos-bar-track {
+	flex: 1 1 auto;
+	min-width: 4em;
+	height: 1.15em;
+	border-radius: 3px;
+	background: rgba(128,128,128,.14);
+	overflow: hidden;
+}
+
+.qos-bar-fill {
+	height: 100%;
+	border-radius: 3px;
+	opacity: .85;
+}
+
+.qos-bar-val {
+	flex: 0 0 11em;
+	display: flex;
+	justify-content: flex-end;
+	gap: .6em;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.qos-bar-num {
+	font-family: monospace;
+}
+
+.qos-bar-pct {
+	flex: 0 0 3.2em;
+	text-align: right;
+	opacity: .65;
+}
+
+.qos-bar-total {
+	margin-top: .3em;
+	padding-top: .45em;
+	border-top: 1px solid rgba(128,128,128,.3);
+	font-weight: bold;
+}
+
+.qos-bar-total:hover {
+	background: none;
+}
+
+@media (max-width: 600px) {
+	.qos-bar-label { flex-basis: 7em; }
+	.qos-bar-val { flex-basis: 9em; }
 }
 
 .qos-pre {
@@ -2087,7 +2796,7 @@ JSEOF
 	border-radius: 3px;
 }
 CSSEOF
-	[ -s "$VIEW_DIR/qosify.css" ] || { echo "[ERROR] Failed writing $VIEW_DIR/qosify.css"; exit 1; }
+	ck "$VIEW_DIR/qosify.css"
 }
 
 install_keepd() {
@@ -2106,12 +2815,16 @@ install_keepd() {
 /www/luci-static/resources/view/qosify/main.js
 /www/luci-static/resources/view/qosify/qosify.css
 EOF
+	ck /lib/upgrade/keep.d/luci-app-qosify
 }
 
 save_installer() {
 	SRC=$(readlink -f "$0" 2>/dev/null)
 	[ -n "$SRC" ] && [ -f "$SRC" ] || return 0
 	[ "$SRC" = "/root/qosify-luci.sh" ] && return 0
+	# $0 is the shell, not this file, when the script is piped into sh -- only
+	# copy something that really is this installer.
+	grep -q "^VERSION=\"$VERSION\"" "$SRC" 2>/dev/null || return 0
 	cp "$SRC" /root/qosify-luci.sh 2>/dev/null
 	chmod +x /root/qosify-luci.sh 2>/dev/null
 }
@@ -2141,9 +2854,9 @@ install_all() {
 	install_view
 	install_keepd
 	save_installer
-	/etc/init.d/qosify restart 2>/dev/null
-	sleep 1
-	/etc/init.d/qosify reload 2>/dev/null
+	# service_running() in qosify.init waits for the ubus object and calls
+	# reload_service() itself, so restart already pushes the config.
+	/etc/init.d/qosify restart
 	restart_luci_services
 	logger -t qosify-luci "LuCI app installed v$VERSION"
 	echo "[OK] qosify LuCI app installed"
@@ -2154,7 +2867,13 @@ uninstall_all() {
 	echo "===== qosify LuCI Uninstaller ====="
 	/etc/init.d/qosify stop 2>/dev/null
 	/etc/init.d/qosify disable 2>/dev/null
-	sleep 1
+	# qosify removes its own qdiscs on SIGTERM, so cleanup is only useful once the
+	# daemon is gone: wait for its ubus object to disappear instead of guessing.
+	i=0
+	while ubus -t 1 list qosify >/dev/null 2>&1 && [ "$i" -lt 5 ]; do
+		sleep 1
+		i=$((i+1))
+	done
 	if [ -x "$TPL_DIR/cleanup" ]; then
 		"$TPL_DIR/cleanup"
 	else
@@ -2217,5 +2936,5 @@ case "$1" in
 	migrate) migrate_pkg ;;
 	reset) install_templates; force_defaults; /etc/init.d/qosify restart 2>/dev/null ;;
 	files) install_files ;;
-	*) echo "Usage: $0 {install|uninstall|migrate|reset|files}" ;;
+	*) echo "Usage: $0 {install|uninstall|migrate|reset|files}"; exit 1 ;;
 esac
