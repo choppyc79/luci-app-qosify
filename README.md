@@ -5,7 +5,7 @@ LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / 
 
 qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, Status, and Counters — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-Current version: **3.1.7-dev**
+Current version: **3.1.8-dev**
 
 ## Tabs
 

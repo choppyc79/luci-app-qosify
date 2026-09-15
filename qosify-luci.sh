@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.1.7-dev"
+VERSION="3.1.8-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -167,8 +167,8 @@ clear_dev() {
 		tc qdisc del dev "$dev" root 2>/dev/null
 	fi
 
-	# The ifb outlives its parent (a pppoe device going away), so its removal is
-	# not gated on $dev still existing.
+	# An ifb outlives its parent, so this is not gated on $dev still existing.
+	# That only helps a `config device`, whose name survives the netdev.
 	ifb="$(ifb_name "$dev")" || return 0
 	[ -e "/sys/class/net/$ifb" ] || return 0
 
@@ -186,7 +186,11 @@ section_enabled() {
 }
 
 # `config interface` names a netifd interface, not a device; qosify resolves it
-# to the l3 device before touching tc, so resolve it the same way.
+# to .l3_device before touching tc, so resolve it the same way. netifd drops
+# .l3_device when the interface goes down, so a vanished pppoe device leaves no
+# name to derive the ifb from here. qosify clears that one itself: on the next
+# up, interface_start() runs interface_clear_qdisc(), which deletes ifb-<dev>
+# before cmd_add_ingress() creates it again.
 clear_interface() {
 	local cfg="$1"
 	local name dev
@@ -743,9 +747,9 @@ return view.extend({
 		return root;
 	},
 
-	// All three tick at 10 s, each only while its tab is open: Overview is five ubus
+	// All three tick at 10 s, each only while its tab is open: Overview is six ubus
 	// calls and no forks, Status forks qosify-status, which runs tc twice per active
-	// interface, and Counters is one get_stats call. Poll.step() holds the
+	// interface, and Counters is two (service.list, get_stats). Poll.step() holds the
 	// next tick until the promise this returns settles, and refreshStatus() drops an
 	// overlapping call, so a fork slower than the interval skips ticks instead of
 	// stacking up.
@@ -2355,8 +2359,9 @@ return view.extend({
 		}).catch(function(){return null;});
 	},
 
-	// Poll path: five ubus calls, no shell forks, and the parts of the page that
-	// hold user input or focus are patched in place rather than rebuilt.
+	// Poll path: six ubus calls (uci.get and gatherCtx(false)'s five), no shell
+	// forks, and the parts of the page that hold user input or focus are patched
+	// in place rather than rebuilt.
 	refreshOverview:function(){
 		var self=this;
 		self.lock();

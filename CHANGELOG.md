@@ -2,6 +2,20 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.1.8-dev — 2026-09-15
+
+Sync with main v2.9.11 (openwrt-ai review of #9019). Comments only, no functional changes.
+
+- Call counts corrected. A page load is eight ubus calls, not five: `uci.load()` adds a
+  `uci get` to `gatherCtx(true)`'s seven. An Overview tick is six, and a Counters tick is
+  two, not one: `refreshCounters()` issues `service.list` alongside `get_stats`. The
+  `installPollers()` and `refreshOverview()` comments are fixed
+- The cleanup helper's comment claimed the ifb is removed after its parent has gone.
+  `network_get_device` reads `.l3_device`, which netifd drops when the interface goes
+  down, so that only holds for `config device`. For `config interface` qosify clears it
+  itself: `interface_start()` runs `interface_clear_qdisc()`, which deletes `ifb-<dev>`,
+  before `cmd_add_ingress()` recreates it
+
 ## v3.1.7-dev — 2026-09-15
 
 Counters tab: class order follows the tins. No functional changes.
