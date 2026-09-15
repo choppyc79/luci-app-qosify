@@ -2,6 +2,33 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.4.0-dev — 2026-09-15
+
+Whole-app redesign on stock LuCI markup: no on-screen notes, state-aware controls.
+
+- Page title QoSify with a live status strip (Running/Stopped, Shaping N interfaces
+  or Not shaping, Autostart on/off) fed by the Overview, Status and Counters polls;
+  Counters also calls `qosify status` so the shaping count stays current there
+- Overview: Service (status, autostart, uptime, shaped interface names, init
+  script) with the controls merged underneath and disabled when they do not apply;
+  the autostart button now reads `_auto` at click time, fixing a stale handler after
+  a toggle. Shaping splits into General Settings / Link Layer / CAKE Options
+  sub-tabs via `ui.tabs.initTabGroup`. Files is a section grid with status, entry
+  count, size and modified time
+- Config and Rules: Quick Add grid and an editor section titled with the file
+  path, built by a shared `editorSect()` (`spellcheck` off, `wrap` off). Rule class
+  choices show the class DSCP. Tab renamed Rules
+- Status: Interfaces section grid (name, type, device, state, ingress, egress) and a
+  CAKE Statistics section that hides while qosify is stopped
+- Counters: Map Entries becomes DNS Patterns with the count in its title; Source
+  and state strings capitalised; timeouts formatted as durations
+- Advanced: Backup & Restore is one grid with Download and a file picker per file;
+  Defaults is a single form row
+- Removed all help text, section descriptions, reference panels and notes, with
+  `descr()`, `noClassRow()`, `clsDesc()`, `clsLabel()`, `refTable()`, `defsNodes()`,
+  `clsBoxNode()`, `buildCtlSect()`, `updateEnBadge()` and the unused `cakeModes()`
+  fwmark/ingress flags. Empty and error states are short
+
 ## v3.3.2-dev — 2026-09-15
 
 Classification Rules: Quick Add Rule uses the Config tab's layout.
