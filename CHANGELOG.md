@@ -2,6 +2,24 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.3.1-dev — 2026-09-15
+
+Config grids, Counters tables, scrolling Map Entries.
+
+- Quick Add Config is laid out as LuCI section grids (`.table.cbi-section-table`):
+  option names across the top, inputs underneath, split into even tables of up to
+  `QA_COLS` (6) with fixed column widths, so defaults is 5+5, class 4+4 and
+  interface 5+5+5+4. Section type and name share the first grid; the name input
+  is disabled for `config defaults` instead of hidden. Add sits right-aligned below.
+  `qaInput`/`qaSelect`/`qaNum` collect cells and `qaGrid()` builds the tables; the
+  Config Reference still reads the options back out of the panels
+- Counters charts return to the earlier table layout on stock markup: a `.table`
+  with a title row of name, DSCP (classes), bar, Packets, Bytes, Drops (tins) and
+  Share, a `.cbi-progressbar` in the bar column, and a total row. Cells and widths
+  update in place. ECN marks show on hovering a tin row
+- Map Entries sits in a 24rem scroll box again with a pinned header (`MAP_TH`); the
+  scroll offset is kept when the table is rebuilt for a pattern change
+
 ## v3.3.0-dev — 2026-09-15
 
 Whole app on stock LuCI markup; Map Entries jump fixed at its cause.

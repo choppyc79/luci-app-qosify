@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.3.0-dev"
+VERSION="3.3.1-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -322,6 +322,13 @@ var OVH=['none','manual','conservative','ethernet','docsis','pppoe-ptm','bridged
 var ENCAP=['atm','noatm','ptm'];
 var MODES=['diffserv3','diffserv4','diffserv8','besteffort','precedence'];
 var MAP_ROWS=200;
+// Quick Add grids hold at most this many options per table.
+var QA_COLS=6;
+// Map Entries header, pinned inside its scroll box; .table is border-collapse,
+// so an inset shadow stands in for the border the sticky cell drops.
+var MAP_TH={'class':'th','style':'position:sticky;top:0;z-index:1;'+
+	'background:var(--background-color-medium,Canvas);color:var(--text-color-high,CanvasText);'+
+	'box-shadow:inset 0 -1px 0 var(--border-color-medium,rgba(128,128,128,.5))'};
 // Bar length is (row/largest row)^BAR_EXP: the largest row fills the track and a
 // 0.1% row still shows at a tenth of it, so a bulk download does not hide the rest.
 var BAR_EXP=1/3;
@@ -983,6 +990,8 @@ return view.extend({
 		var qacType=E('select',{'class':'cbi-input-select','id':'qac-type','change':function(){self.qacSwitch();}});
 		SECT.forEach(function(o){qacType.appendChild(E('option',{'value':o[0]},o[1]));});
 
+		var qacName=E('input',{'type':'text','class':'cbi-input-text','id':'qac-name','placeholder':_('section name'),'disabled':'disabled'});
+
 		// config defaults — add_defaults() in qosify.init
 		var qadDef=E('div',{'id':'qac-opts-defaults'});
 		this.qaInput(qadDef,'defaults','list','/etc/qosify/*.conf');
@@ -1028,6 +1037,7 @@ return view.extend({
 		this.qaInput(qadIf,'ingress_options','option','triple-isolate');
 		this.qaInput(qadIf,'egress_options','option','triple-isolate wash');
 		this.qaInput(qadIf,'options','option','overhead 44 mpu 84');
+		[qadDef,qadCls,qadIf].forEach(function(p){self.qaGrid(p,p.qaCells);});
 
 		// Reference — option lists read back out of the panels above, so the
 		// reference and the Quick Add form can never disagree.
@@ -1043,12 +1053,9 @@ return view.extend({
 				descr(_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF. Any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero.')),
 				descr(_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).'))
 			]),
-			E('div',{'class':'cbi-section-node'},[
-				valRow(_('Section type'),qacType),
-				valRow(_('Section name'),E('input',{'type':'text','class':'cbi-input-text','id':'qac-name','placeholder':_('section name')}),null,{'id':'qac-nm-w','style':'display:none'}),
-				qadDef,qadCls,qadIf,
-				valRow('',E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd();}},_('Add')))
-			])
+			this.qaGrid(E('div'),[[_('Section type'),qacType],[_('Section name'),qacName]]),
+			qadDef,qadCls,qadIf,
+			E('div',{'class':'right'},E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd();}},_('Add')))
 		]));
 
 		var ta=E('textarea',{'id':'qos-config-ta','class':'cbi-input-textarea','style':'width:100%','rows':28},ctx.cfgRaw||'');
@@ -1087,19 +1094,34 @@ return view.extend({
 	},
 
 	qaId:function(parent,opt){return (parent.id||'qac')+'-'+opt;},
+	// Quick Add fields as LuCI's section grid: option names across the top,
+	// inputs under them. A panel splits into even tables of up to QA_COLS, with
+	// fixed column widths so the tables line up.
+	qaGrid:function(parent,cells){
+		var n=Math.ceil(cells.length/QA_COLS),cols=Math.ceil(cells.length/n),w='width:'+(100/cols).toFixed(2)+'%',i,c;
+		for(i=0;i<cells.length;i+=cols){
+			c=cells.slice(i,i+cols);
+			parent.appendChild(E('table',{'class':'table cbi-section-table'},[
+				E('tr',{'class':'tr cbi-section-table-titles'},c.map(function(x){return E('th',{'class':'th','style':w},x[0]);})),
+				E('tr',{'class':'tr cbi-section-table-row'},c.map(function(x){return E('td',{'class':'td','style':w,'data-title':x[0]},x[1]);}))
+			]));
+		}
+		return parent;
+	},
+	qaCell:function(parent,opt,el){(parent.qaCells=parent.qaCells||[]).push([opt,el]);},
 	qaInput:function(parent,opt,pre,ph){
-		parent.appendChild(valRow(opt,E('input',{
+		this.qaCell(parent,opt,E('input',{
 			'id':this.qaId(parent,opt),'class':'cbi-input-text','data-opt':opt,'data-pre':pre,'type':'text',
 			'value':pre==='list'?ph:'','placeholder':pre==='list'?'':ph
-		})));
+		}));
 	},
 	qaSelect:function(parent,opt,opts){
 		var s=E('select',{'id':this.qaId(parent,opt),'class':'cbi-input-select','data-opt':opt},E('option',{'value':''},'--'));
 		opts.forEach(function(o){s.appendChild(E('option',{'value':o},o));});
-		parent.appendChild(valRow(opt,s));
+		this.qaCell(parent,opt,s);
 	},
 	qaNum:function(parent,opt,ph){
-		parent.appendChild(valRow(opt,E('input',{'id':this.qaId(parent,opt),'class':'cbi-input-text','data-opt':opt,'type':'number','min':'0','placeholder':ph})));
+		this.qaCell(parent,opt,E('input',{'id':this.qaId(parent,opt),'class':'cbi-input-text','data-opt':opt,'type':'number','min':'0','placeholder':ph}));
 	},
 
 	lock:function(){this._n=(this._n||0)+1;},
@@ -1372,9 +1394,9 @@ return view.extend({
 	mapNodes:function(rows,hasDns){
 		var tcol=hasDns!==false,cells=this._mapCells=[];
 		var wcol=rows.some(function(r){return r.timeout!=null;});
-		var hdr=[E('th',{'class':'th'},_('Pattern')),E('th',{'class':'th'},_('DSCP')),E('th',{'class':'th'},_('Source'))];
-		if(tcol)hdr.push(E('th',{'class':'th'},_('Traffic')));
-		if(wcol)hdr.push(E('th',{'class':'th'},_('Timeout')));
+		var hdr=[E('th',MAP_TH,_('Pattern')),E('th',MAP_TH,_('DSCP')),E('th',MAP_TH,_('Source'))];
+		if(tcol)hdr.push(E('th',MAP_TH,_('Traffic')));
+		if(wcol)hdr.push(E('th',MAP_TH,_('Timeout')));
 		var tbl=E('table',{'class':'table'},E('tr',{'class':'tr table-titles'},hdr));
 		rows.slice(0,MAP_ROWS).forEach(function(r){
 			var src=[],c={t:tcol?E('td',{'class':'td','style':'white-space:nowrap'}):null,w:wcol?E('td',{'class':'td'}):null};
@@ -1385,7 +1407,8 @@ return view.extend({
 				E('td',{'class':'td'},r.dscp||'-'),E('td',{'class':'td'},src.join(', ')||'-'),c.t||'',c.w||'']));
 		});
 		this._mapNote=descr('');
-		return [tbl,tcol?'':descr(_('The running qosify reports no per-entry counters — its get_stats has no dns table.')),this._mapNote];
+		return [E('div',{'id':'qos-cn-map-box','style':'max-height:24rem;overflow-y:auto'},tbl),
+			tcol?'':descr(_('The running qosify reports no per-entry counters — its get_stats has no dns table.')),this._mapNote];
 	},
 
 	mapValues:function(rows,total,dns){
@@ -1556,47 +1579,69 @@ return view.extend({
 		});
 	},
 
-	// Status > Overview style: a .table of names and .cbi-progressbar bars, the
-	// figures in the bar title the theme prints above it. Built again only when
-	// the row names change; otherwise widths and text are set in place, so the
-	// bars ease to their new length and nothing under them moves. Length is
-	// (row/largest row)^BAR_EXP, with a non-zero row kept at 1%; the share in
-	// the title stays exact.
-	drawChart:function(box,rows,empty){
-		var total=rows.total||0,max=0,c=box.qosChart,sig,t;
+	// A LuCI .table: name, codepoint where a row has one, a .cbi-progressbar,
+	// then packets, bytes, drops where tc gives them, and share, with a total
+	// row. Built again only when the rows or columns change; otherwise cells and
+	// bar widths are set in place, so the bars ease and nothing below moves.
+	// Length is (row/largest row)^BAR_EXP, a non-zero row kept at 1%.
+	drawChart:function(box,rows,empty,head){
+		var total=rows.total||0,max=0,c=box.qosChart,sig,t,
+			dcol=rows.some(function(r){return r.mark;}),
+			bcol=rows.bytes!=null,
+			xcol=rows.some(function(r){return r.drops!=null;});
 		if(!rows.length){box.qosChart=null;dom.content(box,emP(empty));return;}
 		rows.forEach(function(r){if(r.v>max)max=r.v;});
-		sig=rows.map(function(r){return r.name;}).join('\n');
+		sig=[dcol,bcol,xcol].concat(rows.map(function(r){return r.name;})).join('\n');
+		function td(cls,t){return E('td',{'class':'td'+(cls?' '+cls:''),'data-title':t});}
+		function th(t,cls){return E('th',{'class':'th'+(cls?' '+cls:'')},t);}
+		function set(el,v){if(el&&el.textContent!==v)el.textContent=v;}
 		if(!c||c.sig!==sig){
-			c=box.qosChart={sig:sig,rows:[],total:E('td',{'class':'td left'})};
-			dom.content(box,E('table',{'class':'table'},rows.map(function(){
-				var o={name:E('td',{'class':'td left','width':'33%'}),fill:E('div')};
-				o.bar=E('div',{'class':'cbi-progressbar'},o.fill);
+			var hdr=[th(head)];
+			if(dcol)hdr.push(th(_('DSCP')));
+			hdr.push(th(''),th(_('Packets'),'right'));
+			if(bcol)hdr.push(th(_('Bytes'),'right'));
+			if(xcol)hdr.push(th(_('Drops'),'right'));
+			hdr.push(th(_('Share'),'right'));
+			c=box.qosChart={sig:sig,rows:[]};
+			var trs=rows.map(function(){
+				var o={name:td('left',head),dscp:dcol?td('',_('DSCP')):null,fill:E('div'),
+					pkt:td('right',_('Packets')),bytes:bcol?td('right',_('Bytes')):null,
+					drops:xcol?td('right',_('Drops')):null,share:td('right',_('Share'))};
+				o.tr=E('tr',{'class':'tr'},[o.name,o.dscp||'',
+					E('td',{'class':'td','width':'100%'},E('div',{'class':'cbi-progressbar','style':'margin:0;min-width:6em'},o.fill)),
+					o.pkt,o.bytes||'',o.drops||'',o.share]);
 				c.rows.push(o);
-				return E('tr',{'class':'tr'},[o.name,E('td',{'class':'td left'},o.bar)]);
-			}).concat(E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},E('strong',{},_('total'))),c.total]))));
+				return o.tr;
+			});
+			c.tot={name:E('strong',{},_('total')),pkt:td('right'),bytes:bcol?td('right'):null,drops:xcol?td('right'):null};
+			trs.push(E('tr',{'class':'tr'},[E('td',{'class':'td left'},c.tot.name),dcol?td():'',td(),
+				c.tot.pkt,c.tot.bytes||'',c.tot.drops||'',E('td',{'class':'td right'},_('%s%%').format(100))]));
+			dom.content(box,E('table',{'class':'table'},[E('tr',{'class':'tr table-titles'},hdr)].concat(trs)));
 		}
 		rows.forEach(function(r,i){
 			var o=c.rows[i],share=total?(r.v/total)*100:0,
 				len=max&&r.v?Math.max(Math.pow(r.v/max,BAR_EXP)*100,1):0,
-				f=[_('%d pkt').format(r.v)],n=r.mark?r.name+' ('+r.mark+')':r.name;
-			if(r.bytes!=null)f.push('%1024.2mB'.format(r.bytes));
-			if(r.drops!=null)f.push(_('%d drops, %d ECN marks').format(r.drops,r.marks||0));
-			f=f.join(', ')+' ('+fmtShare(share)+')';
-			if(o.name.textContent!==n)o.name.textContent=n;
-			if(o.bar.title!==f)o.bar.title=f;
+				tip=r.marks!=null?_('%d ECN marks').format(r.marks):'';
+			set(o.name,r.name);
+			set(o.dscp,r.mark||'');
+			set(o.pkt,String(r.v));
+			if(o.bytes)set(o.bytes,'%1024.2mB'.format(r.bytes||0));
+			if(o.drops)set(o.drops,r.drops!=null?String(r.drops):'-');
+			set(o.share,fmtShare(share));
+			if(o.tr.title!==tip)o.tr.title=tip;
 			o.fill.style.width=len.toFixed(2)+'%';
 			o.fill.style.background=r.color;
 		});
-		t=_('%d pkt').format(total)+(rows.bytes!=null?', '+'%1024.2mB'.format(rows.bytes):'');
-		if(c.total.textContent!==t)c.total.textContent=t;
+		set(c.tot.pkt,String(total));
+		if(c.tot.bytes)set(c.tot.bytes,'%1024.2mB'.format(rows.bytes));
+		if(c.tot.drops)set(c.tot.drops,String(rows.reduce(function(t,r){return t+(r.drops||0);},0)));
 	},
 
 	drawBars:function(){
 		var st=this._cnStats,box=$('qos-cn-bars'),n=$('qos-cn-note'),cm=this.cakeModes(),
 			mode=cm.modes.length===1?cm.modes[0]:null,note=[];
 		if(box){
-			if(st)this.drawChart(box,this.classTotals(st,mode),_('The daemon reported no per-class counters.'));
+			if(st)this.drawChart(box,this.classTotals(st,mode),_('The daemon reported no per-class counters.'),_('Class'));
 			else{box.qosChart=null;dom.content(box,'');}
 		}
 		if(st&&cm.ingress)note.push(_('qosify classifies ingress even where ingress is 0, so these totals include traffic CAKE never sees.'));
@@ -1625,7 +1670,7 @@ return view.extend({
 			box.qosGroups=t.length;
 			dom.content(box,t.map(function(){return E('div');}));
 		}
-		t.forEach(function(rows,i){self.drawChart(box.childNodes[i],rows,'');});
+		t.forEach(function(rows,i){self.drawChart(box.childNodes[i],rows,'',_('Tin'));});
 	},
 
 	fillCounters:function(ctx){
@@ -1657,8 +1702,11 @@ return view.extend({
 		}
 		sig=this.mapSig(rows,hasDns);
 		if(sig!==this._mapSig){
+			t=$('qos-cn-map-box');
+			t=t?t.scrollTop:0;
 			this._mapSig=sig;
 			dom.content(box,this.mapNodes(rows,hasDns));
+			$('qos-cn-map-box').scrollTop=t;
 		}
 		this.mapValues(rows,e.length,dns);
 	},
@@ -2161,7 +2209,7 @@ return view.extend({
 			var el=$('qac-opts-'+x);
 			if(el)el.style.display=(x===p)?'':'none';
 		});
-		$('qac-nm-w').style.display=(ty==='defaults')?'none':'';
+		$('qac-name').disabled=ty==='defaults'||this.readonly;
 	},
 
 	qacAdd:function(){
