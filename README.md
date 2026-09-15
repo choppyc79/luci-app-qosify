@@ -7,7 +7,7 @@ qosify is a daemon that sets up and manages CAKE together with an eBPF classifie
 
 The page is built from stock LuCI markup only — `.table` rows as on Status → Overview, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids, `.cbi-progressbar` bars and plain `pre`/`textarea` — and ships no stylesheet, so it looks like the rest of LuCI and follows whichever theme is active.
 
-Current version: **3.3.1-dev**
+Current version: **3.3.2-dev**
 
 ## Tabs
 
@@ -22,7 +22,7 @@ Inline editor for `/etc/config/qosify`, with a **Quick Add Config** form, laid o
 The editor lints as you go and flags keys the daemon will silently drop — an interface section with no `name`, `nat` set without `host_isolate` (qosify only emits `nat`/`nonat` inside the host isolate branch), `overhead`/`overhead_encap` set while `overhead_type` is not `manual`, both directions disabled, missing bandwidth, shell metacharacters in values, and booleans that do not survive the daemon's conversion — `option nat 'true'` reaches qosify through `json_add_boolean`, which uses `!!atoi()`, so it means *off*.
 
 ### Classification Rules
-Editor for `/etc/qosify/00-defaults.conf`. The **Quick Add Rule** form covers every qosify match type: `tcp:`, `udp:`, both, `dns:` patterns, `dns:/` regex, `dns_c:` CNAME-only patterns and regex, and IPv4/IPv6 addresses, with an "only if unset" toggle for the `+` prefix. Ports are range-checked to 1–65534 (qosify rejects 65535), `#` and whitespace are blocked in patterns, CIDR is rejected, and rule targets are checked against the classes actually defined in the UCI config. Raw DSCP values are read the way the daemon reads them (`strtoul` base 0, so `077` is 63) and flagged if ≥ 64. Lines with no DSCP target are reported as lines qosify will skip rather than blocking the save.
+Editor for `/etc/qosify/00-defaults.conf`. The **Quick Add Rule** form, in the same section grid as Quick Add Config, covers every qosify match type: `tcp:`, `udp:`, both, `dns:` patterns, `dns:/` regex, `dns_c:` CNAME-only patterns and regex, and IPv4/IPv6 addresses, with an "only if unset" toggle for the `+` prefix. Ports are range-checked to 1–65534 (qosify rejects 65535), `#` and whitespace are blocked in patterns, CIDR is rejected, and rule targets are checked against the classes actually defined in the UCI config. Raw DSCP values are read the way the daemon reads them (`strtoul` base 0, so `077` is 63) and flagged if ≥ 64. Lines with no DSCP target are reported as lines qosify will skip rather than blocking the save.
 
 ### Status
 A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. The tab fetches as soon as it is opened, the summary appears before the `tc` output it does not depend on, and the output is updated in place, so the page does not move on a refresh. Polled at LuCI's refresh interval (`luci.main.pollinterval`, 5 seconds by default) and paused with LuCI's own refresh toggle, only while the tab is open — a tick that would overlap a still-running `qosify-status` is skipped rather than queued.

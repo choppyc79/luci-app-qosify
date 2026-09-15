@@ -2,6 +2,15 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.3.2-dev — 2026-09-15
+
+Classification Rules: Quick Add Rule uses the Config tab's layout.
+
+- Match type, Match, Class and "only if unset (+)" sit across the top of one
+  `qaGrid()` section grid with their inputs underneath, and Add is right-aligned
+  below, as on Quick Add Config. Both tabs now read: Quick Add fieldset with its
+  reference in `details` and the grid, then the editor fieldset
+
 ## v3.3.1-dev — 2026-09-15
 
 Config grids, Counters tables, scrolling Map Entries.

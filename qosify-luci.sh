@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.3.1-dev"
+VERSION="3.3.2-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -1213,13 +1213,13 @@ return view.extend({
 					?classes.map(function(c){return kvRow(clsLabel(c),clsDesc(c));}):noClassRow())),
 				descr(_('Prefix with + to override only when the DSCP field is zero. Ports: tcp:443, udp:3074, ranges: tcp:5060-5061 (1-65534). DNS: dns:*teams*, regex: dns:/zoom[0-9]+, CNAME-only: dns_c:. IP: 1.1.1.1, ff01::1'))
 			]),
-			E('div',{'class':'cbi-section-node'},[
-				valRow(_('Match type'),qarType),
-				valRow(_('Match'),E('input',{'type':'text','class':'cbi-input-text','id':'qar-val','placeholder':_('e.g. %s').format('4500')})),
-				valRow(_('Class'),qarCls),
-				valRow(_('only if unset (+)'),E('input',{'type':'checkbox','class':'cbi-input-checkbox','id':'qar-prio'})),
-				valRow('',E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},_('Add')))
-			])
+			this.qaGrid(E('div'),[
+				[_('Match type'),qarType],
+				[_('Match'),E('input',{'type':'text','class':'cbi-input-text','id':'qar-val','placeholder':_('e.g. %s').format('4500')})],
+				[_('Class'),qarCls],
+				[_('only if unset (+)'),E('input',{'type':'checkbox','class':'cbi-input-checkbox','id':'qar-prio'})]
+			]),
+			E('div',{'class':'right'},E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},_('Add')))
 		]));
 
 		var ta=E('textarea',{'id':'qos-rules-ta','class':'cbi-input-textarea','style':'width:100%','rows':28},ctx.rulesText||'');
