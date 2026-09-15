@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.2-dev"
+VERSION="3.2.3-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -322,6 +322,9 @@ var OVH=['none','manual','conservative','ethernet','docsis','pppoe-ptm','bridged
 var ENCAP=['atm','noatm','ptm'];
 var MODES=['diffserv3','diffserv4','diffserv8','besteffort','precedence'];
 var MAP_ROWS=200;
+// Bar length is (row/largest row)^BAR_EXP: the largest row fills the track and a
+// 0.1% row still shows at a tenth of it, so a bulk download does not hide the rest.
+var BAR_EXP=1/3;
 // codepoints[] in map.c.
 var DSCP_VAL={CS0:0,DF:0,LE:1,CS1:8,AF11:10,AF12:12,AF13:14,CS2:16,AF21:18,AF22:20,
 	AF23:22,CS3:24,AF31:26,AF32:28,AF33:30,CS4:32,AF41:34,AF42:36,AF43:38,CS5:40,
@@ -334,6 +337,8 @@ function dscpRank(v){return v<0?-1000:DSCP_BULK[v]?v-100:v===46?100:v;}
 // Map entries header, pinned. Inline because qosify.css is served without a
 // cache-busting query, and .table is border-collapse, so the cells carry sticky
 // and an inset shadow stands in for the dropped border.
+// Map entries figures, updated in place, so digits keep their width.
+var MAP_NUM={'class':'td','style':'white-space:nowrap;font-variant-numeric:tabular-nums'};
 var MAP_TH={'class':'th','style':'position:sticky;top:0;z-index:3;'+
 	'background:var(--background-color-medium,Canvas);color:var(--text-color-high,CanvasText);'+
 	'box-shadow:inset 0 -1px 0 var(--border-color-medium,rgba(128,128,128,.5))'};
@@ -1438,41 +1443,33 @@ return view.extend({
 	// daemon has no such table (24.10) and the column goes; null is not asked yet.
 	// hits counts every matching lookup, packets the pattern_id in the address map
 	// entry, which __qosify_map_set_entry() only writes when the DSCP changes.
-	// The signature skips a rebuild of an unchanged listing, which would drop a
-	// text selection.
-	mapSig:function(rows,total,dns,hasDns){
-		var out=[total,rows.length,hasDns].join('|'),i,r,t;
+	// The signature covers the listing's shape only; while it holds, the traffic
+	// and timeout cells are patched in place, so the box neither redraws nor
+	// moves and a text selection survives.
+	mapSig:function(rows,total,hasDns){
+		var out=[total,rows.length,hasDns].join('|'),i,r;
 		for(i=0;i<rows.length&&i<MAP_ROWS;i++){
-			r=rows[i];t=(dns&&dns[r.addr])||{};
-			out+='\n'+[r.addr,r.dscp,r.file,r.user,r.timeout,t.hits,t.packets,t.bytes].join(',');
+			r=rows[i];
+			out+='\n'+[r.addr,r.dscp,r.file,r.user,r.timeout!=null].join(',');
 		}
 		return out;
 	},
 
 	// qosify_map_dump() emits timeout for user entries only; no column without one.
-	mapNodes:function(rows,total,dns,hasDns){
-		var tcol=hasDns!==false;
+	mapNodes:function(rows,total,hasDns){
+		var tcol=hasDns!==false,cells=this._mapCells=[];
 		var wcol=rows.some(function(r){return r.timeout!=null;});
 		var hdr=[E('th',MAP_TH,_('Pattern')),E('th',MAP_TH,_('DSCP')),E('th',MAP_TH,_('Source'))];
 		if(tcol)hdr.push(E('th',MAP_TH,_('Traffic')));
 		if(wcol)hdr.push(E('th',MAP_TH,_('Timeout')));
 		var tbl=E('table',{'class':'table'},E('tr',{'class':'tr table-titles'},hdr));
-		function traffic(r){
-			if(!dns)return '-';
-			var e=dns[r.addr]||{};
-			if(e.bytes==null)return _('%d hits, %d packets').format(e.hits||0,e.packets||0);
-			return _('%d hits, %d packets, %s').format(e.hits||0,e.packets||0,'%1024.2mB'.format(e.bytes));
-		}
 		rows.slice(0,MAP_ROWS).forEach(function(r){
-			var src=[];
+			var src=[],c={t:tcol?E('td',MAP_NUM):null,w:wcol?E('td',MAP_NUM):null};
 			if(r.file)src.push(_('file'));
 			if(r.user)src.push(_('dynamic'));
-			var td=[E('td',{'class':'td'},String(r.addr!=null?r.addr:'-')),
-				E('td',{'class':'td'},r.dscp||'-'),
-				E('td',{'class':'td'},src.join(', ')||'-')];
-			if(tcol)td.push(E('td',{'class':'td'},traffic(r)));
-			if(wcol)td.push(E('td',{'class':'td'},r.timeout!=null?_('%d s').format(r.timeout):'-'));
-			tbl.appendChild(E('tr',{'class':'tr'},td));
+			cells.push(c);
+			tbl.appendChild(E('tr',{'class':'tr'},[E('td',{'class':'td'},String(r.addr!=null?r.addr:'-')),
+				E('td',{'class':'td'},r.dscp||'-'),E('td',{'class':'td'},src.join(', ')||'-'),c.t||'',c.w||'']));
 		});
 		var out=[tbl];
 		if(!tcol)
@@ -1482,6 +1479,17 @@ return view.extend({
 			?_('Showing %d of %d DNS patterns, out of %d map entries. Port and address entries are not listed — qosify keeps no per-entry counters for them.').format(MAP_ROWS,rows.length,total)
 			:_('%d DNS patterns, out of %d map entries. Port and address entries are not listed — qosify keeps no per-entry counters for them.').format(rows.length,total)));
 		return out;
+	},
+
+	mapValues:function(rows,dns){
+		(this._mapCells||[]).forEach(function(c,i){
+			var r=rows[i],e=(dns&&dns[r.addr])||{},t,w;
+			t=!dns?'-':e.bytes==null?_('%d hits, %d packets').format(e.hits||0,e.packets||0)
+				:_('%d hits, %d packets, %s').format(e.hits||0,e.packets||0,'%1024.2mB'.format(e.bytes));
+			w=r.timeout!=null?_('%d s').format(r.timeout):'-';
+			if(c.t&&c.t.textContent!==t)c.t.textContent=t;
+			if(c.w&&c.w.textContent!==w)c.w.textContent=w;
+		});
 	},
 
 	// One service list and one get_stats, then dump alongside qosify-status: the
@@ -1597,9 +1605,11 @@ return view.extend({
 	// qosify-status, as the Status tab prints it: tc -s qdisc for each shaped
 	// direction. q_cake.c prints a column per tin in tin_order, lowest priority
 	// first, so a column is a TIN_COLORS index; rows are reversed to put the
-	// highest priority tin first, as the class bars are.
+	// highest priority tin first, as the class bars are. Qdiscs running the same
+	// mode are summed tin by tin into one chart, egress and ingress together; a
+	// mode only one direction runs gets a chart of its own.
 	cakeTins:function(txt){
-		var out=[],who='',dir='',b=null;
+		var blk=[],grp=[],key={},who='',dir='',b=null;
 		String(txt||'').split('\n').forEach(function(l){
 			var m,w;
 			if((m=l.match(/^===== (?:interface|device) (\S+): /))){who=m[1];b=null;}
@@ -1607,31 +1617,41 @@ return view.extend({
 			else if(/^qdisc /.test(l)){
 				w=l.split(/\s+/).filter(function(x){return MODES.indexOf(x)>=0;});
 				b=/^qdisc cake /.test(l)?{title:who+' '+dir,mode:w.pop()}:null;
-				if(b)out.push(b);
+				if(b)blk.push(b);
 			}
 			else if(b&&!b.names&&/^\s+(Bulk|Tin 0)\b/.test(l))b.names=l.trim().split(/\s{2,}/);
 			else if(b&&b.names&&(m=l.match(/^  (pkts|bytes|drops|marks)\s+(.*)$/)))
 				b[m[1]]=m[2].trim().split(/\s+/).map(Number);
 		});
-		return out.filter(function(b){return b.names&&b.pkts;}).map(function(b){
-			var c=TIN_COLORS[b.mode],n=b.names.length,rows=b.names.map(function(t,i){
-				var r={name:t,v:b.pkts[i]||0,bytes:b.bytes?b.bytes[i]||0:null,
-					drops:b.drops?b.drops[i]||0:null,marks:b.marks?b.marks[i]||0:null,
+		blk.forEach(function(b){
+			if(!b.names||!b.pkts)return;
+			var k=b.mode+'|'+b.names.join('|'),g=key[k];
+			if(!g)grp.push(g=key[k]={mode:b.mode,names:b.names,from:[],pkts:[],bytes:[],drops:[],marks:[]});
+			g.from.push(b.title);
+			['pkts','bytes','drops','marks'].forEach(function(f){
+				if(!b[f])g[f]=null;
+				else if(g[f])b[f].forEach(function(v,i){g[f][i]=(g[f][i]||0)+v;});
+			});
+		});
+		return grp.map(function(g){
+			var c=TIN_COLORS[g.mode],n=g.names.length,rows=g.names.map(function(t,i){
+				var r={name:t,v:g.pkts[i]||0,bytes:g.bytes?g.bytes[i]||0:null,
+					drops:g.drops?g.drops[i]||0:null,marks:g.marks?g.marks[i]||0:null,
 					color:c&&c.length===n?c[i]:CN_COLORS[i%CN_COLORS.length]};
 				r.mark=r.drops?_('%d drops').format(r.drops):'';
 				return r;
 			}).reverse();
 			rows.total=rows.reduce(function(t,r){return t+r.v;},0);
-			rows.bytes=b.bytes?rows.reduce(function(t,r){return t+r.bytes;},0):null;
-			rows.title=b.title;
+			rows.bytes=g.bytes?rows.reduce(function(t,r){return t+r.bytes;},0):null;
+			rows.from=g.from;
 			return rows;
 		});
 	},
 
-	// Bar length is the row's share of the total, the figure printed beside it,
-	// so a view's bars add up to one track. A non-zero row keeps a 2px sliver.
+	// Bar length follows BAR_EXP against the largest row; the share column stays
+	// exact. A non-zero row keeps a 2px sliver.
 	barChart:function(rows,empty,head){
-		var total=rows.total||0;
+		var total=rows.total||0,max=rows.reduce(function(m,r){return Math.max(m,r.v);},0);
 		if(!rows.length)
 			return E('p',{'class':'qos-muted'},E('em',{},empty));
 		var box=E('div',{'class':'qos-bars'});
@@ -1645,7 +1665,7 @@ return view.extend({
 			])
 		]));
 		rows.forEach(function(r){
-			var share=total?(r.v/total)*100:0;
+			var share=total?(r.v/total)*100:0,len=max?Math.pow(r.v/max,BAR_EXP)*100:0;
 			var tip=r.bytes!=null?_('%s: %d packets, %s').format(r.name,r.v,'%1024.2mB'.format(r.bytes))
 				:_('%s: %d packets').format(r.name,r.v);
 			if(r.drops!=null)tip+=', '+_('%d drops, %d ECN marks').format(r.drops,r.marks||0);
@@ -1656,7 +1676,7 @@ return view.extend({
 					r.mark?E('span',{'class':'qos-mark'},r.mark):''
 				]),
 				E('div',{'class':'qos-bar-track'},r.v?
-					E('div',{'class':'qos-bar-fill','style':'width:'+share.toFixed(2)+'%;background:'+r.color}):''),
+					E('div',{'class':'qos-bar-fill','style':'width:'+len.toFixed(2)+'%;background:'+r.color}):''),
 				E('div',{'class':'qos-bar-val'},[
 					E('span',{'class':'qos-bar-num'},_('%d pkt').format(r.v)),
 					r.bytes!=null?E('span',{'class':'qos-bar-bytes'},'%1024.2mB'.format(r.bytes)):'',
@@ -1687,15 +1707,20 @@ return view.extend({
 
 	// CAKE's own per-tin counters, per qdisc since it was created, so they need
 	// not add up to the class totals, which count what the classifier matched.
+	// A fork that fails keeps the last charts rather than collapsing the section.
 	fillTins:function(running,r){
 		var sect=$('qos-cn-tin-sect'),box=$('qos-cn-tins'),self=this,t;
 		if(!sect||!box)return;
 		sect.style.display=running?'':'none';
 		if(!running)return;
+		if(!this.readonly&&!r&&this._tinOk)return;
 		t=this.readonly?[]:this.cakeTins(r&&r.stdout);
-		dom.content(box,t.length?t.map(function(rows){return self.barChart(rows,'',rows.title);})
-			:E('p',{'class':'qos-muted'},E('em',{},this.readonly?_('The CAKE tin counters need write access to this page.')
-				:r&&r.stdout?_('qosify-status shows no CAKE tin statistics.'):_('qosify-status returned no output.'))));
+		this._tinOk=t.length>0;
+		dom.content(box,t.length?t.map(function(rows){
+			return E('div',{},[self.barChart(rows,'',_('tin')),
+				E('div',{'class':'qos-muted'},_('Qdiscs: %s').format(rows.from.join(', ')))]);
+		}):E('p',{'class':'qos-muted'},E('em',{},this.readonly?_('The CAKE tin counters need write access to this page.')
+			:r&&r.stdout?_('qosify-status shows no CAKE tin statistics.'):_('qosify-status returned no output.'))));
 	},
 
 	fillCounters:function(ctx){
@@ -1713,20 +1738,23 @@ return view.extend({
 		if(info)dom.content(info,ctx.stats?this.infoNodes(ctx.stats):'');
 	},
 
-	// Rebuilt in place with the scroll offset put back.
+	// Rebuilt only when the listing's shape changes, with the scroll offset put
+	// back; otherwise just the figures are rewritten.
 	fillMap:function(r,dns,hasDns){
 		var box=$('qos-cn-map');
 		if(!box)return;
-		var e=(r&&r.entries)||[],rows=this.mapRows(e);
-		var sig=this.mapSig(rows,e.length,dns,hasDns);
-		if(sig===this._mapSig)return;
-		this._mapSig=sig;
-		var top=box.scrollTop;
-		dom.content(box,rows.length?this.mapNodes(rows,e.length,dns,hasDns)
-			:E('p',{'class':'qos-muted'},E('em',{},e.length
-				?_('qosify is matching %d map entries, none of them DNS patterns.').format(e.length)
-				:_('The daemon reported no map entries.'))));
-		box.scrollTop=top;
+		var e=(r&&r.entries)||[],rows=this.mapRows(e),sig=this.mapSig(rows,e.length,hasDns),top;
+		if(sig!==this._mapSig){
+			this._mapSig=sig;
+			this._mapCells=null;
+			top=box.scrollTop;
+			dom.content(box,rows.length?this.mapNodes(rows,e.length,hasDns)
+				:E('p',{'class':'qos-muted'},E('em',{},e.length
+					?_('qosify is matching %d map entries, none of them DNS patterns.').format(e.length)
+					:_('The daemon reported no map entries.'))));
+			box.scrollTop=top;
+		}
+		this.mapValues(rows,dns);
 	},
 
 	lintAll:function(){

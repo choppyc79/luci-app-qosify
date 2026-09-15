@@ -2,6 +2,23 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.2.3-dev — 2026-09-15
+
+Counters: one tin chart, steady Map Entries, visible small bars.
+
+- Traffic by CAKE Tin sums egress and ingress tin by tin into one chart, with the
+  qdiscs it covers listed underneath. Qdiscs only group when their CAKE mode and tin
+  row match; a direction running another mode gets its own chart. A tick where the
+  `qosify-status` fork fails keeps the last chart instead of collapsing the section
+- Map Entries no longer jumps on refresh. `mapSig()` covers the listing's shape only
+  (patterns, codepoints, sources, which rows carry a timeout); while it holds,
+  `mapValues()` rewrites the traffic and timeout cells in place. Those cells are
+  `nowrap` with tabular digits so a changing figure does not resize its column
+- Bar length is `(row / largest row)^BAR_EXP`, with `BAR_EXP` 1/3, in both charts.
+  A large download fills the track while a row at 1% of it draws at about a fifth,
+  and 0.1% at a tenth, where the share-scaled bars left it a 2px sliver. The share
+  column is unchanged
+
 ## v3.2.2-dev — 2026-09-15
 
 Counters: Traffic by CAKE Tin is `qosify-status` in graph form.
