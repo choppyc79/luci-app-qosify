@@ -5,7 +5,7 @@ LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / 
 
 qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, Status, and Counters — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-Current version: **3.1.8-dev**
+Current version: **3.2.0-dev**
 
 ## Tabs
 
@@ -31,7 +31,7 @@ A per-interface summary from `ubus call qosify status` — active state, resolve
 ### Counters
 Off the tab bar until **Advanced → Display → Counters tab** is ticked (kept in the browser, not in UCI) or the page is opened at `#counters`. Everything here is read over ubus with no forks, so it works with read-only access.
 
-**Traffic by Class** shows the per-class packet totals from `ubus call qosify get_stats` as log-scaled bars, with exact packets, bytes and share beside each bar and a total row. Each class is grouped and coloured by the CAKE tin its egress codepoint lands in, highest priority tin first and by codepoint within a tin, matching the tin bars: red bulk, blue best effort, yellow video and green voice, with the extra diffserv8 and precedence tins in their own colours. When the shaped sections do not share one mode, classes fall back to a colour per name. They are totals since qosify last reloaded, not rates, so nothing is lost while the tab is closed. **Daemon** lists the eBPF IP map entry count, last reload time and DNS cache figures where the running daemon reports them. The qosify OpenWrt 24.10 ships returns per-class packets only, and the tab shows just that.
+**Traffic by Class** shows the per-class packet totals from `ubus call qosify get_stats` as bars sized by their share of the total, with exact packets, bytes and share beside each bar and a total row. Each class is grouped and coloured by the CAKE tin its egress codepoint lands in, highest priority tin first and by codepoint within a tin, matching the tin bars: red bulk, blue best effort, yellow video and green voice, with the extra diffserv8 and precedence tins in their own colours. When the shaped sections do not share one mode, classes fall back to a colour per name. They are totals since qosify last reloaded, not rates, so nothing is lost while the tab is closed. **Daemon** lists the eBPF IP map entry count, last reload time and DNS cache figures where the running daemon reports them. The qosify OpenWrt 24.10 ships returns per-class packets only, and the tab shows just that.
 
 **Traffic by CAKE Tin** is the view that lines up with the Status tab. Class totals count the rule a packet matched; this counts the DSCP it actually carries into CAKE, after `dscp_prio` and `dscp_bulk` re-marking, from the `get_stats` `dscp` table, folded into the tins of the section's CAKE mode, highest priority first — the order `sch_cake.c` lists its classes in, and the reverse of the `qosify-status` columns. The mode is the last one `tc` sees across `mode`, `options` and the direction's own options. The figures are summed over both directions and every shaped interface since qosify started, while `qosify-status` counts per qdisc from when it was created, so compare them after a restart. Notes appear when sections run different modes, when ingress is classified but not shaped, or when `fwmark` lets firewall marks choose the tin. The section is left out on 24.10, whose `get_stats` has no `dscp` table.
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.1.8-dev"
+VERSION="3.2.0-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -748,11 +748,11 @@ return view.extend({
 	},
 
 	// All three tick at 10 s, each only while its tab is open: Overview is six ubus
-	// calls and no forks, Status forks qosify-status, which runs tc twice per active
-	// interface, and Counters is two (service.list, get_stats). Poll.step() holds the
-	// next tick until the promise this returns settles, and refreshStatus() drops an
-	// overlapping call, so a fork slower than the interval skips ticks instead of
-	// stacking up.
+	// calls (eight on the first tick after qosify starts) and no forks, Status forks
+	// qosify-status, which runs tc twice per active interface, and Counters is two
+	// (service.list, get_stats). Poll.step() holds the next tick until the promise
+	// this returns settles, and refreshStatus() drops an overlapping call, so a fork
+	// slower than the interval skips ticks instead of stacking up.
 	installPollers:function(){
 		var self=this;
 		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();},10);
@@ -797,11 +797,10 @@ return view.extend({
 		}
 		function chk(name,val){return E('input',{'type':'checkbox','id':'q-'+name,'data-q':name,'checked':val?'checked':null});}
 		function txt(name,val,ph,style){return E('input',{'type':'text','id':'q-'+name,'data-q':name,'value':val||'','placeholder':ph||'','style':style||'width:140px;font-family:monospace'});}
-		function sel(name,val,opts,style,def,hint){
+		function sel(name,val,opts,style,def){
 			val=qv(val);
 			var s=E('select',{'id':'q-'+name,'data-q':name,'style':style||'width:180px'});
-			if(!def)s.appendChild(E('option',{'value':''},hint?'-- ('+hint+')':'--'));
-			var sv=val||def||'',known=false;
+			var sv=val||def,known=false;
 			opts.forEach(function(o){var a={'value':o};if(sv===o){a.selected='selected';known=true;}s.appendChild(E('option',a,o));});
 			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},_('%s (current)').format(val)));
 			return s;
@@ -828,7 +827,7 @@ return view.extend({
 		row(_('Overhead Type'),sel('overhead',w.overhead_type,OVH,'width:180px','none'));
 		row(_('Overhead Bytes'),[txt('overhead_b',w.overhead,_('manual only'),'width:100px'),
 			E('span',{'style':'opacity:.6;font-size:11px;margin-left:8px'},_('used only when Overhead Type is manual'))]);
-		row(_('Queue Mode'),sel('mode',w.mode,MODES,'width:170px',null,'diffserv4'));
+		row(_('Queue Mode'),sel('mode',w.mode,MODES,'width:170px','diffserv4'));
 		row(_('Ingress'),chk('ingress',numBool(w.ingress,true)));
 		row(_('Egress'),chk('egress',numBool(w.egress,true)));
 		// CAKE is only given nat/nonat when host_isolate is on; otherwise it gets
@@ -1670,13 +1669,12 @@ return view.extend({
 		return rows;
 	},
 
-	// Bar length is log-scaled, since bulk can outweigh voice by orders of
-	// magnitude; the figures beside it are the daemon's own.
+	// Bar length is the row's share of the total, the figure printed beside it,
+	// so a view's bars add up to one track. A non-zero row keeps a 2px sliver.
 	barChart:function(rows,empty,head){
-		var max=0,total=rows.total||0;
+		var total=rows.total||0;
 		if(!rows.length)
 			return E('p',{'class':'qos-muted'},E('em',{},empty));
-		rows.forEach(function(r){if(r.v>max)max=r.v;});
 		var box=E('div',{'class':'qos-bars'});
 		box.appendChild(E('div',{'class':'qos-bar-row qos-bar-head'},[
 			E('div',{'class':'qos-bar-label'},head),
@@ -1688,7 +1686,6 @@ return view.extend({
 			])
 		]));
 		rows.forEach(function(r){
-			var pct=Math.max(r.v?2:0,max?(Math.log(1+r.v)/Math.log(1+max))*100:0);
 			var share=total?(r.v/total)*100:0;
 			box.appendChild(E('div',{'class':'qos-bar-row','title':r.bytes!=null
 				?_('%s: %d packets, %s').format(r.name,r.v,'%1024.2mB'.format(r.bytes))
@@ -1698,8 +1695,8 @@ return view.extend({
 					E('span',{'class':'qos-bar-name','title':r.name},r.name),
 					r.mark?E('span',{'class':'qos-mark'},r.mark):''
 				]),
-				E('div',{'class':'qos-bar-track'},
-					E('div',{'class':'qos-bar-fill','style':'width:'+pct.toFixed(1)+'%;background:'+r.color})),
+				E('div',{'class':'qos-bar-track'},r.v?
+					E('div',{'class':'qos-bar-fill','style':'width:'+share.toFixed(2)+'%;background:'+r.color}):''),
 				E('div',{'class':'qos-bar-val'},[
 					E('span',{'class':'qos-bar-num'},_('%d pkt').format(r.v)),
 					r.bytes!=null?E('span',{'class':'qos-bar-bytes'},'%1024.2mB'.format(r.bytes)):'',
@@ -2359,7 +2356,8 @@ return view.extend({
 		}).catch(function(){return null;});
 	},
 
-	// Poll path: six ubus calls (uci.get and gatherCtx(false)'s five), no shell
+	// Poll path: six ubus calls (uci.get and gatherCtx(false)'s five), plus
+	// uptime()'s two /proc reads the first tick after qosify starts, no shell
 	// forks, and the parts of the page that hold user input or focus are patched
 	// in place rather than rebuilt.
 	refreshOverview:function(){
@@ -2643,6 +2641,7 @@ JSEOF
 }
 
 .qos-bar-fill {
+	min-width: 2px;
 	height: 100%;
 	border-radius: 3px;
 	opacity: .85;
