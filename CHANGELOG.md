@@ -2,6 +2,23 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.2.2-dev — 2026-09-15
+
+Counters: Traffic by CAKE Tin is `qosify-status` in graph form.
+
+- The two views were not independent: both came from `get_stats`, classes from the
+  `classes` table and tins from the `dscp` table folded through `sch_cake.c`'s tin
+  tables. Traffic by Class stays on `get_stats` `classes`; Traffic by CAKE Tin now
+  parses `qosify-status` (`tc -s qdisc` per shaped direction) and draws one chart per
+  interface and direction from the per-tin `pkts` and `bytes` rows, highest priority
+  first, coloured from the tin column. Tin drops show beside the name, drops and ECN
+  marks in the tooltip
+- A Counters tick forks `qosify-status` alongside `dump`, only while qosify runs. A
+  read-only session gets a note in the tin section, as on the Status tab
+- The ingress and fwmark notes move under Traffic by Class, the view they describe.
+  `tinTotals()`, `tinNames()` and the mode notes for the tin section are gone; the
+  `get_stats` `dscp` table is no longer rendered
+
 ## v3.2.1-dev — 2026-09-15
 
 Tabs follow LuCI's refresh logic; Counters is a fixed tab.
