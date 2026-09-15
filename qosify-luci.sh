@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.1.0-dev"
+VERSION="3.1.7-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -272,6 +272,8 @@ install_acl() {
 			"file": {
 				"/etc/config/qosify": [ "read", "list" ],
 				"/etc/qosify/00-defaults.conf": [ "read", "list" ],
+				"/proc/uptime": [ "read" ],
+				"/proc/[0-9]*/stat": [ "read" ],
 				"/usr/share/qosify-luci/qosify": [ "read" ],
 				"/usr/share/qosify-luci/00-defaults.conf": [ "read" ]
 			}
@@ -335,6 +337,31 @@ var MAP_TH={'class':'th','style':'position:sticky;top:0;z-index:3;'+
 var CN_COLORS=['#377eb8','#4daf4a','#ff7f00','#984ea3','#e41a1c','#17becf','#a65628','#f781bf'];
 // qosify_map_stats() appends these two default slots; they are not config classes.
 var CN_SKIP={tcp_default:1,udp_default:1};
+// A class with no codepoint to place in a tin.
+var CN_NONE='rgba(128,128,128,.45)';
+// CAKE's DSCP to tin tables in sch_cake.c, already put through tin_order, so each
+// digit is the column qosify-status prints that tin in. besteffort is one tin.
+var TIN_MAP={besteffort:'0',
+	precedence:'0000000011111111222222223333333344444444555555556666666677777777',
+	diffserv8:'2012422212121212524242423232323262323232622262627222222272222222',
+	diffserv4:'1011211101111111212121212121212131212121311131313111111131111111',
+	diffserv3:'1011211101111111111111111111111111111111111121212111111121111111'};
+// Colour per tin, same index as TIN_MAP, so a class bar takes the colour of the
+// tin its codepoint lands in. One colour per kind of traffic across modes: red
+// bulk, blue best effort, yellow video, green voice; diffserv8 and precedence add
+// their extra tins between them.
+var TIN_COLORS={besteffort:['#377eb8'],
+	precedence:['#377eb8','#e41a1c','#984ea3','#e6b422','#ff7f00','#4daf4a','#1b7837','#0f4d24'],
+	diffserv8:['#5c5c5c','#e41a1c','#377eb8','#e6b422','#17becf','#984ea3','#4daf4a','#1b7837'],
+	diffserv4:['#e41a1c','#377eb8','#e6b422','#4daf4a'],
+	diffserv3:['#e41a1c','#377eb8','#4daf4a']};
+// Tin labels as tc prints them: named for 3 and 4 tins, numbered otherwise.
+function tinNames(mode){
+	if(mode==='diffserv4')return [_('Bulk'),_('Best Effort'),_('Video'),_('Voice')];
+	if(mode==='diffserv3')return [_('Bulk'),_('Best Effort'),_('Voice')];
+	for(var a=[],i=0;i<(mode==='besteffort'?1:8);i++)a.push(_('Tin %d').format(i));
+	return a;
+}
 // Counters tab visibility is a per-browser view setting, not a qosify key.
 // Private-mode browsers throw on localStorage, hence the guards.
 var CN_KEY='luci-app-qosify.counters';
@@ -393,6 +420,10 @@ var callUciRevert=rpc.declare({
 function isRunning(r){
 	try{var i=r.qosify.instances;for(var k in i)if(i[k].running)return true;}catch(e){}
 	return false;
+}
+function runPid(r){
+	try{var i=r.qosify.instances;for(var k in i)if(i[k].running&&i[k].pid)return i[k].pid;}catch(e){}
+	return 0;
 }
 
 function clsLabel(c){return c.name+(c.alias?' '+_('(alias)'):'');}
@@ -911,7 +942,8 @@ return view.extend({
 			init:ctx.hasInit?ok(_('Available')):err(_('Missing')),
 			auto:bdg(ctx.enabled?'qos-green':'qos-red',ctx.enabled?_('Enabled'):_('Disabled')),
 			run:run,
-			shaped:ctx.shaped?E('span',{},N_(ctx.shaped,'%d interface','%d interfaces').format(ctx.shaped)):E('span',{'class':'qos-muted'},_('none'))
+			shaped:ctx.shaped?E('span',{},N_(ctx.shaped,'%d interface','%d interfaces').format(ctx.shaped)):E('span',{'class':'qos-muted'},_('none')),
+			up:ctx.uptime!=null?E('span',{},'%t'.format(Math.floor(ctx.uptime))):''
 		};
 	},
 
@@ -922,13 +954,17 @@ return view.extend({
 		b.appendChild(E('tr',{},[E('td',{},_('Init Script')),E('td',{'id':'qos-svc-init'},n.init)]));
 		b.appendChild(E('tr',{},[E('td',{},_('Autostart')),E('td',{'id':'qos-svc-auto'},n.auto)]));
 		b.appendChild(E('tr',{},[E('td',{},_('Running')),E('td',{'id':'qos-svc-run'},n.run)]));
+		b.appendChild(E('tr',{'id':'qos-svc-up-row','style':ctx.uptime!=null?'':'display:none'},
+			[E('td',{},_('Uptime')),E('td',{'id':'qos-svc-up'},n.up)]));
 		b.appendChild(E('tr',{},[E('td',{},_('Shaping')),E('td',{'id':'qos-svc-shaped'},n.shaped)]));
 		return tbl;
 	},
 
 	updateSvcTable:function(ctx){
-		var n=this.svcNodes(ctx),map={init:'qos-svc-init',auto:'qos-svc-auto',run:'qos-svc-run',shaped:'qos-svc-shaped'},k,el;
+		var n=this.svcNodes(ctx),map={init:'qos-svc-init',auto:'qos-svc-auto',run:'qos-svc-run',shaped:'qos-svc-shaped',up:'qos-svc-up'},k,el;
 		for(k in map){el=$(map[k]);if(el)dom.content(el,n[k]);}
+		el=$('qos-svc-up-row');
+		if(el)el.style.display=ctx.uptime!=null?'':'none';
 		el=$('qos-btn-auto');
 		if(el){
 			el.className='cbi-button '+(ctx.enabled?'cbi-button-positive':'cbi-button-negative');
@@ -1523,19 +1559,20 @@ return view.extend({
 		var self=this,section=E('div',{'id':'qos-cn'});
 		section.appendChild(E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Traffic by Class')),
-			E('div',{'class':'cbi-section-descr'},
-				_('Totals since qosify last reloaded. Bar length is log-scaled; the figures are exact.')),
 			E('div',{'id':'qos-cn-bars'}),
 			E('div',{'id':'qos-cn-msg'})
 		]));
+		section.appendChild(E('fieldset',{'class':'cbi-section','id':'qos-cn-tin-sect','style':'display:none'},[
+			E('legend',{},_('Traffic by CAKE Tin')),
+			E('div',{'id':'qos-cn-tins'}),
+			E('div',{'id':'qos-cn-tin-note'})
+		]));
 		section.appendChild(E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Daemon')),
-			E('div',{'class':'cbi-section-descr'},_('What the running daemon reports about itself.')),
 			E('div',{'id':'qos-cn-info'})
 		]));
 		section.appendChild(E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Map Entries')),
-			E('div',{'class':'cbi-section-descr'},_('Entries qosify is matching on right now. Read when this tab is opened.')),
 			E('div',{'id':'qos-cn-map','class':'qos-scroll'},
 				E('p',{'class':'qos-muted'},E('em',{},_('Reading map entries...')))),
 			E('div',{'class':'qos-svc qos-actions'},
@@ -1548,9 +1585,16 @@ return view.extend({
 	// Cumulative totals since the last reload, EF first and bulk last. A
 	// dscp_default_* naming a class is counted against that class, so the two
 	// default slots would double-count and are skipped.
-	classTotals:function(st){
+	// Grouped and coloured by the tin the class's egress codepoint lands in under
+	// mode, highest priority tin first as the tin bars are, then by codepoint within
+	// a tin. With no single mode to fold by, codepoint order and a colour per name.
+	classTotals:function(st,mode){
 		var cls=st&&st.classes,k,rows=[],names=[],total=0,bytes=null,self=this,
-			rank=this.dscpRanks(),mark=this.dscpMarks();
+			fold=MODES.indexOf(mode)>=0,rank=this.dscpRanks(),mark=this.dscpMarks(),tin={};
+		if(fold)this.getClasses().forEach(function(c){
+			var v=self.dscpVal(c.egress||c.ingress);
+			tin[c.name]=v<0?-1:+TIN_MAP[mode].charAt(v);
+		});
 		if(!cls){
 			cls={};
 			for(k in st)if(self.isCounter(st[k]))cls[k]=st[k];
@@ -1561,10 +1605,62 @@ return view.extend({
 			var v=cls[n].packets||0;
 			total+=v;
 			if(cls[n].bytes!=null)bytes=(bytes||0)+cls[n].bytes;
-			rows.push({name:n,v:v,bytes:cls[n].bytes,color:CN_COLORS[ix%CN_COLORS.length],
+			var t=tin[n]!=null?tin[n]:-1;
+			rows.push({name:n,v:v,bytes:cls[n].bytes,tin:t,
+				color:!fold?CN_COLORS[ix%CN_COLORS.length]:t<0?CN_NONE:TIN_COLORS[mode][t],
 				mark:mark[n]||'',rk:rank[n]!=null?rank[n]:-1000});
 		});
-		rows.sort(function(a,b){return b.rk-a.rk||(a.name<b.name?-1:1);});
+		rows.sort(function(a,b){return b.tin-a.tin||b.rk-a.rk||(a.name<b.name?-1:1);});
+		rows.total=total;
+		rows.bytes=bytes;
+		return rows;
+	},
+
+	// The CAKE mode behind each shaped direction. cmd_add_qdisc() writes mode, then
+	// options, then the direction's options, and tc keeps the last mode keyword.
+	// cmd_add_ingress() attaches the classifier before it checks ingress, so an
+	// unshaped ingress is still counted.
+	cakeModes:function(){
+		var r={modes:[],fwmark:false,ingress:false};
+		['interface','device'].forEach(function(t){
+			uci.sections('qosify',t,function(s){
+				if(uciBool(s.disabled,false)||!s.name)return;
+				var c=ifCfg(s,t==='device');
+				if(!c.ingress)r.ingress=true;
+				[[c.egress,s.egress_options],[c.ingress,s.ingress_options]].forEach(function(d){
+					if(!d[0])return;
+					var mode=c.mode;
+					(String(s.options||'')+' '+String(d[1]||'')).split(/\s+/).forEach(function(w){
+						if(MODES.indexOf(w)>=0)mode=w;
+						if(w==='fwmark')r.fwmark=true;
+					});
+					if(r.modes.indexOf(mode)<0)r.modes.push(mode);
+				});
+			});
+		});
+		return r;
+	},
+
+	// get_stats dscp table folded into tins, highest priority first: the reverse of
+	// the qosify-status columns, which is the order sch_cake.c lists its classes in
+	// (diffserv8: Network Control down to Background). With no single known mode,
+	// one row per codepoint ranked like the class bars.
+	tinTotals:function(dscp,mode){
+		var fold=MODES.indexOf(mode)>=0,rows=[],total=0,bytes=null,k,v,r,c;
+		if(fold)tinNames(mode).forEach(function(n){rows.push({name:n,v:0});});
+		for(k in dscp){
+			c=dscp[k];v=this.dscpVal(k);
+			if(v<0||!this.isCounter(c))continue;
+			r=fold?rows[+TIN_MAP[mode].charAt(v)]:rows[rows.push({name:k,v:0,rk:dscpRank(v)})-1];
+			r.v+=c.packets||0;total+=c.packets||0;
+			if(c.bytes!=null){r.bytes=(r.bytes||0)+c.bytes;bytes=(bytes||0)+c.bytes;}
+		}
+		if(!fold)rows.sort(function(a,b){return b.rk-a.rk;});
+		rows.forEach(function(r,ix){
+			r.color=fold?TIN_COLORS[mode][ix]:CN_COLORS[ix%CN_COLORS.length];
+			if(bytes!=null&&r.bytes==null)r.bytes=0;
+		});
+		if(fold)rows.reverse();
 		rows.total=total;
 		rows.bytes=bytes;
 		return rows;
@@ -1572,14 +1668,14 @@ return view.extend({
 
 	// Bar length is log-scaled, since bulk can outweigh voice by orders of
 	// magnitude; the figures beside it are the daemon's own.
-	barChart:function(st){
-		var rows=this.classTotals(st),max=0,total=rows.total||0;
+	barChart:function(rows,empty,head){
+		var max=0,total=rows.total||0;
 		if(!rows.length)
-			return E('p',{'class':'qos-muted'},E('em',{},_('The daemon reported no per-class counters.')));
+			return E('p',{'class':'qos-muted'},E('em',{},empty));
 		rows.forEach(function(r){if(r.v>max)max=r.v;});
 		var box=E('div',{'class':'qos-bars'});
 		box.appendChild(E('div',{'class':'qos-bar-row qos-bar-head'},[
-			E('div',{'class':'qos-bar-label'},_('class')),
+			E('div',{'class':'qos-bar-label'},head),
 			E('div',{'class':'qos-bar-track'}),
 			E('div',{'class':'qos-bar-val'},[
 				E('span',{'class':'qos-bar-num'},_('packets')),
@@ -1620,8 +1716,20 @@ return view.extend({
 	},
 
 	drawBars:function(){
-		var box=$('qos-cn-bars');
-		if(box)dom.content(box,this._cnStats?this.barChart(this._cnStats):'');
+		var st=this._cnStats,box=$('qos-cn-bars'),sect=$('qos-cn-tin-sect'),
+			cm=this.cakeModes(),mode=cm.modes.length===1?cm.modes[0]:null,note=[];
+		if(box)dom.content(box,st?this.barChart(this.classTotals(st,mode),_('The daemon reported no per-class counters.'),_('class')):'');
+		// 24.10's get_stats has no dscp table, so the section stays off there.
+		if(!sect)return;
+		sect.style.display=(st&&st.dscp)?'':'none';
+		if(!st||!st.dscp)return;
+		if(!cm.modes.length)note.push(_('No enabled interface or device section is shaped, so the codepoints are listed without tins.'));
+		else if(MODES.indexOf(mode)<0)note.push(_('The shaped directions run CAKE with %s, so the codepoints are listed without tins.').format(cm.modes.join(', ')));
+		if(cm.ingress)note.push(_('qosify classifies ingress even where ingress is 0, so these totals include traffic CAKE never sees.'));
+		if(cm.fwmark)note.push(_('fwmark is set in the CAKE options, so a firewall mark can put a packet in another tin than its DSCP does.'));
+		dom.content($('qos-cn-tins'),this.barChart(this.tinTotals(st.dscp,mode),
+			_('The daemon has not counted any traffic yet.'),MODES.indexOf(mode)>=0?_('tin'):_('DSCP')));
+		dom.content($('qos-cn-tin-note'),note.map(function(t){return E('div',{'class':'qos-muted'},t);}));
 	},
 
 	fillCounters:function(ctx){
@@ -2226,8 +2334,25 @@ return view.extend({
 			}
 			ctx.rulesN=self._rulesN;
 			ctx.cfgOk=self._cfgOk;
-			return ctx;
+			return self.uptime(d[0]).then(function(u){ctx.uptime=u;return ctx;});
 		});
+	},
+
+	// Seconds since the running qosify started, or null. procd's service list
+	// carries the pid but no start time, so starttime (field 22 of /proc/<pid>/stat,
+	// USER_HZ ticks since boot) is set against /proc/uptime: both run on the boot
+	// clock, so an NTP step does not skew it. A reload keeps the pid; the start is
+	// cached per pid, so ticks read nothing until qosify is restarted.
+	uptime:function(r){
+		var self=this,pid=runPid(r);
+		if(!pid){self._up=null;return Promise.resolve(null);}
+		if(self._up&&self._up.pid===pid)return Promise.resolve(Date.now()/1000-self._up.t);
+		return Promise.all([fs.read('/proc/'+pid+'/stat'),fs.read('/proc/uptime')]).then(function(d){
+			var st=String(d[0]),f=st.slice(st.lastIndexOf(')')+2).split(' '),up=parseFloat(d[1])-f[19]/100;
+			if(!(up>=0))return null;
+			self._up={pid:pid,t:Date.now()/1000-up};
+			return up;
+		}).catch(function(){return null;});
 	},
 
 	// Poll path: five ubus calls, no shell forks, and the parts of the page that

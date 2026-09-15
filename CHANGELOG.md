@@ -2,6 +2,116 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.1.7-dev — 2026-09-15
+
+Counters tab: class order follows the tins. No functional changes.
+
+- Traffic by Class is grouped by the tin each class's codepoint lands in under the
+  CAKE mode in use, highest priority tin first as in Traffic by CAKE Tin, then by
+  codepoint within the tin (EF first, as before). On diffserv4 that is Voice,
+  Video, Best Effort, Bulk; on diffserv3 CS4 and AF4x classes sort into Best
+  Effort, since that is where diffserv3 puts them; on diffserv8 CS6/CS7 classes
+  lead, then Minimum Latency, then CS2 ahead of the video classes
+- Classes with no valid codepoint go last. With no single mode to fold by, the
+  previous codepoint-only order is kept
+
+## v3.1.6-dev — 2026-09-15
+
+Counters tab: tin order. No functional changes.
+
+- Traffic by CAKE Tin lists tins highest priority first, the order `sch_cake.c`
+  documents its classes in and the reverse of the `qosify-status` columns.
+  diffserv4 runs Voice, Video, Best Effort, Bulk; diffserv3 Voice, Best Effort,
+  Bulk; diffserv8 and precedence Tin 7 down to Tin 0 — on diffserv8 that is
+  Network Control (CS6/CS7), Minimum Latency (EF/VA/CS5/CS4), Interactive Shell
+  (CS2), Low Latency Transactions (AF2x), Video Streaming (AF3x/AF4x/CS3), Best
+  Effort, High Throughput (CS1/AF1x), Background (LE)
+- Colours stay with their tin
+
+## v3.1.5-dev — 2026-09-15
+
+Overview: qosify uptime.
+
+- Service Status has an **Uptime** row while qosify runs. procd's `service list`
+  gives the instance pid but no start time, so the start comes from field 22 of
+  `/proc/<pid>/stat` (clock ticks since boot) set against `/proc/uptime`. Both are
+  on the boot clock, so an NTP step after boot does not skew it. A reload keeps
+  the pid and the uptime; a restart starts it again
+- The start is cached per pid: the first tick after a start reads the two `/proc`
+  files and later ticks read nothing, so the 10 s Overview poll gains no calls
+  and still no forks. The row is hidden while qosify is stopped or the read fails
+- ACL read group: `/proc/uptime` and `/proc/[0-9]*/stat` granted `read`, so
+  read-only sessions see it too
+
+## v3.1.4-dev — 2026-09-15
+
+Counters tab colours. No functional changes.
+
+- Bulk is red and voice green, in both the class and tin bars. diffserv8 High
+  Throughput (CS1/AF1x) takes the red, Minimum Latency (EF/VA/CS4/CS5) the green
+  and Network Control (CS6/CS7) a darker green; precedence CS1 is red and CS5 to
+  CS7 run light to dark green. Best effort blue, video yellow and the other
+  diffserv8 and precedence tins are unchanged
+
+## v3.1.3-dev — 2026-09-15
+
+Counters tab: class and tin bars share one colour scheme.
+
+- Traffic by Class colours each class by the tin its codepoint lands in under the
+  shaped sections' CAKE mode — the same `TIN_MAP` fold the tin bars use, taken on
+  `egress` (falling back to `ingress`, then `value`), as the class ordering already
+  is. CS4 `gaming` is red on diffserv4 and diffserv8, orange on precedence
+- Colours follow the kind of traffic rather than the tin number: grey bulk, blue
+  best effort, yellow video, red voice. diffserv8 adds dark grey Background (LE),
+  teal Low Latency Transactions (AF2x), purple Interactive Shell (CS2) and magenta
+  Network Control (CS6/CS7); precedence runs CS0 to CS7 through the same hues
+- A class whose codepoint is not a valid DSCP is drawn neutral grey. With no
+  single mode to fold by, both views keep the per-name palette
+- The class colour is the one CAKE would pick from the class's own codepoint;
+  traffic `dscp_prio` or `dscp_bulk` re-marks is shown in its new tin only in the
+  tin bars
+- The log-scale comment is back above `barChart()`, where v3.1.1-dev displaced it
+
+## v3.1.2-dev — 2026-09-15
+
+Counters tab trimmed. No functional changes.
+
+- Traffic by CAKE Tin rows show the tin only; the codepoint list beside each tin
+  and in its tooltip is gone. With no single mode to fold by, rows are still one
+  per codepoint, since there is no tin to name
+- Section descriptions dropped from Traffic by Class, Traffic by CAKE Tin, Daemon
+  and Map Entries. The conditional tin notes (mixed modes, unshaped ingress,
+  `fwmark`) stay
+
+## v3.1.1-dev — 2026-09-15
+
+Counters tab: a per-tin view that lines up with `qosify-status`.
+
+- New **Traffic by CAKE Tin** section. The class bars count at the first
+  `dscp_lookup_class()` in `classify()`, before `check_flow()` re-marks a flow to
+  `dscp_prio` or `dscp_bulk`, so they cannot be matched against CAKE's tins. The
+  new section reads the `get_stats` `dscp` table,
+  which `account_dscp()` fills from the packet's DSCP at the end of `classify()`,
+  segment-counted since `e57b340` and covering unclassified defaults since `44ce40f`
+- Codepoints are folded with CAKE's own `besteffort`, `precedence`, `diffserv8`,
+  `diffserv4` and `diffserv3` tables from `sch_cake.c`, put through `tin_order`, so
+  the rows are the columns `qosify-status` prints, under the same Bulk / Best
+  Effort / Video / Voice or Tin *n* labels. Each row names the codepoints behind it,
+  with per-codepoint packets in the tooltip
+- The mode is taken per shaped direction the way `cmd_add_qdisc()` builds the `tc`
+  command — `mode`, then `options`, then the direction's options, last keyword
+  wins. Sections on different modes, or an unknown one, get one row per codepoint
+  instead of a guess
+- Notes where the two cannot agree: `cmd_add_ingress()` attaches the classifier
+  before it checks `ingress`, so an unshaped ingress is still counted; `fwmark` in
+  the CAKE options lets a firewall mark pick the tin. The window also differs — the
+  `dscp` map lives from daemon start and survives reloads, CAKE's counters from
+  qdisc creation
+- Hidden when the reply has no `dscp` table, as on 24.10 (`1501e09`). No new ubus
+  calls, forks or ACL grants: it reuses the `get_stats` reply the tab already polls
+- `barChart()` takes its rows, empty message and column title from the caller, so
+  the class and tin views share it
+
 ## v3.1.0-dev — 2026-09-15
 
 Dev realigned on main v2.9.10, which supersedes the v2.10.0 – v3.0.0-dev line.
