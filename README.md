@@ -3,9 +3,9 @@
 
 LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / ImmortalWrt.
 
-qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, Status, and Counters — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
+qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Status, Counters, and Advanced — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-Current version: **3.2.0-dev**
+Current version: **3.2.1-dev**
 
 ## Tabs
 
@@ -22,20 +22,20 @@ The editor lints as you go and flags keys the daemon will silently drop — an i
 ### Classification Rules
 Editor for `/etc/qosify/00-defaults.conf`. The **Quick Add Rule** form covers every qosify match type: `tcp:`, `udp:`, both, `dns:` patterns, `dns:/` regex, `dns_c:` CNAME-only patterns and regex, and IPv4/IPv6 addresses, with an "only if unset" toggle for the `+` prefix. Ports are range-checked to 1–65534 (qosify rejects 65535), `#` and whitespace are blocked in patterns, CIDR is rejected, and rule targets are checked against the classes actually defined in the UCI config. Raw DSCP values are read the way the daemon reads them (`strtoul` base 0, so `077` is 63) and flagged if ≥ 64. Lines with no DSCP target are reported as lines qosify will skip rather than blocking the save.
 
-### Advanced
-Download the current config files as a backup, upload replacements (validated, 64 KB cap, binary rejected), or reset both files back to qosify defaults. **Display** holds the Counters tab toggle.
-
 ### Status
-A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. The tab fetches as soon as it is opened, the summary appears before the `tc` output it does not depend on, and the scroll position survives a refresh. The output box fills the page height and can be dragged taller. Polled every 10 seconds, and only while the tab is open — a tick that would overlap a still-running `qosify-status` is skipped rather than queued.
+A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. The tab fetches as soon as it is opened, the summary appears before the `tc` output it does not depend on, and the scroll position survives a refresh. The output box fills the page height and can be dragged taller. Polled at LuCI's refresh interval (`luci.main.pollinterval`, 5 seconds by default) and paused with LuCI's own refresh toggle, only while the tab is open — a tick that would overlap a still-running `qosify-status` is skipped rather than queued.
 
 ### Counters
-Off the tab bar until **Advanced → Display → Counters tab** is ticked (kept in the browser, not in UCI) or the page is opened at `#counters`. Everything here is read over ubus with no forks, so it works with read-only access.
+Always on the tab bar, and polled like the other tabs at LuCI's refresh interval while open. Everything here is read over ubus with no forks, so it works with read-only access.
 
 **Traffic by Class** shows the per-class packet totals from `ubus call qosify get_stats` as bars sized by their share of the total, with exact packets, bytes and share beside each bar and a total row. Each class is grouped and coloured by the CAKE tin its egress codepoint lands in, highest priority tin first and by codepoint within a tin, matching the tin bars: red bulk, blue best effort, yellow video and green voice, with the extra diffserv8 and precedence tins in their own colours. When the shaped sections do not share one mode, classes fall back to a colour per name. They are totals since qosify last reloaded, not rates, so nothing is lost while the tab is closed. **Daemon** lists the eBPF IP map entry count, last reload time and DNS cache figures where the running daemon reports them. The qosify OpenWrt 24.10 ships returns per-class packets only, and the tab shows just that.
 
 **Traffic by CAKE Tin** is the view that lines up with the Status tab. Class totals count the rule a packet matched; this counts the DSCP it actually carries into CAKE, after `dscp_prio` and `dscp_bulk` re-marking, from the `get_stats` `dscp` table, folded into the tins of the section's CAKE mode, highest priority first — the order `sch_cake.c` lists its classes in, and the reverse of the `qosify-status` columns. The mode is the last one `tc` sees across `mode`, `options` and the direction's own options. The figures are summed over both directions and every shaped interface since qosify started, while `qosify-status` counts per qdisc from when it was created, so compare them after a restart. Notes appear when sections run different modes, when ingress is classified but not shaped, or when `fwmark` lets firewall marks choose the tin. The section is left out on 24.10, whose `get_stats` has no `dscp` table.
 
-**Map Entries** lists the DNS patterns from `ubus call qosify dump` with the hits, packets and bytes from the `get_stats` `dns` table. Port and address entries are left out, because qosify keeps no per-entry counters for them. The list is read when the tab is first opened and by its Refresh button; the counters above it poll every 10 seconds while the tab is open.
+**Map Entries** lists the DNS patterns from `ubus call qosify dump` with the hits, packets and bytes from the `get_stats` `dns` table. Port and address entries are left out, because qosify keeps no per-entry counters for them. The list is read on each tick after the counters, and only redrawn when an entry or its figures change, so the scroll position holds.
+
+### Advanced
+Download the current config files as a backup, upload replacements (validated, 64 KB cap, binary rejected), or reset both files back to qosify defaults.
 
 ## Requirements
 

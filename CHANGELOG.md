@@ -2,6 +2,24 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.2.1-dev — 2026-09-15
+
+Tabs follow LuCI's refresh logic; Counters is a fixed tab.
+
+- Overview, Status and Counters poll at LuCI's `pollinterval` (`luci.main.pollinterval`,
+  5 s by default) instead of a fixed 10 s, so they pause and resume with the header's
+  refresh toggle like any other LuCI page
+- Map Entries loses its Refresh button. `dump` now follows `get_stats` on every
+  Counters tick; `fillMap()` still compares its signature first, so an unchanged map
+  is not redrawn and the scroll position holds. A tick is three ubus calls
+  (`service.list`, `get_stats`, `dump`) and no forks. `refreshCountersAll()` and
+  `refreshMapEntries()` are folded into `refreshCounters()`
+- Advanced loses its Display section. Counters is always on the tab bar; the
+  `luci-app-qosify.counters` localStorage key, `applyTabVisibility()` and the unused
+  `.qos-actions` style are gone
+- Tab order is Overview, Config, Classification Rules, Status, Counters, Advanced.
+  `#hash` links are unchanged
+
 ## v3.2.0-dev — 2026-09-15
 
 Sync with main v2.9.11 (openwrt-ai review of #9019). Comments only, no functional changes.

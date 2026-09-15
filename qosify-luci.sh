@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.0-dev"
+VERSION="3.2.1-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -366,11 +366,6 @@ function tinNames(mode){
 	for(var a=[],i=0;i<(mode==='besteffort'?1:8);i++)a.push(_('Tin %d').format(i));
 	return a;
 }
-// Counters tab visibility is a per-browser view setting, not a qosify key.
-// Private-mode browsers throw on localStorage, hence the guards.
-var CN_KEY='luci-app-qosify.counters';
-function prefShow(){try{return localStorage.getItem(CN_KEY)==='1';}catch(e){return false;}}
-function prefSetShow(v){try{localStorage.setItem(CN_KEY,v?'1':'0');}catch(e){}}
 // qosify.init handles 'alias' with add_class and 'device' with add_interface,
 // so those section types share the option set of class / interface.
 var QAC_PANEL={defaults:'defaults','class':'class',alias:'class','interface':'interface',device:'interface'};
@@ -705,19 +700,17 @@ return view.extend({
 		root.appendChild(E('h2',{},_('qosify')));
 		root.appendChild(E('div',{'class':'cbi-map-descr'},_('Traffic shaping and DSCP classification via qosify')));
 
-		var names={ov:'overview',cf:'config',ru:'rules',ad:'advanced',st:'status',cn:'counters'};
+		var names={ov:'overview',cf:'config',ru:'rules',st:'status',cn:'counters',ad:'advanced'};
 		var hash=(location.hash||'').slice(1),want='ov',k;
 		for(k in names)if(names[k]===hash)want=k;
-		// Counters stays off the tab bar until asked for; a #counters link counts.
-		this.showCounters=(want==='cn')||prefShow();
 
 		var group=E('div',{});
 		[['ov',_('Overview'),this.tabOverview(ctx)],
 		 ['cf',_('Config'),this.tabConfig(ctx)],
 		 ['ru',_('Classification Rules'),this.tabRules(ctx)],
-		 ['ad',_('Advanced'),this.tabAdvanced(ctx)],
 		 ['st',_('Status'),this.tabStatus(ctx)],
-		 ['cn',_('Counters'),this.tabCounters(ctx)]].forEach(function(t){
+		 ['cn',_('Counters'),this.tabCounters(ctx)],
+		 ['ad',_('Advanced'),this.tabAdvanced(ctx)]].forEach(function(t){
 			var pane=t[2];
 			pane.setAttribute('data-tab',t[0]);
 			pane.setAttribute('data-tab-title',t[1]);
@@ -729,14 +722,13 @@ return view.extend({
 				// when it is opened rather than on every page load; initTabGroup fires
 				// this from a requestAnimationFrame, so the pane is in the DOM.
 				if(t[0]==='st')self.refreshStatus();
-				if(t[0]==='cn')self.refreshCountersAll();
+				if(t[0]==='cn')self.refreshCounters();
 			});
 			group.appendChild(pane);
 		});
 		root.appendChild(group);
 		ui.tabs.initTabGroup(group.childNodes);
 		this.currentTab=want;
-		this.applyTabVisibility(root);
 
 		if(this.readonly){
 			this.applyReadonly(root);
@@ -747,17 +739,19 @@ return view.extend({
 		return root;
 	},
 
-	// All three tick at 10 s, each only while its tab is open: Overview is six ubus
-	// calls (eight on the first tick after qosify starts) and no forks, Status forks
-	// qosify-status, which runs tc twice per active interface, and Counters is two
-	// (service.list, get_stats). Poll.step() holds the next tick until the promise
-	// this returns settles, and refreshStatus() drops an overlapping call, so a fork
-	// slower than the interval skips ticks instead of stacking up.
+	// All three tick at LuCI's poll interval (luci.main.pollinterval, 5 s unless
+	// set) and pause with its header toggle, each only while its tab is open:
+	// Overview is six ubus calls (eight on the first tick after qosify starts) and
+	// no forks, Status forks qosify-status, which runs tc twice per active
+	// interface, and Counters is three (service.list, get_stats, then dump).
+	// Poll.step() holds the next tick until the promise this returns settles, and
+	// each refresher drops an overlapping call, so a slow tick skips rather than
+	// stacks up.
 	installPollers:function(){
 		var self=this;
-		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();},10);
-		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();},10);
-		poll.add(function(){if(self.currentTab!=='cn'||self._n)return;return self.refreshCounters();},10);
+		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();});
+		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();});
+		poll.add(function(){if(self.currentTab!=='cn'||self._n)return;return self.refreshCounters();});
 	},
 
 	tabOverview:function(ctx){
@@ -1346,24 +1340,6 @@ return view.extend({
 				E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},_('Reset to Defaults')))
 		]));
 
-		// Display
-		section.appendChild(E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},_('Display')),
-			E('div',{'class':'cbi-section-descr'},_('Kept in this browser, not in the qosify config.')),
-			E('div',{'class':'cbi-value'},[
-				E('label',{'class':'cbi-value-title','for':'qos-ad-cn'},_('Counters tab')),
-				E('div',{'class':'cbi-value-field'},[
-					E('input',{'id':'qos-ad-cn','type':'checkbox','class':'cbi-input-checkbox',
-						'data-ro-ok':'1','checked':self.showCounters?'':null,
-						'change':function(ev){
-							self.showCounters=!!ev.target.checked;
-							prefSetShow(self.showCounters);
-							self.applyTabVisibility();
-						}}),
-					E('div',{'class':'cbi-value-description'},_('Per-class totals and the daemon map.'))
-				])
-			])
-		]));
 		return section;
 	},
 
@@ -1514,8 +1490,11 @@ return view.extend({
 		return out;
 	},
 
-	// One service list and one get_stats, no forks. Master always opens the dns
-	// table, so its absence identifies the build rather than a quiet period.
+	// One service list and one get_stats, no forks, then dump: the map listing's
+	// traffic column reads the stats just fetched, so dump is chained after them.
+	// Master always opens the dns table, so its absence identifies the build
+	// rather than a quiet period. fillMap() skips the rebuild while its signature
+	// is unchanged, so the one-entry-per-port dump costs a compare, not a redraw.
 	refreshCounters:function(){
 		var self=this;
 		if(self.currentTab!=='cn'||self._cn)return Promise.resolve();
@@ -1528,38 +1507,15 @@ return view.extend({
 			self._cnStats=ctx.running?ctx.stats:null;
 			if(ctx.stats)self._cnDns=ctx.stats.dns!=null;
 			self.fillCounters(ctx);
+			return L.resolveDefault(callQosifyDump(),null);
+		}).then(function(r){
+			self.fillMap(r,self._cnStats&&self._cnStats.dns,
+				self._cnDns==null?null:self._cnDns);
 		}).finally(function(){self._cn=false;});
 	},
 
-	// The listing's traffic column reads the stats just fetched, so dump is chained
-	// after them rather than issued alongside.
-	refreshCountersAll:function(){
-		var self=this;
-		return self.refreshCounters().then(function(){return self.refreshMapEntries();});
-	},
-
-	// dump is one entry per port (udp:6881-7000 is 120), so it is not on the tick:
-	// read on first open, and again by the Refresh button (force).
-	refreshMapEntries:function(force){
-		var self=this;
-		if(self.currentTab!=='cn'||self._cnMap)return Promise.resolve();
-		if(self._mapSig!=null&&!force)return Promise.resolve();
-		self._cnMap=true;
-		return L.resolveDefault(callQosifyDump(),null).then(function(r){
-			self.fillMap(r,self._cnStats&&self._cnStats.dns,
-				self._cnDns==null?null:self._cnDns);
-		}).finally(function(){self._cnMap=false;});
-	},
-
-	// initTabGroup() puts data-tab on each menu <li>, so the entry can be hidden
-	// without rebuilding the group.
-	applyTabVisibility:function(root){
-		var li=(root||document).querySelector('ul.cbi-tabmenu > li[data-tab="cn"]');
-		if(li)li.style.display=this.showCounters?'':'none';
-	},
-
 	tabCounters:function(){
-		var self=this,section=E('div',{'id':'qos-cn'});
+		var section=E('div',{'id':'qos-cn'});
 		section.appendChild(E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Traffic by Class')),
 			E('div',{'id':'qos-cn-bars'}),
@@ -1577,10 +1533,7 @@ return view.extend({
 		section.appendChild(E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Map Entries')),
 			E('div',{'id':'qos-cn-map','class':'qos-scroll'},
-				E('p',{'class':'qos-muted'},E('em',{},_('Reading map entries...')))),
-			E('div',{'class':'qos-svc qos-actions'},
-				E('button',{'class':'cbi-button cbi-button-reload','data-ro-ok':'1',
-					'click':function(){return self.refreshMapEntries(true);}},_('Refresh')))
+				E('p',{'class':'qos-muted'},E('em',{},_('Reading map entries...'))))
 		]));
 		return section;
 	},
@@ -2504,14 +2457,6 @@ JSEOF
 .qos-svc > * {
 	display: inline-block;
 	margin: 0 3px 3px 0;
-}
-
-/* Button row under a section table: the table's last row drops its own rule, so
-   the border here continues the ruled look instead of doubling it. */
-.qos-actions {
-	margin-top: 10px;
-	padding-top: 10px;
-	border-top: 1px solid var(--border-color-medium, rgba(128, 128, 128, .35));
 }
 
 .qos-ref,
