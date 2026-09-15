@@ -2,6 +2,24 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v2.9.11 — 2026-09-15
+
+Review fixes for #9019. Comments only, no functional changes.
+
+- The call counts were wrong. A page load is eight ubus calls, not five: `uci.load()`
+  issues a `uci get` alongside `gatherCtx(true)`'s seven (`service.list`, `rc.list`,
+  `qosify.status`, and a `file.stat` and `file.read` per config file). An Overview tick
+  is six: the `uci get` plus `gatherCtx(false)`'s five. The `refreshOverview()` and
+  `installPollers()` comments are corrected; the "5 calls" in v2.9.0 and "five ubus
+  calls" in v2.9.3 below carry the same error
+- The cleanup helper's comment claimed the ifb is removed after its parent has gone, citing a
+  pppoe device. `network_get_device` reads `.l3_device`, which netifd only publishes while
+  the interface is up, so for a `config interface` the name is gone with the device and
+  that path is unreachable; it only holds for `config device`. The comment now says so and
+  names the path that does reach the orphan: `interface_start()` in qosify's
+  `interface.c` calls `interface_clear_qdisc()`, which deletes `ifb-<dev>`, before
+  `cmd_add_ingress()` recreates it when the interface next comes up
+
 ## v2.9.10 — 2026-09-15
 
 Feed `Makefile` metadata. No functional changes.
