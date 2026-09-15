@@ -4,8 +4,8 @@ PKG_NAME:=luci-app-qosify
 PKG_VERSION:=$(shell sed -n 's/^VERSION="\(.*\)"/\1/p' $(CURDIR)/qosify-luci.sh)
 PKG_RELEASE:=1
 
-PKG_MAINTAINER:=choppyc79
-PKG_LICENSE:=GPL-2.0-only
+PKG_MAINTAINER:=Ash Clarke <clarkeaj@hotmail.co.uk>
+PKG_LICENSE:=MIT
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
@@ -37,16 +37,16 @@ endef
 # its target directories redirected into a staging root.
 define Build/Compile
 	( set -e; cd $(PKG_BUILD_DIR); \
-	  R=$(PKG_BUILD_DIR)/root; rm -rf $$R; \
-	  . ./qosify-luci.sh >/dev/null; \
-	  MENU_DIR=$$R/usr/share/luci/menu.d; \
-	  ACL_DIR=$$R/usr/share/rpcd/acl.d; \
-	  VIEW_DIR=$$R/www/luci-static/resources/view/qosify; \
-	  TPL_DIR=$$R/usr/share/qosify-luci; \
-	  install_templates >/dev/null; \
-	  install_menu >/dev/null; \
-	  install_acl >/dev/null; \
-	  install_view >/dev/null )
+		R=$(PKG_BUILD_DIR)/root; rm -rf $$R; \
+		. ./qosify-luci.sh >/dev/null; \
+		MENU_DIR=$$R/usr/share/luci/menu.d; \
+		ACL_DIR=$$R/usr/share/rpcd/acl.d; \
+		VIEW_DIR=$$R/www/luci-static/resources/view/qosify; \
+		TPL_DIR=$$R/usr/share/qosify-luci; \
+		install_templates >/dev/null; \
+		install_menu >/dev/null; \
+		install_acl >/dev/null; \
+		install_view >/dev/null )
 endef
 
 define Package/luci-app-qosify/install
@@ -58,6 +58,7 @@ define Package/luci-app-qosify/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/share/qosify-luci/00-defaults.conf $(1)/usr/share/qosify-luci/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/share/qosify-luci/cleanup $(1)/usr/share/qosify-luci/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/www/luci-static/resources/view/qosify/main.js $(1)/www/luci-static/resources/view/qosify/
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/www/luci-static/resources/view/qosify/qosify.css $(1)/www/luci-static/resources/view/qosify/
 endef
 
 define Package/luci-app-qosify/postinst
