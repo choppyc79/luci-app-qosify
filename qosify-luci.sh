@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="2.9.10"
+VERSION="3.1.0-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -263,7 +263,7 @@ install_acl() {
 		"description": "Grant access to LuCI app qosify",
 		"read": {
 			"ubus": {
-				"qosify": [ "status" ],
+				"qosify": [ "status", "get_stats", "dump" ],
 				"rc": [ "list" ],
 				"service": [ "list" ],
 				"file": [ "read", "stat" ]
@@ -315,6 +315,31 @@ var DSCP=['CS0','CS1','CS2','CS3','CS4','CS5','CS6','CS7','AF11','AF12','AF13','
 var OVH=['none','manual','conservative','ethernet','docsis','pppoe-ptm','bridged-ptm','pppoe-vcmux','pppoe-llcsnap','pppoa-vcmux','pppoa-llc','bridged-vcmux','bridged-llcsnap','ipoa-vcmux','ipoa-llcsnap'];
 var ENCAP=['atm','noatm','ptm'];
 var MODES=['diffserv3','diffserv4','diffserv8','besteffort','precedence'];
+var MAP_ROWS=200;
+// codepoints[] in map.c.
+var DSCP_VAL={CS0:0,DF:0,LE:1,CS1:8,AF11:10,AF12:12,AF13:14,CS2:16,AF21:18,AF22:20,
+	AF23:22,CS3:24,AF31:26,AF32:28,AF33:30,CS4:32,AF41:34,AF42:36,AF43:38,CS5:40,
+	VA:44,NQB:45,EF:46,CS6:48,CS7:56};
+// Counters order: EF first, then codepoint descending. LE (1) and CS1 (8) are
+// CAKE's Background tin, so they sort below best effort; -1 is anything
+// __qosify_map_dscp_value() would reject and sorts below them.
+var DSCP_BULK={1:1,8:1};
+function dscpRank(v){return v<0?-1000:DSCP_BULK[v]?v-100:v===46?100:v;}
+// Map entries header, pinned. Inline because qosify.css is served without a
+// cache-busting query, and .table is border-collapse, so the cells carry sticky
+// and an inset shadow stands in for the dropped border.
+var MAP_TH={'class':'th','style':'position:sticky;top:0;z-index:3;'+
+	'background:var(--background-color-medium,Canvas);color:var(--text-color-high,CanvasText);'+
+	'box-shadow:inset 0 -1px 0 var(--border-color-medium,rgba(128,128,128,.5))'};
+// Colour by sorted class name, so a class keeps its colour as the bars reorder.
+var CN_COLORS=['#377eb8','#4daf4a','#ff7f00','#984ea3','#e41a1c','#17becf','#a65628','#f781bf'];
+// qosify_map_stats() appends these two default slots; they are not config classes.
+var CN_SKIP={tcp_default:1,udp_default:1};
+// Counters tab visibility is a per-browser view setting, not a qosify key.
+// Private-mode browsers throw on localStorage, hence the guards.
+var CN_KEY='luci-app-qosify.counters';
+function prefShow(){try{return localStorage.getItem(CN_KEY)==='1';}catch(e){return false;}}
+function prefSetShow(v){try{localStorage.setItem(CN_KEY,v?'1':'0');}catch(e){}}
 // qosify.init handles 'alias' with add_class and 'device' with add_interface,
 // so those section types share the option set of class / interface.
 var QAC_PANEL={defaults:'defaults','class':'class',alias:'class','interface':'interface',device:'interface'};
@@ -339,6 +364,18 @@ var callRcList=rpc.declare({
 var callQosifyStatus=rpc.declare({
 	object:'qosify',
 	method:'status',
+	expect:{'':{}}
+});
+// get_stats and dump are both in the qosify OpenWrt pins for 24.10 and master;
+// the get_stats reply shape differs by build and is rendered as found.
+var callQosifyStats=rpc.declare({
+	object:'qosify',
+	method:'get_stats',
+	expect:{'':{}}
+});
+var callQosifyDump=rpc.declare({
+	object:'qosify',
+	method:'dump',
 	expect:{'':{}}
 });
 var callServiceList=rpc.declare({
@@ -422,6 +459,13 @@ function validateRules(d){
 	return null;
 }
 function fmtSize(n){return n<1024?n+'B':(n/1024).toFixed(1)+'K';}
+// Non-zero under a tenth of a percent says so rather than reading as 0.0%.
+// The bare % strings are not wrapped in _(): msgfmt -c would reject a moved %.
+function fmtShare(p){
+	if(!p)return '0%';
+	if(p<0.1)return '<0.1%';
+	return _('%s%%').format(p<10?p.toFixed(1):Math.round(p));
+}
 function fmtMtime(t){if(!t)return '';return new Date(t*1000).toLocaleString();}
 
 // The shaping section Quick Settings edits, or null. Prefers the first enabled
@@ -626,16 +670,19 @@ return view.extend({
 		root.appendChild(E('h2',{},_('qosify')));
 		root.appendChild(E('div',{'class':'cbi-map-descr'},_('Traffic shaping and DSCP classification via qosify')));
 
-		var names={ov:'overview',cf:'config',ru:'rules',ad:'advanced',st:'status'};
+		var names={ov:'overview',cf:'config',ru:'rules',ad:'advanced',st:'status',cn:'counters'};
 		var hash=(location.hash||'').slice(1),want='ov',k;
 		for(k in names)if(names[k]===hash)want=k;
+		// Counters stays off the tab bar until asked for; a #counters link counts.
+		this.showCounters=(want==='cn')||prefShow();
 
 		var group=E('div',{});
 		[['ov',_('Overview'),this.tabOverview(ctx)],
 		 ['cf',_('Config'),this.tabConfig(ctx)],
 		 ['ru',_('Classification Rules'),this.tabRules(ctx)],
 		 ['ad',_('Advanced'),this.tabAdvanced(ctx)],
-		 ['st',_('Status'),this.tabStatus(ctx)]].forEach(function(t){
+		 ['st',_('Status'),this.tabStatus(ctx)],
+		 ['cn',_('Counters'),this.tabCounters(ctx)]].forEach(function(t){
 			var pane=t[2];
 			pane.setAttribute('data-tab',t[0]);
 			pane.setAttribute('data-tab-title',t[1]);
@@ -647,12 +694,14 @@ return view.extend({
 				// when it is opened rather than on every page load; initTabGroup fires
 				// this from a requestAnimationFrame, so the pane is in the DOM.
 				if(t[0]==='st')self.refreshStatus();
+				if(t[0]==='cn')self.refreshCountersAll();
 			});
 			group.appendChild(pane);
 		});
 		root.appendChild(group);
 		ui.tabs.initTabGroup(group.childNodes);
 		this.currentTab=want;
+		this.applyTabVisibility(root);
 
 		if(this.readonly){
 			this.applyReadonly(root);
@@ -663,8 +712,9 @@ return view.extend({
 		return root;
 	},
 
-	// Both tabs tick at 10 s: Overview is five ubus calls and no forks, Status forks
-	// qosify-status, which runs tc twice per active interface. Poll.step() holds the
+	// All three tick at 10 s, each only while its tab is open: Overview is five ubus
+	// calls and no forks, Status forks qosify-status, which runs tc twice per active
+	// interface, and Counters is one get_stats call. Poll.step() holds the
 	// next tick until the promise this returns settles, and refreshStatus() drops an
 	// overlapping call, so a fork slower than the interval skips ticks instead of
 	// stacking up.
@@ -672,6 +722,7 @@ return view.extend({
 		var self=this;
 		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();},10);
 		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();},10);
+		poll.add(function(){if(self.currentTab!=='cn'||self._n)return;return self.refreshCounters();},10);
 	},
 
 	tabOverview:function(ctx){
@@ -1255,6 +1306,25 @@ return view.extend({
 			E('div',{'class':'cbi-page-actions'},
 				E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},_('Reset to Defaults')))
 		]));
+
+		// Display
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Display')),
+			E('div',{'class':'cbi-section-descr'},_('Kept in this browser, not in the qosify config.')),
+			E('div',{'class':'cbi-value'},[
+				E('label',{'class':'cbi-value-title','for':'qos-ad-cn'},_('Counters tab')),
+				E('div',{'class':'cbi-value-field'},[
+					E('input',{'id':'qos-ad-cn','type':'checkbox','class':'cbi-input-checkbox',
+						'data-ro-ok':'1','checked':self.showCounters?'':null,
+						'change':function(ev){
+							self.showCounters=!!ev.target.checked;
+							prefSetShow(self.showCounters);
+							self.applyTabVisibility();
+						}}),
+					E('div',{'class':'cbi-value-description'},_('Per-class totals and the daemon map.'))
+				])
+			])
+		]));
 		return section;
 	},
 
@@ -1292,6 +1362,297 @@ return view.extend({
 		fs1.appendChild(body);
 		section.appendChild(fs1);
 		return section;
+	},
+
+	// ubus call qosify get_stats. Master adds ebpf_map_entries, last_reload_time,
+	// dns_cache and classes/dscp/dns tables; 24.10 (1501e09) returns
+	// qosify_map_stats() at the top level, one table per class, packets only.
+	// Only what the reply contains is rendered.
+	isCounter:function(v){return !!v&&typeof v==='object'&&(v.packets!=null||v.bytes!=null);},
+	// qosify_map_get_ebpf_entry_count() sums the IPv4 and IPv6 address maps only.
+	infoNodes:function(st){
+		var rows=[],tbl,b;
+		if(st.ebpf_map_entries!=null)rows.push([_('eBPF IP map entries'),String(st.ebpf_map_entries)]);
+		if(st.last_reload_time)rows.push([_('Last reload'),fmtMtime(st.last_reload_time)]);
+		if(st.dns_cache)rows.push([_('DNS cache'),_('%d entries, %d hits, %d misses')
+			.format(st.dns_cache.size||0,st.dns_cache.hits||0,st.dns_cache.misses||0)]);
+		if(!rows.length)
+			return E('p',{'class':'qos-muted'},E('em',{},_('The running qosify reports no daemon-level figures.')));
+		tbl=E('table',{'class':'qos-kv','width':'100%'});
+		b=E('tbody');
+		tbl.appendChild(b);
+		rows.forEach(function(r){b.appendChild(E('tr',{},[E('td',{},r[0]),E('td',{},r[1])]));});
+		return tbl;
+	},
+
+	// dump lists port, address and DNS entries, but pattern_stats is the only
+	// per-entry counter the datapath keeps, so only DNS patterns are listed; the
+	// rest is class totals. A raw DSCP as a number, -1 for anything
+	// __qosify_map_dscp_value() would reject (strtoul base 0, below 64).
+	dscpVal:function(v){
+		var s=String(v==null?'':v).replace(/^\+/,'').toUpperCase(),n;
+		if(DSCP_VAL[s]!=null)return DSCP_VAL[s];
+		n=dscpNum(s);
+		return n===null||n>=64?-1:n;
+	},
+	// What each class marks with; ingress and egress already fall back to value.
+	dscpMarks:function(){
+		var m={};
+		this.getClasses().forEach(function(c){
+			m[c.name]=(c.ingress===c.egress)?c.ingress:c.ingress+'/'+c.egress;
+		});
+		return m;
+	},
+	dscpRanks:function(){
+		var m={},self=this;
+		this.getClasses().forEach(function(c){m[c.name]=dscpRank(self.dscpVal(c.egress||c.ingress));});
+		return m;
+	},
+	// DNS rows ordered by dscpRank(). Entries added over ubus (user, no file) carry
+	// a timeout and follow the file entries, so the MAP_ROWS cut falls on them.
+	mapRows:function(entries){
+		var rows=[],dyn=[],cls=this.dscpRanks(),self=this,i,e,a,rk;
+		for(i=0;i<entries.length;i++){
+			e=entries[i]||{};
+			if(e.type!=='dns')continue;
+			a=(e.user&&!e.file)?dyn:rows;
+			rk=String(e.dscp==null?'':e.dscp).replace(/^\+/,'');
+			a.push({type:e.type,addr:e.addr,dscp:e.dscp,file:!!e.file,user:!!e.user,
+				timeout:e.timeout,ix:a.length,
+				rk:cls[rk]!=null?cls[rk]:dscpRank(self.dscpVal(rk))});
+		}
+		function byDscp(x,y){return y.rk-x.rk||x.ix-y.ix;}
+		return rows.sort(byDscp).concat(dyn.sort(byDscp));
+	},
+	// dns is the get_stats dns table keyed by pattern; a pattern with no traffic is
+	// omitted from it, so it is zero once the table exists. hasDns false means the
+	// daemon has no such table (24.10) and the column goes; null is not asked yet.
+	// hits counts every matching lookup, packets the pattern_id in the address map
+	// entry, which __qosify_map_set_entry() only writes when the DSCP changes.
+	// The signature skips a rebuild of an unchanged listing, which would drop a
+	// text selection.
+	mapSig:function(rows,total,dns,hasDns){
+		var out=[total,rows.length,hasDns].join('|'),i,r,t;
+		for(i=0;i<rows.length&&i<MAP_ROWS;i++){
+			r=rows[i];t=(dns&&dns[r.addr])||{};
+			out+='\n'+[r.addr,r.dscp,r.file,r.user,r.timeout,t.hits,t.packets,t.bytes].join(',');
+		}
+		return out;
+	},
+
+	// qosify_map_dump() emits timeout for user entries only; no column without one.
+	mapNodes:function(rows,total,dns,hasDns){
+		var tcol=hasDns!==false;
+		var wcol=rows.some(function(r){return r.timeout!=null;});
+		var hdr=[E('th',MAP_TH,_('Pattern')),E('th',MAP_TH,_('DSCP')),E('th',MAP_TH,_('Source'))];
+		if(tcol)hdr.push(E('th',MAP_TH,_('Traffic')));
+		if(wcol)hdr.push(E('th',MAP_TH,_('Timeout')));
+		var tbl=E('table',{'class':'table'},E('tr',{'class':'tr table-titles'},hdr));
+		function traffic(r){
+			if(!dns)return '-';
+			var e=dns[r.addr]||{};
+			if(e.bytes==null)return _('%d hits, %d packets').format(e.hits||0,e.packets||0);
+			return _('%d hits, %d packets, %s').format(e.hits||0,e.packets||0,'%1024.2mB'.format(e.bytes));
+		}
+		rows.slice(0,MAP_ROWS).forEach(function(r){
+			var src=[];
+			if(r.file)src.push(_('file'));
+			if(r.user)src.push(_('dynamic'));
+			var td=[E('td',{'class':'td'},String(r.addr!=null?r.addr:'-')),
+				E('td',{'class':'td'},r.dscp||'-'),
+				E('td',{'class':'td'},src.join(', ')||'-')];
+			if(tcol)td.push(E('td',{'class':'td'},traffic(r)));
+			if(wcol)td.push(E('td',{'class':'td'},r.timeout!=null?_('%d s').format(r.timeout):'-'));
+			tbl.appendChild(E('tr',{'class':'tr'},td));
+		});
+		var out=[tbl];
+		if(!tcol)
+			out.push(E('div',{'class':'qos-muted'},
+				_('The running qosify reports no per-entry counters — its get_stats has no dns table.')));
+		out.push(E('div',{'class':'qos-muted'},rows.length>MAP_ROWS
+			?_('Showing %d of %d DNS patterns, out of %d map entries. Port and address entries are not listed — qosify keeps no per-entry counters for them.').format(MAP_ROWS,rows.length,total)
+			:_('%d DNS patterns, out of %d map entries. Port and address entries are not listed — qosify keeps no per-entry counters for them.').format(rows.length,total)));
+		return out;
+	},
+
+	// One service list and one get_stats, no forks. Master always opens the dns
+	// table, so its absence identifies the build rather than a quiet period.
+	refreshCounters:function(){
+		var self=this;
+		if(self.currentTab!=='cn'||self._cn)return Promise.resolve();
+		self._cn=true;
+		return Promise.all([
+			L.resolveDefault(callServiceList('qosify'),{}),
+			L.resolveDefault(callQosifyStats(),null)
+		]).then(function(d){
+			var ctx={running:isRunning(d[0]),stats:d[1]};
+			self._cnStats=ctx.running?ctx.stats:null;
+			if(ctx.stats)self._cnDns=ctx.stats.dns!=null;
+			self.fillCounters(ctx);
+		}).finally(function(){self._cn=false;});
+	},
+
+	// The listing's traffic column reads the stats just fetched, so dump is chained
+	// after them rather than issued alongside.
+	refreshCountersAll:function(){
+		var self=this;
+		return self.refreshCounters().then(function(){return self.refreshMapEntries();});
+	},
+
+	// dump is one entry per port (udp:6881-7000 is 120), so it is not on the tick:
+	// read on first open, and again by the Refresh button (force).
+	refreshMapEntries:function(force){
+		var self=this;
+		if(self.currentTab!=='cn'||self._cnMap)return Promise.resolve();
+		if(self._mapSig!=null&&!force)return Promise.resolve();
+		self._cnMap=true;
+		return L.resolveDefault(callQosifyDump(),null).then(function(r){
+			self.fillMap(r,self._cnStats&&self._cnStats.dns,
+				self._cnDns==null?null:self._cnDns);
+		}).finally(function(){self._cnMap=false;});
+	},
+
+	// initTabGroup() puts data-tab on each menu <li>, so the entry can be hidden
+	// without rebuilding the group.
+	applyTabVisibility:function(root){
+		var li=(root||document).querySelector('ul.cbi-tabmenu > li[data-tab="cn"]');
+		if(li)li.style.display=this.showCounters?'':'none';
+	},
+
+	tabCounters:function(){
+		var self=this,section=E('div',{'id':'qos-cn'});
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Traffic by Class')),
+			E('div',{'class':'cbi-section-descr'},
+				_('Totals since qosify last reloaded. Bar length is log-scaled; the figures are exact.')),
+			E('div',{'id':'qos-cn-bars'}),
+			E('div',{'id':'qos-cn-msg'})
+		]));
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Daemon')),
+			E('div',{'class':'cbi-section-descr'},_('What the running daemon reports about itself.')),
+			E('div',{'id':'qos-cn-info'})
+		]));
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Map Entries')),
+			E('div',{'class':'cbi-section-descr'},_('Entries qosify is matching on right now. Read when this tab is opened.')),
+			E('div',{'id':'qos-cn-map','class':'qos-scroll'},
+				E('p',{'class':'qos-muted'},E('em',{},_('Reading map entries...')))),
+			E('div',{'class':'qos-svc qos-actions'},
+				E('button',{'class':'cbi-button cbi-button-reload','data-ro-ok':'1',
+					'click':function(){return self.refreshMapEntries(true);}},_('Refresh')))
+		]));
+		return section;
+	},
+
+	// Cumulative totals since the last reload, EF first and bulk last. A
+	// dscp_default_* naming a class is counted against that class, so the two
+	// default slots would double-count and are skipped.
+	classTotals:function(st){
+		var cls=st&&st.classes,k,rows=[],names=[],total=0,bytes=null,self=this,
+			rank=this.dscpRanks(),mark=this.dscpMarks();
+		if(!cls){
+			cls={};
+			for(k in st)if(self.isCounter(st[k]))cls[k]=st[k];
+		}
+		for(k in cls)if(cls[k].packets!=null&&!CN_SKIP[k])names.push(k);
+		names.sort();
+		names.forEach(function(n,ix){
+			var v=cls[n].packets||0;
+			total+=v;
+			if(cls[n].bytes!=null)bytes=(bytes||0)+cls[n].bytes;
+			rows.push({name:n,v:v,bytes:cls[n].bytes,color:CN_COLORS[ix%CN_COLORS.length],
+				mark:mark[n]||'',rk:rank[n]!=null?rank[n]:-1000});
+		});
+		rows.sort(function(a,b){return b.rk-a.rk||(a.name<b.name?-1:1);});
+		rows.total=total;
+		rows.bytes=bytes;
+		return rows;
+	},
+
+	// Bar length is log-scaled, since bulk can outweigh voice by orders of
+	// magnitude; the figures beside it are the daemon's own.
+	barChart:function(st){
+		var rows=this.classTotals(st),max=0,total=rows.total||0;
+		if(!rows.length)
+			return E('p',{'class':'qos-muted'},E('em',{},_('The daemon reported no per-class counters.')));
+		rows.forEach(function(r){if(r.v>max)max=r.v;});
+		var box=E('div',{'class':'qos-bars'});
+		box.appendChild(E('div',{'class':'qos-bar-row qos-bar-head'},[
+			E('div',{'class':'qos-bar-label'},_('class')),
+			E('div',{'class':'qos-bar-track'}),
+			E('div',{'class':'qos-bar-val'},[
+				E('span',{'class':'qos-bar-num'},_('packets')),
+				E('span',{'class':'qos-bar-bytes'},_('bytes')),
+				E('span',{'class':'qos-bar-pct'},_('share'))
+			])
+		]));
+		rows.forEach(function(r){
+			var pct=Math.max(r.v?2:0,max?(Math.log(1+r.v)/Math.log(1+max))*100:0);
+			var share=total?(r.v/total)*100:0;
+			box.appendChild(E('div',{'class':'qos-bar-row','title':r.bytes!=null
+				?_('%s: %d packets, %s').format(r.name,r.v,'%1024.2mB'.format(r.bytes))
+				:_('%s: %d packets').format(r.name,r.v)},[
+				E('div',{'class':'qos-bar-label'},[
+					E('span',{'class':'qos-swatch','style':'background:'+r.color}),
+					E('span',{'class':'qos-bar-name','title':r.name},r.name),
+					r.mark?E('span',{'class':'qos-mark'},r.mark):''
+				]),
+				E('div',{'class':'qos-bar-track'},
+					E('div',{'class':'qos-bar-fill','style':'width:'+pct.toFixed(1)+'%;background:'+r.color})),
+				E('div',{'class':'qos-bar-val'},[
+					E('span',{'class':'qos-bar-num'},_('%d pkt').format(r.v)),
+					r.bytes!=null?E('span',{'class':'qos-bar-bytes'},'%1024.2mB'.format(r.bytes)):'',
+					E('span',{'class':'qos-bar-pct'},fmtShare(share))
+				])
+			]));
+		});
+		box.appendChild(E('div',{'class':'qos-bar-row qos-bar-total'},[
+			E('div',{'class':'qos-bar-label'},_('total')),
+			E('div',{'class':'qos-bar-track'}),
+			E('div',{'class':'qos-bar-val'},[
+				E('span',{'class':'qos-bar-num'},_('%d pkt').format(total)),
+				rows.bytes!=null?E('span',{'class':'qos-bar-bytes'},'%1024.2mB'.format(rows.bytes)):'',
+				E('span',{'class':'qos-bar-pct'},_('%s%%').format(100))
+			])
+		]));
+		return box;
+	},
+
+	drawBars:function(){
+		var box=$('qos-cn-bars');
+		if(box)dom.content(box,this._cnStats?this.barChart(this._cnStats):'');
+	},
+
+	fillCounters:function(ctx){
+		var msg=$('qos-cn-msg'),info=$('qos-cn-info');
+		if(!ctx.running){
+			if(info)dom.content(info,'');
+			this.drawBars();
+			if(msg)dom.content(msg,E('div',{'class':'alert-message warning'},
+				_('qosify is not running. Start from the Overview tab.')));
+			return;
+		}
+		if(msg)dom.content(msg,ctx.stats?'':E('p',{'class':'qos-muted'},
+			E('em',{},_('The daemon returned no counters.'))));
+		this.drawBars();
+		if(info)dom.content(info,ctx.stats?this.infoNodes(ctx.stats):'');
+	},
+
+	// Rebuilt in place with the scroll offset put back.
+	fillMap:function(r,dns,hasDns){
+		var box=$('qos-cn-map');
+		if(!box)return;
+		var e=(r&&r.entries)||[],rows=this.mapRows(e);
+		var sig=this.mapSig(rows,e.length,dns,hasDns);
+		if(sig===this._mapSig)return;
+		this._mapSig=sig;
+		var top=box.scrollTop;
+		dom.content(box,rows.length?this.mapNodes(rows,e.length,dns,hasDns)
+			:E('p',{'class':'qos-muted'},E('em',{},e.length
+				?_('qosify is matching %d map entries, none of them DNS patterns.').format(e.length)
+				:_('The daemon reported no map entries.'))));
+		box.scrollTop=top;
 	},
 
 	lintAll:function(){
@@ -2017,6 +2378,14 @@ JSEOF
 	margin: 0 3px 3px 0;
 }
 
+/* Button row under a section table: the table's last row drops its own rule, so
+   the border here continues the ruled look instead of doubling it. */
+.qos-actions {
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: 1px solid var(--border-color-medium, rgba(128, 128, 128, .35));
+}
+
 .qos-ref,
 .qos-qa {
 	margin: 0 0 10px;
@@ -2049,6 +2418,142 @@ JSEOF
 	font-family: var(--font-mono, monospace);
 	font-size: 12px;
 	border: 1px solid var(--border-color-medium, rgba(128, 128, 128, .5));
+}
+
+.qos-scroll {
+	max-height: 24rem;
+	overflow: auto;
+	border: 1px solid rgba(128,128,128,.35);
+	border-radius: 3px;
+	padding: 0 .5em;
+}
+
+.qos-bars {
+	margin: .5em 0;
+	padding: .25em .6em;
+	border: 1px solid var(--border-color-medium, rgba(128,128,128,.35));
+	border-radius: 4px;
+}
+
+.qos-bar-row {
+	display: flex;
+	align-items: center;
+	gap: .75em;
+	padding: .35em .25em;
+	border-bottom: 1px solid var(--border-color-low, rgba(128,128,128,.18));
+}
+
+.qos-bar-row:last-child {
+	border-bottom: none;
+}
+
+.qos-bar-row:hover {
+	background: rgba(128,128,128,.08);
+}
+
+/* Column titles for the three figures on each row. */
+.qos-bar-head,
+.qos-bar-head:hover {
+	background: none;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: .04em;
+	opacity: .6;
+}
+
+.qos-bar-label {
+	flex: 0 0 15em;
+	display: flex;
+	align-items: center;
+	overflow: hidden;
+	white-space: nowrap;
+	font-family: var(--font-mono, monospace);
+}
+
+/* Shrinks and ellipsises so the codepoint beside it always stays on screen. */
+.qos-bar-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.qos-swatch {
+	flex: 0 0 auto;
+	display: inline-block;
+	width: .7em;
+	height: .7em;
+	border-radius: 2px;
+	margin-right: .5em;
+}
+
+/* The codepoint a class marks with, at the right edge of the label column. */
+.qos-mark {
+	flex: 0 0 auto;
+	margin-left: auto;
+	padding-left: .45em;
+	font-family: var(--font-mono, monospace);
+	font-size: 11px;
+	opacity: .7;
+}
+
+.qos-bar-bytes {
+	flex: 0 0 5.5em;
+	text-align: right;
+	opacity: .75;
+}
+
+.qos-bar-track {
+	flex: 1 1 auto;
+	min-width: 4em;
+	height: 1.15em;
+	border-radius: 3px;
+	background: rgba(128,128,128,.14);
+	overflow: hidden;
+}
+
+.qos-bar-fill {
+	height: 100%;
+	border-radius: 3px;
+	opacity: .85;
+}
+
+.qos-bar-val {
+	flex: 0 0 17em;
+	display: flex;
+	justify-content: flex-end;
+	gap: .6em;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.qos-bar-num {
+	flex: 0 0 7em;
+	text-align: right;
+	font-family: var(--font-mono, monospace);
+}
+
+.qos-bar-pct {
+	flex: 0 0 3.2em;
+	text-align: right;
+	opacity: .65;
+}
+
+.qos-bar-total {
+	margin-top: .3em;
+	padding-top: .45em;
+	border-top: 1px solid rgba(128,128,128,.3);
+	font-weight: bold;
+}
+
+.qos-bar-total:hover {
+	background: none;
+}
+
+@media (max-width: 600px) {
+	.qos-bar-label { flex-basis: 9em; }
+	.qos-bar-val { flex-basis: 11em; }
+	.qos-bar-bytes { display: none; }
 }
 
 .qos-pre {

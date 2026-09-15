@@ -2,6 +2,35 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.1.0-dev — 2026-09-15
+
+Dev realigned on main v2.9.10, which supersedes the v2.10.0 – v3.0.0-dev line.
+Everything outside the Counters tab is main's code as shipped: cleanup helper,
+config templates, menu entry, feed `Makefile` and installer. The diff against
+main is the Counters tab, its stylesheet rules and two ACL grants.
+
+- New **Counters** tab, off the tab bar by default. **Advanced → Display →
+  Counters tab** shows it, and a link to `#counters` does too. The choice is kept
+  in the browser's `localStorage`, not in `/etc/config/qosify`, which qosify owns
+- **Traffic by Class**: packet totals per class from `ubus call qosify get_stats`,
+  as log-scaled bars with the exact packets, bytes and share beside each, the
+  codepoint the class marks with, and a total row. Totals since the last reload,
+  not rates. Ordered EF first and LE/CS1 last; the `tcp_default`/`udp_default`
+  slots are skipped, since a default that names a class is already counted there
+- **Daemon**: eBPF IP map entries, last reload and DNS cache, where the reply has
+  them. OpenWrt 24.10 pins qosify at `1501e09`, whose `get_stats` returns
+  `qosify_map_stats()` at the top level with packets only; the tab renders that
+  shape and omits the rest
+- **Map Entries**: the DNS patterns from `ubus call qosify dump`, with hits,
+  packets and bytes from the `get_stats` `dns` table, source and timeout.
+  Port and address entries are not listed — qosify keeps no per-entry counters
+  for them, and `qosify_map_set_port()` stores one entry per port. Read on first
+  open and by a Refresh button, not on the tick; capped at 200 rows, dynamic
+  entries last. The Traffic column is dropped on a daemon with no `dns` table
+- The tab polls `get_stats` every 10 s while open, like Status, and makes no
+  forks, so it works with read-only access
+- ACL read group: `get_stats` and `dump` added to the `qosify` ubus grant
+
 ## v2.9.10 — 2026-09-15
 
 Feed `Makefile` metadata. No functional changes.

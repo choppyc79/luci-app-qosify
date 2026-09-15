@@ -1,10 +1,11 @@
+# Development for Snapshot only
 # luci-app-qosify
 
 LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / ImmortalWrt.
 
-qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, and Status — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
+qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Classification Rules, Advanced, Status, and Counters — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-Current version: **2.9.10**
+Current version: **3.1.0-dev**
 
 ## Tabs
 
@@ -22,21 +23,28 @@ The editor lints as you go and flags keys the daemon will silently drop — an i
 Editor for `/etc/qosify/00-defaults.conf`. The **Quick Add Rule** form covers every qosify match type: `tcp:`, `udp:`, both, `dns:` patterns, `dns:/` regex, `dns_c:` CNAME-only patterns and regex, and IPv4/IPv6 addresses, with an "only if unset" toggle for the `+` prefix. Ports are range-checked to 1–65534 (qosify rejects 65535), `#` and whitespace are blocked in patterns, CIDR is rejected, and rule targets are checked against the classes actually defined in the UCI config. Raw DSCP values are read the way the daemon reads them (`strtoul` base 0, so `077` is 63) and flagged if ≥ 64. Lines with no DSCP target are reported as lines qosify will skip rather than blocking the save.
 
 ### Advanced
-Download the current config files as a backup, upload replacements (validated, 64 KB cap, binary rejected), or reset both files back to qosify defaults.
+Download the current config files as a backup, upload replacements (validated, 64 KB cap, binary rejected), or reset both files back to qosify defaults. **Display** holds the Counters tab toggle.
 
 ### Status
 A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. The tab fetches as soon as it is opened, the summary appears before the `tc` output it does not depend on, and the scroll position survives a refresh. The output box fills the page height and can be dragged taller. Polled every 10 seconds, and only while the tab is open — a tick that would overlap a still-running `qosify-status` is skipped rather than queued.
 
+### Counters
+Off the tab bar until **Advanced → Display → Counters tab** is ticked (kept in the browser, not in UCI) or the page is opened at `#counters`. Everything here is read over ubus with no forks, so it works with read-only access.
+
+**Traffic by Class** shows the per-class packet totals from `ubus call qosify get_stats` as log-scaled bars, with exact packets, bytes and share beside each bar and a total row. They are totals since qosify last reloaded, not rates, so nothing is lost while the tab is closed. **Daemon** lists the eBPF IP map entry count, last reload time and DNS cache figures where the running daemon reports them. The qosify OpenWrt 24.10 ships returns per-class packets only, and the tab shows just that.
+
+**Map Entries** lists the DNS patterns from `ubus call qosify dump` with the hits, packets and bytes from the `get_stats` `dns` table. Port and address entries are left out, because qosify keeps no per-entry counters for them. The list is read when the tab is first opened and by its Refresh button; the counters above it poll every 10 seconds while the tab is open.
+
 ## Requirements
 
-- OpenWrt 22.03+ (or snapshot) with LuCI
+- OpenWrt 22.03+ (snapshot only with latest qosify) with LuCI
 - `luci-base` (preinstalled with LuCI) — the app uses the `rc` ubus namespace from the rpcd core, so nothing extra is needed
 - `wget` or `curl` to fetch the installer
 
 ## Install
 
 ```
-wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
+wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```
@@ -44,7 +52,7 @@ chmod +x /root/qosify-luci.sh
 Or with curl:
 
 ```
-curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
+curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```
@@ -76,7 +84,7 @@ The app registers every file it owns, including the stylesheet, in `/lib/upgrade
 
 ## Read-only access
 
-A session with only *read* access to the `luci-app-qosify` ACL group gets a read-only page: the editors, Quick Add forms and service controls are disabled rather than offered and failing with a permission error. Backup downloads stay available.
+A session with only *read* access to the `luci-app-qosify` ACL group gets a read-only page: the editors, Quick Add forms and service controls are disabled rather than offered and failing with a permission error. Backup downloads and the Counters tab stay available.
 
 ## Configuration
 
