@@ -2,6 +2,30 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.4.2-dev — 2026-09-15
+
+Folding Quick Add sections, compact Counters, opaque DNS header, modern tab bar.
+
+- DNS Entries: the pinned header now takes its background from `solidBg()`, the
+  first opaque background up the tree, with the theme tint layered on top; a
+  translucent theme colour let the rows show through it while scrolling
+- Config: Quick Add split into folding sections, `Quick Add: config defaults`,
+  `config class / config alias` and `config interface / config device`, each with
+  its own grid, Add button and Options reference. The class and interface grids
+  begin with section type and name, replacing the shared type switch, so
+  `qacSwitch()`, `SECT` and `QAC_PANEL` go and `qacAdd(p)` takes the panel.
+  Classes, DSCP values and Defaults move into a folding Reference section
+- Rules: Quick Add is a folding section. `fold()` keeps each section's open state
+  in `sessionStorage`; all start closed
+- Counters: tighter section spacing and row padding, each chart in its own
+  bordered box with row hover, thinner bars, right-aligned tabular figures with
+  grouped digits, a ruled total row, and headers named as the source names them
+  (`packets`/`bytes` for classes, `pkts`/`bytes`/`drops` for tins)
+- Look: tab bars (main and sub-tabs) drawn as an underlined strip with the active
+  tab in the theme's primary colour; sections get a title bar, rounded border and
+  light shadow; folding sections show a turning chevron. Status and Advanced keep
+  their layout
+
 ## v3.4.1-dev — 2026-09-15
 
 qosify names throughout, full interface options, collapsible references, boxed sections.

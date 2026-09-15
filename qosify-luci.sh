@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.4.1-dev"
+VERSION="3.4.2-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -324,12 +324,33 @@ var MODES=['diffserv3','diffserv4','diffserv8','besteffort','precedence'];
 var MAP_ROWS=200;
 // Each section is a box, scoped to this page and drawn with the theme's own
 // variables; the DNS entries box resizes like the editors.
-var CSS='#qos-app .cbi-section{border:1px solid var(--border-color-medium,rgba(128,128,128,.35));border-radius:4px;padding:0 1em 1em;margin:0 0 1em}'+
-	'#qos-app .cbi-section>h3{margin:.75em 0}'+
-	'#qos-app .cbi-section .cbi-page-actions{margin:1em -1em -1em;border-radius:0 0 4px 4px}'+
-	'#qos-app details{margin:.75em 0 0}#qos-app summary{cursor:pointer;font-weight:bold}'+
-	'#qos-app details>p,#qos-app details>.table{margin:.5em 0 0}'+
-	'#qos-cn-map-box{height:24rem;min-height:6rem;overflow:auto;resize:vertical;border:1px solid var(--border-color-medium,rgba(128,128,128,.35));border-radius:3px}';
+var CSS=[
+	'#qos-app .cbi-tabmenu{display:flex;flex-wrap:wrap;gap:.25em;margin:0 0 1em;padding:0;border-bottom:1px solid var(--border-color-medium,rgba(128,128,128,.35))}',
+	'#qos-app .cbi-tabmenu>li{height:auto;max-width:none;margin:0;background:none;border:0;border-radius:0}',
+	'#qos-app .cbi-tabmenu>li>a{display:block;padding:.55em 1em;line-height:1.2;border-radius:0;border-bottom:2px solid transparent;margin-bottom:-1px;opacity:.75}',
+	'#qos-app .cbi-tabmenu>li>a:hover{opacity:1;border-bottom-color:var(--border-color-high,rgba(128,128,128,.6))}',
+	'#qos-app .cbi-tabmenu>li.cbi-tab>a{opacity:1;font-weight:600;color:var(--primary-color-high,#0069d6);border-bottom-color:var(--primary-color-high,#0069d6)}',
+	'#qos-app .cbi-section{border:1px solid var(--border-color-medium,rgba(128,128,128,.35));border-radius:6px;padding:0 1em .75em;margin:0 0 .9em;box-shadow:0 1px 2px rgba(0,0,0,.06)}',
+	'#qos-app .cbi-section>h3,#qos-app .cbi-section>summary{margin:0 -1em .75em;padding:.55em 1em;font-size:1.05em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));border-radius:6px 6px 0 0;background:var(--background-color-low,rgba(128,128,128,.06))}',
+	'#qos-app .cbi-section>summary{cursor:pointer;list-style:none}#qos-app .cbi-section>summary::-webkit-details-marker{display:none}',
+	'#qos-app .cbi-section>summary::before{content:"\\25B8";display:inline-block;width:1.1em;transition:transform .15s}',
+	'#qos-app details.cbi-section[open]>summary::before{transform:rotate(90deg)}',
+	'#qos-app details.cbi-section:not([open]){padding-bottom:0}#qos-app details.cbi-section:not([open])>summary{margin-bottom:0;border-bottom:0;border-radius:6px}',
+	'#qos-app summary>h3{display:inline;margin:0;font-size:inherit;font-weight:inherit}',
+	'#qos-app .cbi-section .cbi-page-actions{margin:.75em -1em -.75em;border-radius:0 0 6px 6px}',
+	'#qos-app details:not(.cbi-section){margin:.75em 0 0}#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}',
+	'#qos-app details:not(.cbi-section)>p,#qos-app details:not(.cbi-section)>.table{margin:.5em 0 0}',
+	'#qos-cn .cbi-section{margin-bottom:.6em;padding-bottom:.6em}#qos-cn .cbi-section>h3{margin-bottom:.6em;padding:.45em 1em}',
+	'#qos-cn .qbox{border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;overflow:hidden}',
+	'#qos-cn .qbox+.qbox{margin-top:.5em}',
+	'#qos-cn .table{margin:0}#qos-cn .table .th,#qos-cn .table .td{padding:.35em .6em;vertical-align:middle}',
+	'#qos-cn .table .tr.table-titles .th{font-weight:600;font-size:.9em;white-space:nowrap}',
+	'#qos-cn .qbox .table .tr:not(.table-titles):hover .td{background:var(--background-color-low,rgba(128,128,128,.06))}',
+	'#qos-cn .cbi-progressbar{height:.75em;margin:0;min-width:5em;border-radius:3px}',
+	'#qos-cn .qn{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;width:1%}',
+	'#qos-cn .qt .td{font-weight:600;border-top:1px solid var(--border-color-medium,rgba(128,128,128,.35))}',
+	'#qos-cn-map-box{height:24rem;min-height:6rem;overflow:auto;resize:vertical;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px}'
+].join('');
 // Option reference, from the qosify README (ubus config parameters) and the
 // qosify.init that maps each UCI option onto them.
 var OPT_DESC={
@@ -370,8 +391,7 @@ var OPT_DESC={
 var QA_COLS=6;
 // Map Entries header, pinned inside its scroll box; .table is border-collapse,
 // so an inset shadow stands in for the border the sticky cell drops.
-var MAP_TH={'class':'th','style':'position:sticky;top:0;z-index:1;'+
-	'background:var(--background-color-medium,Canvas);color:var(--text-color-high,CanvasText);'+
+var MAP_TH={'class':'th','style':'position:sticky;top:0;z-index:2;background-clip:padding-box;'+
 	'box-shadow:inset 0 -1px 0 var(--border-color-medium,rgba(128,128,128,.5))'};
 // Bar length is (row/largest row)^BAR_EXP: the largest row fills the track and a
 // 0.1% row still shows at a tenth of it, so a bulk download does not hide the rest.
@@ -409,8 +429,6 @@ var TIN_COLORS={besteffort:['#377eb8'],
 	diffserv3:['#e41a1c','#377eb8','#4daf4a']};
 // qosify.init handles 'alias' with add_class and 'device' with add_interface,
 // so those section types share the option set of class / interface.
-var QAC_PANEL={defaults:'defaults','class':'class',alias:'class','interface':'interface',device:'interface'};
-var SECT=[['defaults','config defaults'],['class','config class'],['alias','config alias'],['interface','config interface'],['device','config device']];
 
 // luci.setInitAction was dropped from luci-base in 4440b267d; the rc namespace
 // (built into the rpcd core binary, so no extra dependency) replaces it.
@@ -708,6 +726,23 @@ function sect(title,kids,attrs){
 	var a=attrs||{};
 	a['class']='cbi-section';
 	return E('div',a,[E('h3',{'id':a.id?a.id+'-title':null},title)].concat(kids));
+}
+// The first opaque background up the tree; a theme colour variable can be
+// translucent, which let the pinned DNS header show the rows scrolling under it.
+function solidBg(el){
+	for(;el&&el.nodeType===1;el=el.parentNode){
+		var m=(getComputedStyle(el).backgroundColor.match(/[\d.]+/g)||[]);
+		if(m.length>=3&&(m.length<4||+m[3]===1))return 'rgb('+m.slice(0,3).join(',')+')';
+	}
+	return 'Canvas';
+}
+// A section that folds, open state kept for the browser session.
+function fold(id,title,kids,open){
+	var k='qosify.fold.'+id,st=null,d;
+	try{st=sessionStorage.getItem(k);}catch(e){}
+	d=E('details',{'class':'cbi-section','id':id,'open':(st==null?open:st==='1')?'':null},[E('summary',{},E('h3',{},title))].concat(kids));
+	d.addEventListener('toggle',function(){try{sessionStorage.setItem(k,d.open?'1':'0');}catch(e){}});
+	return d;
 }
 function refBox(title,note,rows){
 	return E('details',{},[E('summary',{},title),note?E('p',{},note):'',
@@ -1032,10 +1067,12 @@ return view.extend({
 		var section=E('div',{'id':'qos-cf'});
 		var classes=this.getClasses();
 		var dscpChoices=classes.map(function(c){return c.name;}).concat(DSCP);
-		var qacType=E('select',{'class':'cbi-input-select','id':'qac-type','change':function(){self.qacSwitch();}});
-		SECT.forEach(function(o){qacType.appendChild(E('option',{'value':o[0]},o[1]));});
-
-		var qacName=E('input',{'type':'text','class':'cbi-input-text','id':'qac-name','placeholder':_('section name'),'disabled':'disabled'});
+		function head(p,a,b){
+			p.qaCells=[[_('section type'),E('select',{'class':'cbi-input-select','id':'qac-'+p.id.slice(9)+'-type'},
+				[E('option',{'value':a},'config '+a),E('option',{'value':b},'config '+b)])],
+				[_('section name'),E('input',{'type':'text','class':'cbi-input-text','id':'qac-'+p.id.slice(9)+'-name','placeholder':_('section name')})]];
+		}
+		function add(p){return E('div',{'class':'right'},E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd(p);}},_('Add')));}
 
 		// config defaults — add_defaults() in qosify.init
 		var qadDef=E('div',{'id':'qac-opts-defaults'});
@@ -1051,7 +1088,8 @@ return view.extend({
 		this.qaNum(qadDef,'bulk_trigger_timeout','5');
 
 		// config class / config alias — add_class()
-		var qadCls=E('div',{'id':'qac-opts-class','style':'display:none'});
+		var qadCls=E('div',{'id':'qac-opts-class'});
+		head(qadCls,'class','alias');
 		this.qaSelect(qadCls,'value',DSCP);
 		this.qaSelect(qadCls,'ingress',DSCP);
 		this.qaSelect(qadCls,'egress',DSCP);
@@ -1062,7 +1100,8 @@ return view.extend({
 		this.qaNum(qadCls,'bulk_trigger_timeout','5');
 
 		// config interface / config device — add_interface()
-		var qadIf=E('div',{'id':'qac-opts-interface','style':'display:none'});
+		var qadIf=E('div',{'id':'qac-opts-interface'});
+		head(qadIf,'interface','device');
 		this.qaInput(qadIf,'name','option','wan');
 		this.qaSelect(qadIf,'disabled',['0','1']);
 		this.qaInput(qadIf,'bandwidth_up','option','100mbit');
@@ -1082,22 +1121,23 @@ return view.extend({
 		this.qaInput(qadIf,'ingress_options','option','triple-isolate');
 		this.qaInput(qadIf,'egress_options','option','triple-isolate wash');
 		this.qaInput(qadIf,'options','option','overhead 44 mpu 84');
-		[[qadDef,'config defaults',null,''],
-		 [qadCls,'config class / config alias',_('Section name is the class name that rules and dscp_* values refer to. qosify.init reads config alias the same way as config class.'),''],
-		 [qadIf,'config interface / config device',_('config device takes the same options, with name set to a netdev. nat defaults to 1 for interfaces and 0 for devices.'),'if.']
-		].forEach(function(p){
-			self.qaGrid(p[0],p[0].qaCells);
-			p[0].appendChild(refBox(p[1],p[2],p[0].qaCells.map(function(c){return [c[0],OPT_DESC[p[3]+c[0]]||OPT_DESC[c[0]]||''];})));
-		});
 
-		section.appendChild(sect(_('Quick Add'),[
-			this.qaGrid(E('div'),[[_('Section type'),qacType],[_('Section name'),qacName]]),
-			qadDef,qadCls,qadIf,
-			E('div',{'class':'right'},E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd();}},_('Add'))),
+		// Each stanza type folds on its own; the option reference is read back out
+		// of the form, so the two can never disagree.
+		[[qadDef,'defaults','config defaults',null,''],
+		 [qadCls,'class','config class / config alias',_('Section name is the class name that rules and dscp_* values refer to. qosify.init reads config alias the same way as config class.'),''],
+		 [qadIf,'interface','config interface / config device',_('config device takes the same options, with name set to a netdev. nat defaults to 1 for interfaces and 0 for devices.'),'if.']
+		].forEach(function(p){
+			var opts=p[0].qaCells.filter(function(c){return c[1].hasAttribute('data-opt');});
+			self.qaGrid(p[0],p[0].qaCells);
+			section.appendChild(fold('qos-qa-'+p[1],_('Quick Add: %s').format(p[2]),[p[0],add(p[1]),
+				refBox(_('Options'),p[3],opts.map(function(c){return [c[0],OPT_DESC[p[4]+c[0]]||OPT_DESC[c[0]]||''];}))],false));
+		});
+		section.appendChild(fold('qos-qa-ref',_('Reference'),[
 			this.classRef('qos-cls-cfg'),
 			refBox(_('DSCP values'),_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF. A raw value from 0 to 63 is accepted too, and any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero.'),[]),
 			refBox(_('Defaults'),_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).'),[])
-		]));
+		],false));
 		section.appendChild(this.editorSect('qos-config-ta',UCI_PATH,ctx.cfgRaw,ctx.cfgStat,function(){return self.clearCfg();},function(){return self.saveConfig();}));
 		return section;
 	},
@@ -1214,7 +1254,7 @@ return view.extend({
 			qarType.appendChild(E('option',{'value':o[0]},o[1]));
 		});
 		var qarCls=E('select',{'class':'cbi-input-select','id':'qar-cls'},this.getClasses().map(function(c){return E('option',{'value':c.name},clsOpt(c));}));
-		section.appendChild(sect(_('Quick Add'),[
+		section.appendChild(fold('qos-qa-rule',_('Quick Add'),[
 			this.qaGrid(E('div'),[
 				['match',qarType],
 				['',E('input',{'type':'text','class':'cbi-input-text','id':'qar-val','placeholder':_('e.g. %s').format('4500')})],
@@ -1233,7 +1273,7 @@ return view.extend({
 				['+<dscp>',_('Only override the DSCP value if it is zero')]
 			]),
 			this.classRef('qos-cls-ru')
-		]));
+		],false));
 		section.appendChild(this.editorSect('qos-rules-ta',RULES_PATH,ctx.rulesText,ctx.rulesStat,function(){return self.clearRules();},function(){return self.saveRules();}));
 		return section;
 	},
@@ -1372,8 +1412,9 @@ return view.extend({
 		if(tcol)hdr.push(E('th',MAP_TH,'hits / packets / bytes'));
 		if(wcol)hdr.push(E('th',MAP_TH,'timeout'));
 		var tbl=E('table',{'class':'table'},E('tr',{'class':'tr table-titles'},hdr));
+		this._mapHead=hdr;
 		rows.slice(0,MAP_ROWS).forEach(function(r){
-			var src=[],c={t:tcol?E('td',{'class':'td','style':'white-space:nowrap'}):null,w:wcol?E('td',{'class':'td'}):null};
+			var src=[],c={t:tcol?E('td',{'class':'td qn'}):null,w:wcol?E('td',{'class':'td qn'}):null};
 			if(r.file)src.push('file');
 			if(r.user)src.push('user');
 			cells.push(c);
@@ -1387,7 +1428,7 @@ return view.extend({
 		var lg=$('qos-cn-map-sect-title'),t;
 		(this._mapCells||[]).forEach(function(c,i){
 			var r=rows[i],e=(dns&&dns[r.addr])||{},t,w;
-			t=!dns?'-':[e.hits||0,e.packets||0].concat(e.bytes==null?[]:['%1024.2mB'.format(e.bytes)]).join(' / ');
+			t=!dns?'-':[Number(e.hits||0).toLocaleString(),Number(e.packets||0).toLocaleString()].concat(e.bytes==null?[]:['%1024.2mB'.format(e.bytes)]).join(' / ');
 			w=r.timeout!=null?'%t'.format(r.timeout):'-';
 			if(c.t&&c.t.textContent!==t)c.t.textContent=t;
 			if(c.w&&c.w.textContent!==w)c.w.textContent=w;
@@ -1536,63 +1577,70 @@ return view.extend({
 	// row. Built again only when the rows or columns change; otherwise cells and
 	// bar widths are set in place, so the bars ease and nothing below moves.
 	// Length is (row/largest row)^BAR_EXP, a non-zero row kept at 1%.
+	// A compact .table in its own box: name, codepoint where a row has one, a
+	// .cbi-progressbar, then the counters under the names their source uses
+	// (get_stats packets/bytes, tc pkts/bytes/drops) and share, with a total row.
+	// Built again only when the rows or columns change; otherwise cells and bar
+	// widths are set in place. Length is (row/largest row)^BAR_EXP, a non-zero
+	// row kept at 1%.
 	drawChart:function(box,rows,empty,head){
-		var total=rows.total||0,max=0,c=box.qosChart,sig,t,
+		var total=rows.total||0,max=0,c=box.qosChart,sig,
 			dcol=rows.some(function(r){return r.mark;}),
 			bcol=rows.bytes!=null,
-			xcol=rows.some(function(r){return r.drops!=null;});
+			xcol=rows.some(function(r){return r.drops!=null;}),
+			pk=xcol?'pkts':'packets';
 		if(!rows.length){box.qosChart=null;dom.content(box,emP(empty));return;}
 		rows.forEach(function(r){if(r.v>max)max=r.v;});
 		sig=[dcol,bcol,xcol].concat(rows.map(function(r){return r.name;})).join('\n');
-		function td(cls,t){return E('td',{'class':'td'+(cls?' '+cls:''),'data-title':t});}
-		function th(t,cls){return E('th',{'class':'th'+(cls?' '+cls:'')},t);}
+		function td(n,t){return E('td',{'class':n?'td qn':'td left','data-title':t});}
+		function th(t,n){return E('th',{'class':n?'th qn':'th left'},t);}
 		function set(el,v){if(el&&el.textContent!==v)el.textContent=v;}
+		function num(n){return Number(n||0).toLocaleString();}
 		if(!c||c.sig!==sig){
 			var hdr=[th(head)];
-			if(dcol)hdr.push(th(_('DSCP')));
-			hdr.push(th(''),th(_('Packets'),'right'));
-			if(bcol)hdr.push(th(_('Bytes'),'right'));
-			if(xcol)hdr.push(th(_('Drops'),'right'));
-			hdr.push(th(_('Share'),'right'));
+			if(dcol)hdr.push(th('dscp'));
+			hdr.push(E('th',{'class':'th'}),th(pk,1));
+			if(bcol)hdr.push(th('bytes',1));
+			if(xcol)hdr.push(th('drops',1));
+			hdr.push(th(_('share'),1));
 			c=box.qosChart={sig:sig,rows:[]};
 			var trs=rows.map(function(){
-				var o={name:td('left',head),dscp:dcol?td('',_('DSCP')):null,fill:E('div'),
-					pkt:td('right',_('Packets')),bytes:bcol?td('right',_('Bytes')):null,
-					drops:xcol?td('right',_('Drops')):null,share:td('right',_('Share'))};
+				var o={name:td(0,head),dscp:dcol?td(0,'dscp'):null,fill:E('div'),pkt:td(1,pk),
+					bytes:bcol?td(1,'bytes'):null,drops:xcol?td(1,'drops'):null,share:td(1,_('share'))};
 				o.tr=E('tr',{'class':'tr'},[o.name,o.dscp||'',
-					E('td',{'class':'td','width':'100%'},E('div',{'class':'cbi-progressbar','style':'margin:0;min-width:6em'},o.fill)),
+					E('td',{'class':'td','width':'100%'},E('div',{'class':'cbi-progressbar'},o.fill)),
 					o.pkt,o.bytes||'',o.drops||'',o.share]);
 				c.rows.push(o);
 				return o.tr;
 			});
-			c.tot={name:E('strong',{},_('total')),pkt:td('right'),bytes:bcol?td('right'):null,drops:xcol?td('right'):null};
-			trs.push(E('tr',{'class':'tr'},[E('td',{'class':'td left'},c.tot.name),dcol?td():'',td(),
-				c.tot.pkt,c.tot.bytes||'',c.tot.drops||'',E('td',{'class':'td right'},_('%s%%').format(100))]));
-			dom.content(box,E('table',{'class':'table'},[E('tr',{'class':'tr table-titles'},hdr)].concat(trs)));
+			c.tot={pkt:td(1,pk),bytes:bcol?td(1,'bytes'):null,drops:xcol?td(1,'drops'):null};
+			trs.push(E('tr',{'class':'tr qt'},[E('td',{'class':'td left'},_('total')),dcol?E('td',{'class':'td'}):'',E('td',{'class':'td'}),
+				c.tot.pkt,c.tot.bytes||'',c.tot.drops||'',E('td',{'class':'td qn'},_('%s%%').format(100))]));
+			dom.content(box,E('div',{'class':'qbox'},E('table',{'class':'table'},[E('tr',{'class':'tr table-titles'},hdr)].concat(trs))));
 		}
 		rows.forEach(function(r,i){
 			var o=c.rows[i],share=total?(r.v/total)*100:0,
 				len=max&&r.v?Math.max(Math.pow(r.v/max,BAR_EXP)*100,1):0,
-				tip=r.marks!=null?_('%d ECN marks').format(r.marks):'';
+				tip=r.marks!=null?'marks %d'.format(r.marks):'';
 			set(o.name,r.name);
 			set(o.dscp,r.mark||'');
-			set(o.pkt,String(r.v));
+			set(o.pkt,num(r.v));
 			if(o.bytes)set(o.bytes,'%1024.2mB'.format(r.bytes||0));
-			if(o.drops)set(o.drops,r.drops!=null?String(r.drops):'-');
+			if(o.drops)set(o.drops,r.drops!=null?num(r.drops):'-');
 			set(o.share,fmtShare(share));
 			if(o.tr.title!==tip)o.tr.title=tip;
 			o.fill.style.width=len.toFixed(2)+'%';
 			o.fill.style.background=r.color;
 		});
-		set(c.tot.pkt,String(total));
+		set(c.tot.pkt,num(total));
 		if(c.tot.bytes)set(c.tot.bytes,'%1024.2mB'.format(rows.bytes));
-		if(c.tot.drops)set(c.tot.drops,String(rows.reduce(function(t,r){return t+(r.drops||0);},0)));
+		if(c.tot.drops)set(c.tot.drops,num(rows.reduce(function(t,r){return t+(r.drops||0);},0)));
 	},
 
 	drawBars:function(){
 		var st=this._cnStats,box=$('qos-cn-bars'),m=this.cakeModes();
 		if(!box)return;
-		if(st)this.drawChart(box,this.classTotals(st,m.length===1?m[0]:null),_('No per-class counters.'),_('Class'));
+		if(st)this.drawChart(box,this.classTotals(st,m.length===1?m[0]:null),_('No per-class counters.'),'class');
 		else{box.qosChart=null;dom.content(box,'');}
 	},
 
@@ -1616,7 +1664,7 @@ return view.extend({
 			box.qosGroups=t.length;
 			dom.content(box,t.map(function(){return E('div');}));
 		}
-		t.forEach(function(rows,i){self.drawChart(box.childNodes[i],rows,'',_('Tin'));});
+		t.forEach(function(rows,i){self.drawChart(box.childNodes[i],rows,'','tin');});
 	},
 
 	fillCounters:function(ctx){
@@ -1651,7 +1699,9 @@ return view.extend({
 			t=t?t.scrollTop:0;
 			this._mapSig=sig;
 			dom.content(box,this.mapNodes(rows,hasDns));
-			$('qos-cn-map-box').scrollTop=t;
+			var mb=$('qos-cn-map-box'),bg=solidBg(mb);
+			this._mapHead.forEach(function(h){h.style.backgroundColor=bg;h.style.backgroundImage='linear-gradient(var(--background-color-low,rgba(128,128,128,.06)),var(--background-color-low,rgba(128,128,128,.06)))';});
+			mb.scrollTop=t;
 		}
 		this.mapValues(rows,dns);
 	},
@@ -2132,28 +2182,21 @@ return view.extend({
 		ta.scrollTop=ta.scrollHeight;
 	},
 
-	qacSwitch:function(){
-		var ty=$('qac-type').value,p=QAC_PANEL[ty];
-		['defaults','class','interface'].forEach(function(x){
-			var el=$('qac-opts-'+x);
-			if(el)el.style.display=(x===p)?'':'none';
-		});
-		$('qac-name').disabled=ty==='defaults'||this.readonly;
-	},
 
-	qacAdd:function(){
-		var ty=$('qac-type').value;
+
+	qacAdd:function(p){
+		var tsel=$('qac-'+p+'-type'),nmEl=$('qac-'+p+'-name'),ty=tsel?tsel.value:p;
 		var ta=$('qos-config-ta');if(!ta)return;
 		var nm='',secs=cfgSections(ta.value);
 		if(ty!=='defaults'){
-			nm=trim($('qac-name').value);
+			nm=trim(nmEl.value);
 			if(!nm){notify(_('Enter a section name.'),'danger');return;}
 			if(!/^[a-zA-Z0-9_]+$/.test(nm)){notify(_('A section name may only contain letters, digits and underscores.'),'danger');return;}
 		}
 		if(ty==='defaults'&&secs.some(function(x){return x.type==='defaults';})){notify(_('A config defaults section already exists.'),'danger');return;}
 		if(nm&&secs.some(function(x){return x.type===ty&&x.name===nm;})){notify(_('Section %s already exists.').format(nm),'danger');return;}
 		var s='config '+ty+(nm?" '"+nm+"'":'');
-		var div=$('qac-opts-'+QAC_PANEL[ty]);
+		var div=$('qac-opts-'+p);
 		var els=div.querySelectorAll('[data-opt]');
 		for(var i=0;i<els.length;i++){
 			var v=els[i].value;if(!v)continue;
@@ -2164,7 +2207,7 @@ return view.extend({
 		}
 		var cv=ta.value.replace(/\s+$/,'');
 		ta.value=cv+(cv?'\n\n':'')+s+'\n';
-		if(nm)$('qac-name').value='';
+		if(nm)nmEl.value='';
 		for(i=0;i<els.length;i++){
 			if(els[i].tagName==='SELECT')els[i].selectedIndex=0;
 			else els[i].value=els[i].defaultValue||'';
