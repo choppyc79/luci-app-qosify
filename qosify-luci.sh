@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.3-dev"
+VERSION="3.3.0-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -334,14 +334,6 @@ var DSCP_VAL={CS0:0,DF:0,LE:1,CS1:8,AF11:10,AF12:12,AF13:14,CS2:16,AF21:18,AF22:
 // __qosify_map_dscp_value() would reject and sorts below them.
 var DSCP_BULK={1:1,8:1};
 function dscpRank(v){return v<0?-1000:DSCP_BULK[v]?v-100:v===46?100:v;}
-// Map entries header, pinned. Inline because qosify.css is served without a
-// cache-busting query, and .table is border-collapse, so the cells carry sticky
-// and an inset shadow stands in for the dropped border.
-// Map entries figures, updated in place, so digits keep their width.
-var MAP_NUM={'class':'td','style':'white-space:nowrap;font-variant-numeric:tabular-nums'};
-var MAP_TH={'class':'th','style':'position:sticky;top:0;z-index:3;'+
-	'background:var(--background-color-medium,Canvas);color:var(--text-color-high,CanvasText);'+
-	'box-shadow:inset 0 -1px 0 var(--border-color-medium,rgba(128,128,128,.5))'};
 // Colour by sorted class name, so a class keeps its colour as the bars reorder.
 var CN_COLORS=['#377eb8','#4daf4a','#ff7f00','#984ea3','#e41a1c','#17becf','#a65628','#f781bf'];
 // qosify_map_stats() appends these two default slots; they are not config classes.
@@ -646,9 +638,21 @@ function notify(msg,kind){
 // Remember the size/mtime an editor was loaded from, so a save can tell the
 // difference between "the user changed this" and "something else changed the
 // file underneath us".
-function noClassRow(){
-	return E('tr',{},E('td',{'colspan':2,'class':'qos-muted'},E('em',{},_('No classes defined in %s').format(UCI_PATH))));
+// Stock LuCI markup only, so the page follows the active theme: .table rows as
+// on Status > Overview, .label badges, .cbi-value form rows, .cbi-progressbar
+// bars and plain pre/textarea. The app ships no stylesheet of its own.
+function badge(kind,t){return E('span',{'class':kind?'label '+kind:'label'},t);}
+function kvRow(k,v,id){return E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},k),E('td',{'class':'td left','id':id||null},v)]);}
+function emRow(t){return E('tr',{'class':'tr placeholder'},E('td',{'class':'td'},E('em',{},t)));}
+function emP(t){return E('p',{},E('em',{},t));}
+function descr(t){return E('div',{'class':'cbi-section-descr'},t);}
+function valRow(lbl,el,help,attrs){
+	var n=Array.isArray(el)?el[0]:el,a=attrs||{};
+	a['class']='cbi-value';
+	return E('div',a,[E('label',{'class':'cbi-value-title','for':(n&&n.id)||null},lbl),
+		E('div',{'class':'cbi-value-field'},[].concat(el,help?(help.nodeType?help:E('div',{'class':'cbi-value-description'},help)):[]))]);
 }
+function noClassRow(){return emRow(_('No classes defined in %s').format(UCI_PATH));}
 
 function stampFile(el,st){
 	el.dataset.mtime=st?String(st.mtime):'';
@@ -694,7 +698,6 @@ return view.extend({
 		if(d[0]===null)notify(_('The qosify UCI configuration could not be loaded — class and interface lists may be incomplete.'),'warning');
 
 		var root=E('div',{'class':'cbi-map','id':'qos-app'});
-		root.appendChild(E('link',{'rel':'stylesheet','href':L.resource('view/qosify/qosify.css')}));
 		root.appendChild(E('h2',{},_('qosify')));
 		root.appendChild(E('div',{'class':'cbi-map-descr'},_('Traffic shaping and DSCP classification via qosify')));
 
@@ -780,19 +783,13 @@ return view.extend({
 		nodes.push(E('legend',{},_('Quick Settings')));
 		nodes.push(E('div',{'class':'cbi-section-descr'},
 			_('Common shaping settings — written straight to %s, section %s.').format(UCI_PATH,sn?'config '+sn.type+(sn.name?" '"+sn.name+"'":' '+_('(unnamed section)')):"config interface 'wan' (will be created)")));
-		var tbl=E('table',{'class':'qos-kv','width':'100%'});
-		var bdy=E('tbody');tbl.appendChild(bdy);
-
-		function row(lbl,el){
-			var n=(el&&el.nodeType)?el:(Array.isArray(el)?el[0]:null);
-			var id=(n&&n.id)||null;
-			bdy.appendChild(E('tr',{},[E('td',{},id?E('label',{'for':id},lbl):lbl),E('td',{},el)]));
-		}
-		function chk(name,val){return E('input',{'type':'checkbox','id':'q-'+name,'data-q':name,'checked':val?'checked':null});}
-		function txt(name,val,ph,style){return E('input',{'type':'text','id':'q-'+name,'data-q':name,'value':val||'','placeholder':ph||'','style':style||'width:140px;font-family:monospace'});}
-		function sel(name,val,opts,style,def){
+		var node=E('div',{'class':'cbi-section-node'});
+		function row(lbl,el,help){node.appendChild(valRow(lbl,el,help));}
+		function chk(name,val){return E('input',{'type':'checkbox','class':'cbi-input-checkbox','id':'q-'+name,'data-q':name,'checked':val?'checked':null});}
+		function txt(name,val,ph){return E('input',{'type':'text','class':'cbi-input-text','id':'q-'+name,'data-q':name,'value':val||'','placeholder':ph||''});}
+		function sel(name,val,opts,def){
 			val=qv(val);
-			var s=E('select',{'id':'q-'+name,'data-q':name,'style':style||'width:180px'});
+			var s=E('select',{'class':'cbi-input-select','id':'q-'+name,'data-q':name});
 			var sv=val||def,known=false;
 			opts.forEach(function(o){var a={'value':o};if(sv===o){a.selected='selected';known=true;}s.appendChild(E('option',a,o));});
 			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},_('%s (current)').format(val)));
@@ -800,9 +797,9 @@ return view.extend({
 		}
 
 		var enCb=chk('enabled',enChecked);
-		var enBadge=E('span',{'class':'qos-badge qos-amber','style':'margin-left:8px','id':'q-en-badge'},'');
+		var enBadge=E('span',{'class':'label','id':'q-en-badge'});
 		this.updateEnBadge(enBadge,ctx,enChecked);
-		row(_('QoS Enabled'),[enCb,enBadge]);
+		row(_('QoS Enabled'),[enCb,' ',enBadge]);
 		// qosify.init passes `option name` to add_interface(); without it the daemon
 		// gets an empty device and the section is never applied, so offer it here
 		// whenever it is missing -- anonymous sections have no other way to set it.
@@ -813,34 +810,33 @@ return view.extend({
 		// keep warning until a real netdev is entered.
 		var isDev=!!(sn&&sn.type==='device');
 		if(!w.name)row(isDev?_('Netdev Name'):_('Interface Name'),
-			[txt('name',sn?(isDev?'':sn.name):'wan',_('e.g. %s').format(isDev?'eth0':'wan'),'width:140px'),
-			E('span',{'style':'opacity:.6;font-size:11px;margin-left:8px'},_('required — qosify skips sections with no name'))]);
+			txt('name',sn?(isDev?'':sn.name):'wan',_('e.g. %s').format(isDev?'eth0':'wan')),
+			_('required — qosify skips sections with no name'));
 		row(_('Bandwidth Up'),txt('bw_up',w.bandwidth_up,_('e.g. %s').format('100mbit')));
 		row(_('Bandwidth Down'),txt('bw_down',w.bandwidth_down,_('e.g. %s').format('100mbit')));
-		row(_('Overhead Type'),sel('overhead',w.overhead_type,OVH,'width:180px','none'));
-		row(_('Overhead Bytes'),[txt('overhead_b',w.overhead,_('manual only'),'width:100px'),
-			E('span',{'style':'opacity:.6;font-size:11px;margin-left:8px'},_('used only when Overhead Type is manual'))]);
-		row(_('Queue Mode'),sel('mode',w.mode,MODES,'width:170px','diffserv4'));
+		row(_('Overhead Type'),sel('overhead',w.overhead_type,OVH,'none'));
+		row(_('Overhead Bytes'),txt('overhead_b',w.overhead,_('manual only')),_('used only when Overhead Type is manual'));
+		row(_('Queue Mode'),sel('mode',w.mode,MODES,'diffserv4'));
 		row(_('Ingress'),chk('ingress',numBool(w.ingress,true)));
 		row(_('Egress'),chk('egress',numBool(w.egress,true)));
 		// CAKE is only given nat/nonat when host_isolate is on; otherwise it gets
 		// flow isolation and nat has no effect at all.
 		var natCb=chk('nat',numBool(w.nat,!isDev));
 		var hiCb=chk('host_isolate',numBool(w.host_isolate,true));
-		var natNote=E('span',{'style':'opacity:.65;font-size:11px;margin-left:8px'},
+		var natNote=E('div',{'class':'cbi-value-description'},
 			_('qosify only passes this to CAKE together with Host Isolate — add nat to Options to force it'));
 		function syncNat(){
 			natNote.style.display=hiCb.checked?'none':'';
 		}
 		hiCb.addEventListener('change',syncNat);
 		syncNat();
-		row(_('NAT'),[natCb,natNote]);
+		row(_('NAT'),natCb,natNote);
 		row(_('Host Isolate'),hiCb);
 		row(_('Autorate Ingress'),chk('autorate',numBool(w.autorate_ingress,false)));
-		row(_('Ingress Options'),txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb'),'width:100%;max-width:400px;font-family:monospace'));
-		row(_('Egress Options'),txt('egr_opts',w.egress_options,_('e.g. %s').format('triple-isolate memlimit 32mb wash'),'width:100%;max-width:400px;font-family:monospace'));
-		row(_('Options'),txt('opts',w.options,_('e.g. %s').format('overhead 44 mpu 84'),'width:100%;max-width:400px;font-family:monospace'));
-		nodes.push(tbl);
+		row(_('Ingress Options'),txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb')));
+		row(_('Egress Options'),txt('egr_opts',w.egress_options,_('e.g. %s').format('triple-isolate memlimit 32mb wash')));
+		row(_('Options'),txt('opts',w.options,_('e.g. %s').format('overhead 44 mpu 84')));
+		nodes.push(node);
 		nodes.push(E('div',{'class':'cbi-page-actions'},
 			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveQuick();}},_('Save & Apply'))));
 		return nodes;
@@ -849,7 +845,7 @@ return view.extend({
 	buildCtlSect:function(ctx){
 		var self=this;
 		var nodes=[E('legend',{},_('Service Controls'))];
-		var svcCt=E('div',{'class':'qos-svc','id':'qos-svc-btns'});
+		var svcCt=E('div',{'id':'qos-svc-btns'});
 		svcCt.appendChild(E('button',{
 			'class':'cbi-button '+(ctx.enabled?'cbi-button-positive':'cbi-button-negative'),
 			'id':'qos-btn-auto',
@@ -858,6 +854,7 @@ return view.extend({
 		},ctx.enabled?_('Enabled'):_('Disabled')));
 		var btnCls={start:'cbi-button-apply',stop:'cbi-button-negative',restart:'cbi-button-action',reload:'cbi-button-reload'};
 		['start','stop','restart','reload'].forEach(function(a){
+			svcCt.appendChild(document.createTextNode(' '));
 			svcCt.appendChild(E('button',{
 				'class':'cbi-button '+btnCls[a],
 				'click':function(){return self.svcAction(a);}
@@ -919,41 +916,36 @@ return view.extend({
 	},
 
 	updateEnBadge:function(el,ctx,enChecked){
-		dom.content(el,'');
-		if(ctx.active){el.className='qos-badge qos-green';dom.append(el,_('Active'));}
-		else if(ctx.running&&enChecked){el.className='qos-badge qos-amber';dom.append(el,_('Enabled — Not Shaping (check config)'));}
-		else if(enChecked){el.className='qos-badge qos-amber';dom.append(el,_('Enabled — Not Running'));}
-		else{el.className='qos-badge qos-red';dom.append(el,_('Disabled'));}
+		var k='',t=_('Disabled');
+		if(ctx.active){k='success';t=_('Active');}
+		else if(ctx.running&&enChecked){k='warning';t=_('Enabled — Not Shaping (check config)');}
+		else if(enChecked){k='warning';t=_('Enabled — Not Running');}
+		el.className=k?'label '+k:'label';
+		dom.content(el,t);
 	},
 
 	svcNodes:function(ctx){
-		function ok(t){return E('span',{'class':'qos-ok'},'\u2714 '+t);}
-		function err(t){return E('span',{'class':'qos-err'},'\u2718 '+t);}
-		function bdg(cls,t){return E('span',{'class':'qos-badge '+cls},t);}
-		var run;
-		if(ctx.running&&ctx.active)run=bdg('qos-green',_('Running & Shaping'));
-		else if(ctx.running)run=bdg('qos-amber',_('Running — Not Shaping'));
-		else run=bdg('qos-red',_('Not Running'));
 		return {
-			init:ctx.hasInit?ok(_('Available')):err(_('Missing')),
-			auto:bdg(ctx.enabled?'qos-green':'qos-red',ctx.enabled?_('Enabled'):_('Disabled')),
-			run:run,
-			shaped:ctx.shaped?E('span',{},N_(ctx.shaped,'%d interface','%d interfaces').format(ctx.shaped)):E('span',{'class':'qos-muted'},_('none')),
-			up:ctx.uptime!=null?E('span',{},'%t'.format(Math.floor(ctx.uptime))):''
+			init:ctx.hasInit?badge('success',_('Available')):badge('warning',_('Missing')),
+			auto:badge(ctx.enabled?'success':'',ctx.enabled?_('Enabled'):_('Disabled')),
+			run:ctx.running&&ctx.active?badge('success',_('Running & Shaping'))
+				:ctx.running?badge('warning',_('Running — Not Shaping')):badge('',_('Not Running')),
+			shaped:ctx.shaped?N_(ctx.shaped,'%d interface','%d interfaces').format(ctx.shaped):E('em',{},_('none')),
+			up:ctx.uptime!=null?'%t'.format(Math.floor(ctx.uptime)):''
 		};
 	},
 
 	renderSvcTable:function(ctx){
-		var n=this.svcNodes(ctx);
-		var tbl=E('table',{'class':'qos-kv','width':'100%','id':'qos-svc-tbl'});
-		var b=E('tbody');tbl.appendChild(b);
-		b.appendChild(E('tr',{},[E('td',{},_('Init Script')),E('td',{'id':'qos-svc-init'},n.init)]));
-		b.appendChild(E('tr',{},[E('td',{},_('Autostart')),E('td',{'id':'qos-svc-auto'},n.auto)]));
-		b.appendChild(E('tr',{},[E('td',{},_('Running')),E('td',{'id':'qos-svc-run'},n.run)]));
-		b.appendChild(E('tr',{'id':'qos-svc-up-row','style':ctx.uptime!=null?'':'display:none'},
-			[E('td',{},_('Uptime')),E('td',{'id':'qos-svc-up'},n.up)]));
-		b.appendChild(E('tr',{},[E('td',{},_('Shaping')),E('td',{'id':'qos-svc-shaped'},n.shaped)]));
-		return tbl;
+		var n=this.svcNodes(ctx),up=kvRow(_('Uptime'),n.up,'qos-svc-up');
+		up.id='qos-svc-up-row';
+		if(ctx.uptime==null)up.style.display='none';
+		return E('table',{'class':'table','id':'qos-svc-tbl'},[
+			kvRow(_('Init Script'),n.init,'qos-svc-init'),
+			kvRow(_('Autostart'),n.auto,'qos-svc-auto'),
+			kvRow(_('Running'),n.run,'qos-svc-run'),
+			up,
+			kvRow(_('Shaping'),n.shaped,'qos-svc-shaped')
+		]);
 	},
 
 	updateSvcTable:function(ctx){
@@ -973,15 +965,10 @@ return view.extend({
 		var rulesN=(ctx.rulesN!=null)?ctx.rulesN:countRules(ctx.rulesText);
 		var cfgOk=(ctx.cfgOk!=null)?ctx.cfgOk:((ctx.cfgRaw||'').length>10&&/(^|\n)config /.test(ctx.cfgRaw||''));
 		var rulesOk=rulesN>0;
-		var tbl=E('table',{'class':'qos-kv','width':'100%'});
-		var b=E('tbody');tbl.appendChild(b);
+		var tbl=E('table',{'class':'table'});
 		function fileRow(path,exists,ok,sz,mod,extra){
-			var st;
-			if(ok)st=E('span',{'class':'qos-ok'},'\u2714 '+_('Valid'));
-			else if(exists)st=E('span',{'class':'qos-warn'},'\u26a0 '+_('Found (empty or invalid)'));
-			else st=E('span',{'class':'qos-err'},'\u2718 '+_('Missing'));
-			var meta=exists?E('span',{'style':'opacity:.7;margin-left:8px;font-size:12px'},'('+(extra||'')+fmtSize(sz)+', '+mod+')'):'';
-			b.appendChild(E('tr',{},[E('td',{},path),E('td',{},[st,meta])]));
+			var st=ok?badge('success',_('Valid')):badge('warning',exists?_('Found (empty or invalid)'):_('Missing'));
+			tbl.appendChild(kvRow(path,exists?[st,' ('+(extra||'')+fmtSize(sz)+', '+mod+')']:st));
 		}
 		fileRow(UCI_PATH,!!ctx.cfgStat,cfgOk,ctx.cfgStat?ctx.cfgStat.size:0,ctx.cfgStat?fmtMtime(ctx.cfgStat.mtime):'');
 		fileRow(RULES_PATH,!!ctx.rulesStat,rulesOk,ctx.rulesStat?ctx.rulesStat.size:0,ctx.rulesStat?fmtMtime(ctx.rulesStat.mtime):'',N_(rulesN,'%d rule','%d rules').format(rulesN)+', ');
@@ -991,119 +978,95 @@ return view.extend({
 	tabConfig:function(ctx){
 		var self=this;
 		var section=E('div',{'id':'qos-cf'});
-		var fs1=E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},_('Config')),
-			E('div',{'class':'cbi-section-descr'},[_('UCI configuration — classes, interfaces, defaults.')+' ',E('code',{},UCI_PATH)])
-		]);
-
-		// Quick Add Config — built first so the reference table can be derived from it
 		var classes=this.getClasses();
 		var dscpChoices=classes.map(function(c){return c.name;}).concat(DSCP);
-		var qa=E('div',{'class':'qos-qa'});
-		qa.appendChild(E('strong',{},_('Quick Add Config')));
-		var qacRow=E('div',{'class':'qos-qa-row'});
-		var qacType=E('select',{'id':'qac-type','style':'width:130px','change':function(){self.qacSwitch();}});
+		var qacType=E('select',{'class':'cbi-input-select','id':'qac-type','change':function(){self.qacSwitch();}});
 		SECT.forEach(function(o){qacType.appendChild(E('option',{'value':o[0]},o[1]));});
-		qacRow.appendChild(qacType);
-		qacRow.appendChild(E('span',{'id':'qac-nm-w','style':'display:none'},
-			E('input',{'id':'qac-name','type':'text','placeholder':_('section name'),'style':'width:120px;font-family:monospace'})));
-		qacRow.appendChild(E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd();}},_('Add')));
-		qa.appendChild(qacRow);
 
 		// config defaults — add_defaults() in qosify.init
-		var qadDef=E('div',{'class':'qos-qa-row','id':'qac-opts-defaults'});
-		this.qaInput(qadDef,'defaults','list','/etc/qosify/*.conf',180);
-		this.qaNum(qadDef,'timeout','300',60);
-		this.qaSelect(qadDef,'dscp_default_tcp',dscpChoices,140);
-		this.qaSelect(qadDef,'dscp_default_udp',dscpChoices,140);
-		this.qaSelect(qadDef,'dscp_icmp',dscpChoices,140);
-		this.qaSelect(qadDef,'dscp_prio',dscpChoices,140);
-		this.qaSelect(qadDef,'dscp_bulk',dscpChoices,140);
-		this.qaNum(qadDef,'prio_max_avg_pkt_len','500',55);
-		this.qaNum(qadDef,'bulk_trigger_pps','100',55);
-		this.qaNum(qadDef,'bulk_trigger_timeout','5',45);
-		qa.appendChild(qadDef);
+		var qadDef=E('div',{'id':'qac-opts-defaults'});
+		this.qaInput(qadDef,'defaults','list','/etc/qosify/*.conf');
+		this.qaNum(qadDef,'timeout','300');
+		this.qaSelect(qadDef,'dscp_default_tcp',dscpChoices);
+		this.qaSelect(qadDef,'dscp_default_udp',dscpChoices);
+		this.qaSelect(qadDef,'dscp_icmp',dscpChoices);
+		this.qaSelect(qadDef,'dscp_prio',dscpChoices);
+		this.qaSelect(qadDef,'dscp_bulk',dscpChoices);
+		this.qaNum(qadDef,'prio_max_avg_pkt_len','500');
+		this.qaNum(qadDef,'bulk_trigger_pps','100');
+		this.qaNum(qadDef,'bulk_trigger_timeout','5');
 
 		// config class / config alias — add_class()
-		var qadCls=E('div',{'class':'qos-qa-row','id':'qac-opts-class','style':'display:none'});
-		this.qaSelect(qadCls,'value',DSCP,70);
-		this.qaSelect(qadCls,'ingress',DSCP,70);
-		this.qaSelect(qadCls,'egress',DSCP,70);
-		this.qaSelect(qadCls,'dscp_prio',dscpChoices,140);
-		this.qaSelect(qadCls,'dscp_bulk',dscpChoices,140);
-		this.qaNum(qadCls,'prio_max_avg_pkt_len','500',55);
-		this.qaNum(qadCls,'bulk_trigger_pps','100',55);
-		this.qaNum(qadCls,'bulk_trigger_timeout','5',45);
-		qa.appendChild(qadCls);
+		var qadCls=E('div',{'id':'qac-opts-class','style':'display:none'});
+		this.qaSelect(qadCls,'value',DSCP);
+		this.qaSelect(qadCls,'ingress',DSCP);
+		this.qaSelect(qadCls,'egress',DSCP);
+		this.qaSelect(qadCls,'dscp_prio',dscpChoices);
+		this.qaSelect(qadCls,'dscp_bulk',dscpChoices);
+		this.qaNum(qadCls,'prio_max_avg_pkt_len','500');
+		this.qaNum(qadCls,'bulk_trigger_pps','100');
+		this.qaNum(qadCls,'bulk_trigger_timeout','5');
 
 		// config interface / config device — add_interface()
-		var qadIf=E('div',{'class':'qos-qa-row','id':'qac-opts-interface','style':'display:none'});
-		this.qaInput(qadIf,'name','option','wan',80);
-		this.qaSelect(qadIf,'disabled',['0','1'],45);
-		this.qaInput(qadIf,'bandwidth_up','option','100mbit',80);
-		this.qaInput(qadIf,'bandwidth_down','option','100mbit',80);
-		this.qaInput(qadIf,'bandwidth','option','100mbit',80);
-		this.qaSelect(qadIf,'mode',MODES,100);
-		this.qaSelect(qadIf,'ingress',['0','1'],45);
-		this.qaSelect(qadIf,'egress',['0','1'],45);
-		this.qaSelect(qadIf,'nat',['0','1'],45);
-		this.qaSelect(qadIf,'host_isolate',['0','1'],45);
-		this.qaSelect(qadIf,'autorate_ingress',['0','1'],45);
-		this.qaSelect(qadIf,'overhead_type',OVH,130);
-		this.qaNum(qadIf,'overhead','44',55);
-		this.qaSelect(qadIf,'overhead_encap',ENCAP,70);
-		this.qaNum(qadIf,'overhead_mpu','84',55);
-		this.qaSelect(qadIf,'overhead_vlan',['0','1','2'],45);
-		this.qaInput(qadIf,'ingress_options','option','triple-isolate',160);
-		this.qaInput(qadIf,'egress_options','option','triple-isolate wash',160);
-		this.qaInput(qadIf,'options','option','overhead 44 mpu 84',160);
-		qa.appendChild(qadIf);
+		var qadIf=E('div',{'id':'qac-opts-interface','style':'display:none'});
+		this.qaInput(qadIf,'name','option','wan');
+		this.qaSelect(qadIf,'disabled',['0','1']);
+		this.qaInput(qadIf,'bandwidth_up','option','100mbit');
+		this.qaInput(qadIf,'bandwidth_down','option','100mbit');
+		this.qaInput(qadIf,'bandwidth','option','100mbit');
+		this.qaSelect(qadIf,'mode',MODES);
+		this.qaSelect(qadIf,'ingress',['0','1']);
+		this.qaSelect(qadIf,'egress',['0','1']);
+		this.qaSelect(qadIf,'nat',['0','1']);
+		this.qaSelect(qadIf,'host_isolate',['0','1']);
+		this.qaSelect(qadIf,'autorate_ingress',['0','1']);
+		this.qaSelect(qadIf,'overhead_type',OVH);
+		this.qaNum(qadIf,'overhead','44');
+		this.qaSelect(qadIf,'overhead_encap',ENCAP);
+		this.qaNum(qadIf,'overhead_mpu','84');
+		this.qaSelect(qadIf,'overhead_vlan',['0','1','2']);
+		this.qaInput(qadIf,'ingress_options','option','triple-isolate');
+		this.qaInput(qadIf,'egress_options','option','triple-isolate wash');
+		this.qaInput(qadIf,'options','option','overhead 44 mpu 84');
 
-		// Reference panel — option lists read back out of the panels above, so the
-		// reference and the Quick Add dropdown can never disagree.
-		var ref=E('details',{'class':'qos-ref'});
-		ref.appendChild(E('summary',{},_('Config Reference')));
-		ref.appendChild(this.refTable({defaults:qadDef,'class':qadCls,'interface':qadIf}));
-		var defBox=E('div',{'id':'qos-cfg-def','class':'qos-item'});
-		dom.content(defBox,this.defsNodes());
-		ref.appendChild(defBox);
-		var clsBox=E('div',{'id':'qos-cfg-cls'});
-		classes.forEach(function(c){
-			clsBox.appendChild(self.clsBoxNode(c));
-		});
-		ref.appendChild(clsBox);
-		ref.appendChild(E('div',{'class':'qos-muted','style':'margin:4px 0 2px'},
-			_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF. Any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero.')));
-		ref.appendChild(E('div',{'class':'qos-muted','style':'margin:2px 0'},
-			_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).')));
-		fs1.appendChild(ref);
-		fs1.appendChild(qa);
-
-		// Editor
-		var ta=E('textarea',{
-			'id':'qos-config-ta',
-			'class':'qos-edit',
-			'rows':28,
-			'style':'line-height:1.4;tab-size:4;padding:6px'
-		},ctx.cfgRaw||'');
-		ta.dataset.orig=ctx.cfgRaw||'';
-		stampFile(ta,ctx.cfgStat);
-		fs1.appendChild(ta);
-		fs1.appendChild(E('div',{'class':'cbi-page-actions'},[
-			E('button',{'class':'cbi-button cbi-button-reset','style':'margin-right:6px','click':function(){return self.clearCfg();}},_('Clear')),
-			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveConfig();}},_('Save & Apply'))
+		// Reference — option lists read back out of the panels above, so the
+		// reference and the Quick Add form can never disagree.
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Quick Add Config')),
+			E('details',{},[
+				E('summary',{},_('Config Reference')),
+				this.refTable({defaults:qadDef,'class':qadCls,'interface':qadIf}),
+				E('table',{'class':'table'},[
+					E('tbody',{'id':'qos-cfg-def'},this.defsNodes()),
+					E('tbody',{'id':'qos-cfg-cls'},classes.map(function(c){return self.clsBoxNode(c);}))
+				]),
+				descr(_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF. Any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero.')),
+				descr(_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).'))
+			]),
+			E('div',{'class':'cbi-section-node'},[
+				valRow(_('Section type'),qacType),
+				valRow(_('Section name'),E('input',{'type':'text','class':'cbi-input-text','id':'qac-name','placeholder':_('section name')}),null,{'id':'qac-nm-w','style':'display:none'}),
+				qadDef,qadCls,qadIf,
+				valRow('',E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd();}},_('Add')))
+			])
 		]));
 
-		section.appendChild(fs1);
+		var ta=E('textarea',{'id':'qos-config-ta','class':'cbi-input-textarea','style':'width:100%','rows':28},ctx.cfgRaw||'');
+		ta.dataset.orig=ctx.cfgRaw||'';
+		stampFile(ta,ctx.cfgStat);
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Config')),
+			descr([_('UCI configuration — classes, interfaces, defaults.')+' ',E('code',{},UCI_PATH)]),
+			ta,
+			E('div',{'class':'cbi-page-actions'},[
+				E('button',{'class':'cbi-button cbi-button-reset','click':function(){return self.clearCfg();}},_('Clear')),' ',
+				E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveConfig();}},_('Save & Apply'))
+			])
+		]));
 		return section;
 	},
 
-	clsBoxNode:function(c){
-		return E('div',{'class':'qos-item'},[
-			E('strong',{},clsLabel(c)),
-			E('span',{'class':'qos-muted','style':'margin-left:8px'},clsDesc(c))
-		]);
-	},
+	clsBoxNode:function(c){return kvRow(clsLabel(c),clsDesc(c));},
 
 	refTable:function(panels){
 		var note={
@@ -1112,45 +1075,31 @@ return view.extend({
 			'interface':_('name is the netifd interface. bandwidth applies only where bandwidth_up/bandwidth_down are unset. overhead and overhead_encap apply only when overhead_type is manual.'),
 			device:_('Same options as interface, but name is a netdev. nat defaults to 0 here and to 1 for interfaces.')
 		};
-		var tbl=E('table',{'class':'qos-kv','width':'100%','style':'margin:6px 0'});
-		var b=E('tbody');tbl.appendChild(b);
+		var tbl=E('table',{'class':'table'});
 		SECT.forEach(function(o){
 			var div=panels[QAC_PANEL[o[0]]],els=div?div.querySelectorAll('[data-opt]'):[],out=[];
 			for(var i=0;i<els.length;i++)
 				out.push((els[i].getAttribute('data-pre')==='list'?'list ':'option ')+els[i].getAttribute('data-opt'));
-			b.appendChild(E('tr',{},[
-				E('td',{'style':'width:135px;font-family:monospace;vertical-align:top'},o[1]),
-				E('td',{},[
-					E('div',{'style':'font-family:monospace;font-size:11px;line-height:1.6'},out.join(', ')),
-					note[o[0]]?E('div',{'class':'qos-muted','style':'margin-top:3px'},note[o[0]]):''
-				])
-			]));
+			tbl.appendChild(kvRow(E('code',{},o[1]),[out.join(', '),
+				note[o[0]]?E('div',{'class':'cbi-value-description'},note[o[0]]):'']));
 		});
 		return tbl;
 	},
 
 	qaId:function(parent,opt){return (parent.id||'qac')+'-'+opt;},
-	qaInput:function(parent,opt,pre,ph,w){
-		var id=this.qaId(parent,opt);
-		parent.appendChild(E('label',{'for':id},opt+':'));
-		parent.appendChild(E('input',{
-			'id':id,'data-opt':opt,'data-pre':pre,'type':'text',
-			'value':pre==='list'?ph:'','placeholder':pre==='list'?'':ph,
-			'style':'width:'+w+'px;font-family:monospace'
-		}));
+	qaInput:function(parent,opt,pre,ph){
+		parent.appendChild(valRow(opt,E('input',{
+			'id':this.qaId(parent,opt),'class':'cbi-input-text','data-opt':opt,'data-pre':pre,'type':'text',
+			'value':pre==='list'?ph:'','placeholder':pre==='list'?'':ph
+		})));
 	},
-	qaSelect:function(parent,opt,opts,w,required){
-		var id=this.qaId(parent,opt);
-		parent.appendChild(E('label',{'for':id},opt+':'));
-		var s=E('select',{'id':id,'data-opt':opt,'style':'width:'+w+'px'});
-		if(!required)s.appendChild(E('option',{'value':''},'--'));
+	qaSelect:function(parent,opt,opts){
+		var s=E('select',{'id':this.qaId(parent,opt),'class':'cbi-input-select','data-opt':opt},E('option',{'value':''},'--'));
 		opts.forEach(function(o){s.appendChild(E('option',{'value':o},o));});
-		parent.appendChild(s);
+		parent.appendChild(valRow(opt,s));
 	},
-	qaNum:function(parent,opt,ph,w){
-		var id=this.qaId(parent,opt);
-		parent.appendChild(E('label',{'for':id},opt+':'));
-		parent.appendChild(E('input',{'id':id,'data-opt':opt,'type':'number','min':'0','placeholder':ph,'style':'width:'+w+'px'}));
+	qaNum:function(parent,opt,ph){
+		parent.appendChild(valRow(opt,E('input',{'id':this.qaId(parent,opt),'class':'cbi-input-text','data-opt':opt,'type':'number','min':'0','placeholder':ph})));
 	},
 
 	lock:function(){this._n=(this._n||0)+1;},
@@ -1159,16 +1108,10 @@ return view.extend({
 	defsNodes:function(){
 		var d=null;
 		uci.sections('qosify','defaults',function(s){if(!d)d=s;});
-		if(!d)return [E('em',{'class':'qos-muted'},_('No config defaults section defined'))];
-		var keys=['timeout','dscp_default_tcp','dscp_default_udp','dscp_icmp','dscp_prio','dscp_bulk','prio_max_avg_pkt_len','bulk_trigger_pps','bulk_trigger_timeout'];
-		var line=E('div',{'class':'qos-muted','style':'margin:2px 0 0;font-family:monospace'}),first=true;
-		keys.forEach(function(k){
-			if(!d[k])return;
-			if(!first)dom.append(line,'\u00a0\u00a0');
-			first=false;
-			dom.append(line,[k+': ',E('strong',{},String(d[k]))]);
-		});
-		return [E('strong',{},'config defaults'),line];
+		if(!d)return [emRow(_('No config defaults section defined'))];
+		return [kvRow(E('code',{},'config defaults'),['timeout','dscp_default_tcp','dscp_default_udp','dscp_icmp','dscp_prio','dscp_bulk',
+			'prio_max_avg_pkt_len','bulk_trigger_pps','bulk_trigger_timeout'].filter(function(k){return d[k];})
+			.map(function(k){return k+': '+d[k];}).join(', '))];
 	},
 
 	// qosify.init runs add_class() over both `class` and `alias`, so alias names
@@ -1217,10 +1160,7 @@ return view.extend({
 			dom.content(ref,'');
 			if(classes.length){
 				classes.forEach(function(c){
-					ref.appendChild(E('tr',{},[
-						E('td',{'style':'width:140px'},clsLabel(c)),
-						E('td',{},clsDesc(c))
-					]));
+					ref.appendChild(kvRow(clsLabel(c),clsDesc(c)));
 				});
 			}else{
 				ref.appendChild(noClassRow());
@@ -1236,65 +1176,42 @@ return view.extend({
 	tabRules:function(ctx){
 		var self=this;
 		var section=E('div',{'id':'qos-ru'});
-		var fs1=E('fieldset',{'class':'cbi-section'},[
-			E('legend',{},_('Classification Rules')),
-			E('div',{'class':'cbi-section-descr'},[_('DSCP mapping rules loaded by qosify on startup.')+' ',E('code',{},RULES_PATH)])
-		]);
-
-		// Available classes
 		var classes=this.getClasses();
-		var ref=E('details',{'class':'qos-ref'});
-		ref.appendChild(E('summary',{},_('Available Classes')));
-		var refTbl=E('table',{'class':'qos-kv','style':'margin:6px 0 0','width':'100%'});
-		var refB=E('tbody',{'id':'qos-cls-ref'});refTbl.appendChild(refB);
-		if(classes.length){
-			classes.forEach(function(c){
-				refB.appendChild(E('tr',{},[
-					E('td',{'style':'width:140px'},clsLabel(c)),
-					E('td',{},clsDesc(c))
-				]));
-			});
-		}else{
-			refB.appendChild(noClassRow());
-		}
-		ref.appendChild(refTbl);
-		ref.appendChild(E('div',{'class':'qos-muted','style':'margin:6px 0 2px'},
-			_('Prefix with + to override only when the DSCP field is zero. Ports: tcp:443, udp:3074, ranges: tcp:5060-5061 (1-65534). DNS: dns:*teams*, regex: dns:/zoom[0-9]+, CNAME-only: dns_c:. IP: 1.1.1.1, ff01::1')));
-		fs1.appendChild(ref);
-
-		// Quick Add Rule
-		var qa=E('div',{'class':'qos-qa'});
-		qa.appendChild(E('strong',{},_('Quick Add Rule')));
-		var qarRow=E('div',{'class':'qos-qa-row'});
-		var qarType=E('select',{'id':'qar-type','style':'width:140px','change':function(){self.qarPlaceholder();}});
+		var qarType=E('select',{'class':'cbi-input-select','id':'qar-type','change':function(){self.qarPlaceholder();}});
 		[['tcp:',_('tcp port')],['udp:',_('udp port')],['both:',_('tcp+udp port')],['dns:',_('dns pattern')],['dnsr:',_('dns regex')],['dns_c:',_('dns_c pattern')],['dns_cr:',_('dns_c regex')],['ipv4:',_('IPv4 address')],['ipv6:',_('IPv6 address')]].forEach(function(o){
 			qarType.appendChild(E('option',{'value':o[0]},o[1]));
 		});
-		qarRow.appendChild(qarType);
-		qarRow.appendChild(E('input',{'id':'qar-val','type':'text','placeholder':_('e.g. %s').format('4500'),'style':'width:180px;font-family:monospace'}));
-		var qarCls=E('select',{'id':'qar-cls','style':'width:140px'});
+		var qarCls=E('select',{'class':'cbi-input-select','id':'qar-cls'});
 		classes.forEach(function(c){qarCls.appendChild(E('option',{'value':c.name},c.name));});
-		qarRow.appendChild(qarCls);
-		qarRow.appendChild(E('label',{'class':'qos-muted','style':'white-space:nowrap','for':'qar-prio'},
-			[E('input',{'type':'checkbox','id':'qar-prio'}),' '+_('only if unset (+)')]));
-		qarRow.appendChild(E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},_('Add')));
-		qa.appendChild(qarRow);
-		fs1.appendChild(qa);
-
-		// Editor
-		var ta=E('textarea',{
-			'id':'qos-rules-ta','class':'qos-edit','rows':28,
-			'style':'line-height:1.4;tab-size:4;padding:6px'
-		},ctx.rulesText||'');
-		ta.dataset.orig=ctx.rulesText||'';
-		stampFile(ta,ctx.rulesStat);
-		fs1.appendChild(ta);
-		fs1.appendChild(E('div',{'class':'cbi-page-actions'},[
-			E('button',{'class':'cbi-button cbi-button-reset','style':'margin-right:6px','click':function(){return self.clearRules();}},_('Clear')),
-			E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveRules();}},_('Save & Apply'))
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Quick Add Rule')),
+			E('details',{},[
+				E('summary',{},_('Available Classes')),
+				E('table',{'class':'table'},E('tbody',{'id':'qos-cls-ref'},classes.length
+					?classes.map(function(c){return kvRow(clsLabel(c),clsDesc(c));}):noClassRow())),
+				descr(_('Prefix with + to override only when the DSCP field is zero. Ports: tcp:443, udp:3074, ranges: tcp:5060-5061 (1-65534). DNS: dns:*teams*, regex: dns:/zoom[0-9]+, CNAME-only: dns_c:. IP: 1.1.1.1, ff01::1'))
+			]),
+			E('div',{'class':'cbi-section-node'},[
+				valRow(_('Match type'),qarType),
+				valRow(_('Match'),E('input',{'type':'text','class':'cbi-input-text','id':'qar-val','placeholder':_('e.g. %s').format('4500')})),
+				valRow(_('Class'),qarCls),
+				valRow(_('only if unset (+)'),E('input',{'type':'checkbox','class':'cbi-input-checkbox','id':'qar-prio'})),
+				valRow('',E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},_('Add')))
+			])
 		]));
 
-		section.appendChild(fs1);
+		var ta=E('textarea',{'id':'qos-rules-ta','class':'cbi-input-textarea','style':'width:100%','rows':28},ctx.rulesText||'');
+		ta.dataset.orig=ctx.rulesText||'';
+		stampFile(ta,ctx.rulesStat);
+		section.appendChild(E('fieldset',{'class':'cbi-section'},[
+			E('legend',{},_('Classification Rules')),
+			descr([_('DSCP mapping rules loaded by qosify on startup.')+' ',E('code',{},RULES_PATH)]),
+			ta,
+			E('div',{'class':'cbi-page-actions'},[
+				E('button',{'class':'cbi-button cbi-button-reset','click':function(){return self.clearRules();}},_('Clear')),' ',
+				E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveRules();}},_('Save & Apply'))
+			])
+		]));
 		return section;
 	},
 
@@ -1369,7 +1286,7 @@ return view.extend({
 		var fs1=E('fieldset',{'class':'cbi-section'},E('legend',{},_('qosify-status')));
 		var body=E('div',{'id':'qos-st-body'},[
 			E('div',{'id':'qos-st-sum'}),
-			E('pre',{'id':'qos-st-pre','class':'qos-pre','style':'display:none'}),
+			E('pre',{'id':'qos-st-pre','style':'display:none'}),
 			E('div',{'id':'qos-st-msg'})
 		]);
 		this.fillStatus(body,ctx);
@@ -1385,18 +1302,13 @@ return view.extend({
 	isCounter:function(v){return !!v&&typeof v==='object'&&(v.packets!=null||v.bytes!=null);},
 	// qosify_map_get_ebpf_entry_count() sums the IPv4 and IPv6 address maps only.
 	infoNodes:function(st){
-		var rows=[],tbl,b;
+		var rows=[];
 		if(st.ebpf_map_entries!=null)rows.push([_('eBPF IP map entries'),String(st.ebpf_map_entries)]);
 		if(st.last_reload_time)rows.push([_('Last reload'),fmtMtime(st.last_reload_time)]);
 		if(st.dns_cache)rows.push([_('DNS cache'),_('%d entries, %d hits, %d misses')
 			.format(st.dns_cache.size||0,st.dns_cache.hits||0,st.dns_cache.misses||0)]);
-		if(!rows.length)
-			return E('p',{'class':'qos-muted'},E('em',{},_('The running qosify reports no daemon-level figures.')));
-		tbl=E('table',{'class':'qos-kv','width':'100%'});
-		b=E('tbody');
-		tbl.appendChild(b);
-		rows.forEach(function(r){b.appendChild(E('tr',{},[E('td',{},r[0]),E('td',{},r[1])]));});
-		return tbl;
+		if(!rows.length)return emP(_('The running qosify reports no daemon-level figures.'));
+		return E('table',{'class':'table'},rows.map(function(r){return kvRow(r[0],r[1]);}));
 	},
 
 	// dump lists port, address and DNS entries, but pattern_stats is the only
@@ -1443,11 +1355,12 @@ return view.extend({
 	// daemon has no such table (24.10) and the column goes; null is not asked yet.
 	// hits counts every matching lookup, packets the pattern_id in the address map
 	// entry, which __qosify_map_set_entry() only writes when the DSCP changes.
-	// The signature covers the listing's shape only; while it holds, the traffic
-	// and timeout cells are patched in place, so the box neither redraws nor
-	// moves and a text selection survives.
-	mapSig:function(rows,total,hasDns){
-		var out=[total,rows.length,hasDns].join('|'),i,r;
+	// The signature covers the listing's shape only, not the map entry total:
+	// qosify adds and expires address entries for DNS results all the time, and
+	// with the total in it the table was rebuilt on nearly every tick. While it
+	// holds, the traffic and timeout cells and the footer are set in place.
+	mapSig:function(rows,hasDns){
+		var out=[rows.length,hasDns].join('|'),i,r;
 		for(i=0;i<rows.length&&i<MAP_ROWS;i++){
 			r=rows[i];
 			out+='\n'+[r.addr,r.dscp,r.file,r.user,r.timeout!=null].join(',');
@@ -1456,32 +1369,27 @@ return view.extend({
 	},
 
 	// qosify_map_dump() emits timeout for user entries only; no column without one.
-	mapNodes:function(rows,total,hasDns){
+	mapNodes:function(rows,hasDns){
 		var tcol=hasDns!==false,cells=this._mapCells=[];
 		var wcol=rows.some(function(r){return r.timeout!=null;});
-		var hdr=[E('th',MAP_TH,_('Pattern')),E('th',MAP_TH,_('DSCP')),E('th',MAP_TH,_('Source'))];
-		if(tcol)hdr.push(E('th',MAP_TH,_('Traffic')));
-		if(wcol)hdr.push(E('th',MAP_TH,_('Timeout')));
+		var hdr=[E('th',{'class':'th'},_('Pattern')),E('th',{'class':'th'},_('DSCP')),E('th',{'class':'th'},_('Source'))];
+		if(tcol)hdr.push(E('th',{'class':'th'},_('Traffic')));
+		if(wcol)hdr.push(E('th',{'class':'th'},_('Timeout')));
 		var tbl=E('table',{'class':'table'},E('tr',{'class':'tr table-titles'},hdr));
 		rows.slice(0,MAP_ROWS).forEach(function(r){
-			var src=[],c={t:tcol?E('td',MAP_NUM):null,w:wcol?E('td',MAP_NUM):null};
+			var src=[],c={t:tcol?E('td',{'class':'td','style':'white-space:nowrap'}):null,w:wcol?E('td',{'class':'td'}):null};
 			if(r.file)src.push(_('file'));
 			if(r.user)src.push(_('dynamic'));
 			cells.push(c);
 			tbl.appendChild(E('tr',{'class':'tr'},[E('td',{'class':'td'},String(r.addr!=null?r.addr:'-')),
 				E('td',{'class':'td'},r.dscp||'-'),E('td',{'class':'td'},src.join(', ')||'-'),c.t||'',c.w||'']));
 		});
-		var out=[tbl];
-		if(!tcol)
-			out.push(E('div',{'class':'qos-muted'},
-				_('The running qosify reports no per-entry counters — its get_stats has no dns table.')));
-		out.push(E('div',{'class':'qos-muted'},rows.length>MAP_ROWS
-			?_('Showing %d of %d DNS patterns, out of %d map entries. Port and address entries are not listed — qosify keeps no per-entry counters for them.').format(MAP_ROWS,rows.length,total)
-			:_('%d DNS patterns, out of %d map entries. Port and address entries are not listed — qosify keeps no per-entry counters for them.').format(rows.length,total)));
-		return out;
+		this._mapNote=descr('');
+		return [tbl,tcol?'':descr(_('The running qosify reports no per-entry counters — its get_stats has no dns table.')),this._mapNote];
 	},
 
-	mapValues:function(rows,dns){
+	mapValues:function(rows,total,dns){
+		var n=this._mapNote,t;
 		(this._mapCells||[]).forEach(function(c,i){
 			var r=rows[i],e=(dns&&dns[r.addr])||{},t,w;
 			t=!dns?'-':e.bytes==null?_('%d hits, %d packets').format(e.hits||0,e.packets||0)
@@ -1490,6 +1398,11 @@ return view.extend({
 			if(c.t&&c.t.textContent!==t)c.t.textContent=t;
 			if(c.w&&c.w.textContent!==w)c.w.textContent=w;
 		});
+		if(!n)return;
+		t=rows.length>MAP_ROWS
+			?_('Showing %d of %d DNS patterns, out of %d map entries. Port and address entries are not listed — qosify keeps no per-entry counters for them.').format(MAP_ROWS,rows.length,total)
+			:_('%d DNS patterns, out of %d map entries. Port and address entries are not listed — qosify keeps no per-entry counters for them.').format(rows.length,total);
+		if(n.textContent!==t)n.textContent=t;
 	},
 
 	// One service list and one get_stats, then dump alongside qosify-status: the
@@ -1523,13 +1436,13 @@ return view.extend({
 		var section=E('div',{'id':'qos-cn'});
 		section.appendChild(E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Traffic by Class')),
+			E('div',{'id':'qos-cn-msg'}),
 			E('div',{'id':'qos-cn-bars'}),
-			E('div',{'id':'qos-cn-note'}),
-			E('div',{'id':'qos-cn-msg'})
+			E('div',{'id':'qos-cn-note'})
 		]));
 		section.appendChild(E('fieldset',{'class':'cbi-section','id':'qos-cn-tin-sect','style':'display:none'},[
 			E('legend',{},_('Traffic by CAKE Tin')),
-			E('div',{'id':'qos-cn-tins'},E('p',{'class':'qos-muted'},E('em',{},_('Reading tc output...'))))
+			E('div',{'id':'qos-cn-tins'},emP(_('Reading tc output...')))
 		]));
 		section.appendChild(E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Daemon')),
@@ -1537,8 +1450,7 @@ return view.extend({
 		]));
 		section.appendChild(E('fieldset',{'class':'cbi-section'},[
 			E('legend',{},_('Map Entries')),
-			E('div',{'id':'qos-cn-map','class':'qos-scroll'},
-				E('p',{'class':'qos-muted'},E('em',{},_('Reading map entries...'))))
+			E('div',{'id':'qos-cn-map'},emP(_('Reading map entries...')))
 		]));
 		return section;
 	},
@@ -1609,14 +1521,13 @@ return view.extend({
 	// mode are summed tin by tin into one chart, egress and ingress together; a
 	// mode only one direction runs gets a chart of its own.
 	cakeTins:function(txt){
-		var blk=[],grp=[],key={},who='',dir='',b=null;
+		var blk=[],grp=[],key={},b=null;
 		String(txt||'').split('\n').forEach(function(l){
 			var m,w;
-			if((m=l.match(/^===== (?:interface|device) (\S+): /))){who=m[1];b=null;}
-			else if((m=l.match(/^(egress|ingress) status:$/))){dir=m[1];b=null;}
+			if(/^===== (?:interface|device) \S+: /.test(l)||/^(egress|ingress) status:$/.test(l))b=null;
 			else if(/^qdisc /.test(l)){
 				w=l.split(/\s+/).filter(function(x){return MODES.indexOf(x)>=0;});
-				b=/^qdisc cake /.test(l)?{title:who+' '+dir,mode:w.pop()}:null;
+				b=/^qdisc cake /.test(l)?{mode:w.pop()}:null;
 				if(b)blk.push(b);
 			}
 			else if(b&&!b.names&&/^\s+(Bulk|Tin 0)\b/.test(l))b.names=l.trim().split(/\s{2,}/);
@@ -1626,8 +1537,7 @@ return view.extend({
 		blk.forEach(function(b){
 			if(!b.names||!b.pkts)return;
 			var k=b.mode+'|'+b.names.join('|'),g=key[k];
-			if(!g)grp.push(g=key[k]={mode:b.mode,names:b.names,from:[],pkts:[],bytes:[],drops:[],marks:[]});
-			g.from.push(b.title);
+			if(!g)grp.push(g=key[k]={mode:b.mode,names:b.names,pkts:[],bytes:[],drops:[],marks:[]});
 			['pkts','bytes','drops','marks'].forEach(function(f){
 				if(!b[f])g[f]=null;
 				else if(g[f])b[f].forEach(function(v,i){g[f][i]=(g[f][i]||0)+v;});
@@ -1638,71 +1548,60 @@ return view.extend({
 				var r={name:t,v:g.pkts[i]||0,bytes:g.bytes?g.bytes[i]||0:null,
 					drops:g.drops?g.drops[i]||0:null,marks:g.marks?g.marks[i]||0:null,
 					color:c&&c.length===n?c[i]:CN_COLORS[i%CN_COLORS.length]};
-				r.mark=r.drops?_('%d drops').format(r.drops):'';
 				return r;
 			}).reverse();
 			rows.total=rows.reduce(function(t,r){return t+r.v;},0);
 			rows.bytes=g.bytes?rows.reduce(function(t,r){return t+r.bytes;},0):null;
-			rows.from=g.from;
 			return rows;
 		});
 	},
 
-	// Bar length follows BAR_EXP against the largest row; the share column stays
-	// exact. A non-zero row keeps a 2px sliver.
-	barChart:function(rows,empty,head){
-		var total=rows.total||0,max=rows.reduce(function(m,r){return Math.max(m,r.v);},0);
-		if(!rows.length)
-			return E('p',{'class':'qos-muted'},E('em',{},empty));
-		var box=E('div',{'class':'qos-bars'});
-		box.appendChild(E('div',{'class':'qos-bar-row qos-bar-head'},[
-			E('div',{'class':'qos-bar-label'},head),
-			E('div',{'class':'qos-bar-track'}),
-			E('div',{'class':'qos-bar-val'},[
-				E('span',{'class':'qos-bar-num'},_('packets')),
-				E('span',{'class':'qos-bar-bytes'},_('bytes')),
-				E('span',{'class':'qos-bar-pct'},_('share'))
-			])
-		]));
-		rows.forEach(function(r){
-			var share=total?(r.v/total)*100:0,len=max?Math.pow(r.v/max,BAR_EXP)*100:0;
-			var tip=r.bytes!=null?_('%s: %d packets, %s').format(r.name,r.v,'%1024.2mB'.format(r.bytes))
-				:_('%s: %d packets').format(r.name,r.v);
-			if(r.drops!=null)tip+=', '+_('%d drops, %d ECN marks').format(r.drops,r.marks||0);
-			box.appendChild(E('div',{'class':'qos-bar-row','title':tip},[
-				E('div',{'class':'qos-bar-label'},[
-					E('span',{'class':'qos-swatch','style':'background:'+r.color}),
-					E('span',{'class':'qos-bar-name','title':r.name},r.name),
-					r.mark?E('span',{'class':'qos-mark'},r.mark):''
-				]),
-				E('div',{'class':'qos-bar-track'},r.v?
-					E('div',{'class':'qos-bar-fill','style':'width:'+len.toFixed(2)+'%;background:'+r.color}):''),
-				E('div',{'class':'qos-bar-val'},[
-					E('span',{'class':'qos-bar-num'},_('%d pkt').format(r.v)),
-					r.bytes!=null?E('span',{'class':'qos-bar-bytes'},'%1024.2mB'.format(r.bytes)):'',
-					E('span',{'class':'qos-bar-pct'},fmtShare(share))
-				])
-			]));
+	// Status > Overview style: a .table of names and .cbi-progressbar bars, the
+	// figures in the bar title the theme prints above it. Built again only when
+	// the row names change; otherwise widths and text are set in place, so the
+	// bars ease to their new length and nothing under them moves. Length is
+	// (row/largest row)^BAR_EXP, with a non-zero row kept at 1%; the share in
+	// the title stays exact.
+	drawChart:function(box,rows,empty){
+		var total=rows.total||0,max=0,c=box.qosChart,sig,t;
+		if(!rows.length){box.qosChart=null;dom.content(box,emP(empty));return;}
+		rows.forEach(function(r){if(r.v>max)max=r.v;});
+		sig=rows.map(function(r){return r.name;}).join('\n');
+		if(!c||c.sig!==sig){
+			c=box.qosChart={sig:sig,rows:[],total:E('td',{'class':'td left'})};
+			dom.content(box,E('table',{'class':'table'},rows.map(function(){
+				var o={name:E('td',{'class':'td left','width':'33%'}),fill:E('div')};
+				o.bar=E('div',{'class':'cbi-progressbar'},o.fill);
+				c.rows.push(o);
+				return E('tr',{'class':'tr'},[o.name,E('td',{'class':'td left'},o.bar)]);
+			}).concat(E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},E('strong',{},_('total'))),c.total]))));
+		}
+		rows.forEach(function(r,i){
+			var o=c.rows[i],share=total?(r.v/total)*100:0,
+				len=max&&r.v?Math.max(Math.pow(r.v/max,BAR_EXP)*100,1):0,
+				f=[_('%d pkt').format(r.v)],n=r.mark?r.name+' ('+r.mark+')':r.name;
+			if(r.bytes!=null)f.push('%1024.2mB'.format(r.bytes));
+			if(r.drops!=null)f.push(_('%d drops, %d ECN marks').format(r.drops,r.marks||0));
+			f=f.join(', ')+' ('+fmtShare(share)+')';
+			if(o.name.textContent!==n)o.name.textContent=n;
+			if(o.bar.title!==f)o.bar.title=f;
+			o.fill.style.width=len.toFixed(2)+'%';
+			o.fill.style.background=r.color;
 		});
-		box.appendChild(E('div',{'class':'qos-bar-row qos-bar-total'},[
-			E('div',{'class':'qos-bar-label'},_('total')),
-			E('div',{'class':'qos-bar-track'}),
-			E('div',{'class':'qos-bar-val'},[
-				E('span',{'class':'qos-bar-num'},_('%d pkt').format(total)),
-				rows.bytes!=null?E('span',{'class':'qos-bar-bytes'},'%1024.2mB'.format(rows.bytes)):'',
-				E('span',{'class':'qos-bar-pct'},_('%s%%').format(100))
-			])
-		]));
-		return box;
+		t=_('%d pkt').format(total)+(rows.bytes!=null?', '+'%1024.2mB'.format(rows.bytes):'');
+		if(c.total.textContent!==t)c.total.textContent=t;
 	},
 
 	drawBars:function(){
-		var st=this._cnStats,box=$('qos-cn-bars'),cm=this.cakeModes(),
+		var st=this._cnStats,box=$('qos-cn-bars'),n=$('qos-cn-note'),cm=this.cakeModes(),
 			mode=cm.modes.length===1?cm.modes[0]:null,note=[];
-		if(box)dom.content(box,st?this.barChart(this.classTotals(st,mode),_('The daemon reported no per-class counters.'),_('class')):'');
+		if(box){
+			if(st)this.drawChart(box,this.classTotals(st,mode),_('The daemon reported no per-class counters.'));
+			else{box.qosChart=null;dom.content(box,'');}
+		}
 		if(st&&cm.ingress)note.push(_('qosify classifies ingress even where ingress is 0, so these totals include traffic CAKE never sees.'));
 		if(st&&cm.fwmark&&mode)note.push(_('fwmark is set in the CAKE options, so a firewall mark can put a packet in another tin than its class colour shows.'));
-		dom.content($('qos-cn-note'),note.map(function(t){return E('div',{'class':'qos-muted'},t);}));
+		if(n)dom.content(n,note.map(function(t){return descr(t);}));
 	},
 
 	// CAKE's own per-tin counters, per qdisc since it was created, so they need
@@ -1716,11 +1615,17 @@ return view.extend({
 		if(!this.readonly&&!r&&this._tinOk)return;
 		t=this.readonly?[]:this.cakeTins(r&&r.stdout);
 		this._tinOk=t.length>0;
-		dom.content(box,t.length?t.map(function(rows){
-			return E('div',{},[self.barChart(rows,'',_('tin')),
-				E('div',{'class':'qos-muted'},_('Qdiscs: %s').format(rows.from.join(', ')))]);
-		}):E('p',{'class':'qos-muted'},E('em',{},this.readonly?_('The CAKE tin counters need write access to this page.')
-			:r&&r.stdout?_('qosify-status shows no CAKE tin statistics.'):_('qosify-status returned no output.'))));
+		if(!t.length){
+			box.qosGroups=0;
+			dom.content(box,emP(this.readonly?_('The CAKE tin counters need write access to this page.')
+				:r&&r.stdout?_('qosify-status shows no CAKE tin statistics.'):_('qosify-status returned no output.')));
+			return;
+		}
+		if(box.qosGroups!==t.length){
+			box.qosGroups=t.length;
+			dom.content(box,t.map(function(){return E('div');}));
+		}
+		t.forEach(function(rows,i){self.drawChart(box.childNodes[i],rows,'');});
 	},
 
 	fillCounters:function(ctx){
@@ -1732,29 +1637,30 @@ return view.extend({
 				_('qosify is not running. Start from the Overview tab.')));
 			return;
 		}
-		if(msg)dom.content(msg,ctx.stats?'':E('p',{'class':'qos-muted'},
-			E('em',{},_('The daemon returned no counters.'))));
+		if(msg)dom.content(msg,ctx.stats?'':emP(_('The daemon returned no counters.')));
 		this.drawBars();
 		if(info)dom.content(info,ctx.stats?this.infoNodes(ctx.stats):'');
 	},
 
-	// Rebuilt only when the listing's shape changes, with the scroll offset put
-	// back; otherwise just the figures are rewritten.
+	// Rebuilt only when the listing's shape changes; otherwise only the figures
+	// and footer are rewritten.
 	fillMap:function(r,dns,hasDns){
 		var box=$('qos-cn-map');
 		if(!box)return;
-		var e=(r&&r.entries)||[],rows=this.mapRows(e),sig=this.mapSig(rows,e.length,hasDns),top;
+		var e=(r&&r.entries)||[],rows=this.mapRows(e),sig,t;
+		if(!rows.length){
+			this._mapSig=this._mapCells=this._mapNote=null;
+			t=e.length?_('qosify is matching %d map entries, none of them DNS patterns.').format(e.length)
+				:_('The daemon reported no map entries.');
+			if(box.textContent!==t)dom.content(box,emP(t));
+			return;
+		}
+		sig=this.mapSig(rows,hasDns);
 		if(sig!==this._mapSig){
 			this._mapSig=sig;
-			this._mapCells=null;
-			top=box.scrollTop;
-			dom.content(box,rows.length?this.mapNodes(rows,e.length,hasDns)
-				:E('p',{'class':'qos-muted'},E('em',{},e.length
-					?_('qosify is matching %d map entries, none of them DNS patterns.').format(e.length)
-					:_('The daemon reported no map entries.'))));
-			box.scrollTop=top;
+			dom.content(box,this.mapNodes(rows,hasDns));
 		}
-		this.mapValues(rows,dns);
+		this.mapValues(rows,e.length,dns);
 	},
 
 	lintAll:function(){
@@ -1777,7 +1683,7 @@ return view.extend({
 	fillStatus:function(body,ctx){
 		var sum=body.querySelector('#qos-st-sum'),pre=body.querySelector('#qos-st-pre'),msg=body.querySelector('#qos-st-msg');
 		if(!sum||!pre||!msg)return;
-		var note=function(t){dom.content(msg,E('p',{'class':'qos-muted'},E('em',{},t)));};
+		var note=function(t){dom.content(msg,emP(t));};
 		if(!ctx.running){
 			dom.content(sum,'');
 			pre.style.display='none';
@@ -1797,23 +1703,18 @@ return view.extend({
 
 	// ubus call qosify status, so the per-interface summary costs no forks
 	statusSummary:function(st){
-		var tbl=E('table',{'class':'qos-kv','width':'100%'}),b=E('tbody');
-		tbl.appendChild(b);
+		var tbl=E('table',{'class':'table'});
 		['interfaces','devices'].forEach(function(g){
 			var t=st&&st[g],k,e;
 			for(k in t){
 				e=t[k]||{};
-				b.appendChild(E('tr',{},[
-					E('td',{},(g==='devices'?_('device %s'):_('interface %s')).format(k)),
-					E('td',{},[
-						E('span',{'class':'qos-badge '+(e.active?'qos-green':'qos-red')},e.active?_('active'):_('inactive')),
-						E('span',{'class':'qos-muted','style':'margin-left:8px'},
-							_('device: %s, ingress: %s, egress: %s').format(e.ifname||'-',e.ingress?_('yes'):_('no'),e.egress?_('yes'):_('no')))
-					])
+				tbl.appendChild(kvRow((g==='devices'?_('device %s'):_('interface %s')).format(k),[
+					badge(e.active?'success':'',e.active?_('active'):_('inactive')),' ',
+					_('device: %s, ingress: %s, egress: %s').format(e.ifname||'-',e.ingress?_('yes'):_('no'),e.egress?_('yes'):_('no'))
 				]));
 			}
 		});
-		if(!b.firstChild)b.appendChild(E('tr',{},E('td',{'class':'qos-muted'},E('em',{},_('qosify has no interfaces or devices configured')))));
+		if(!tbl.firstChild)tbl.appendChild(emRow(_('qosify has no interfaces or devices configured')));
 		return tbl;
 	},
 
@@ -2258,7 +2159,7 @@ return view.extend({
 		var ty=$('qac-type').value,p=QAC_PANEL[ty];
 		['defaults','class','interface'].forEach(function(x){
 			var el=$('qac-opts-'+x);
-			if(el)el.style.display=(x===p)?'flex':'none';
+			if(el)el.style.display=(x===p)?'':'none';
 		});
 		$('qac-nm-w').style.display=(ty==='defaults')?'none':'';
 	},
@@ -2435,283 +2336,8 @@ return view.extend({
 });
 JSEOF
 	[ -s "$VIEW_DIR/main.js" ] || { echo "[ERROR] Failed writing $VIEW_DIR/main.js"; exit 1; }
-	cat > "$VIEW_DIR/qosify.css" << 'CSSEOF'
-/* SPDX-License-Identifier: MIT */
-
-.qos-badge {
-	display: inline-block;
-	padding: 2px 10px;
-	border-radius: 3px;
-	font-size: 12px;
-	font-weight: bold;
-}
-
-.qos-green {
-	background: var(--success-color-medium, #009a4c);
-	color: var(--on-success-color, #fff);
-}
-
-.qos-red {
-	background: var(--error-color-medium, #e8210d);
-	color: var(--on-error-color, #fff);
-}
-
-.qos-amber {
-	background: var(--warn-color-medium, #f0c629);
-	color: var(--on-warn-color, #000);
-}
-
-.qos-ok {
-	color: var(--success-color-medium, #009a4c);
-}
-
-.qos-err {
-	color: var(--error-color-medium, #e8210d);
-}
-
-.qos-warn {
-	color: var(--warn-color-low, #f2d24f);
-}
-
-.qos-muted {
-	font-size: 11px;
-	color: var(--text-color-medium, inherit);
-	opacity: .75;
-}
-
-.qos-kv td {
-	padding: 7px 12px;
-	border-bottom: 1px solid var(--border-color-medium, rgba(128, 128, 128, .35));
-}
-
-.qos-kv td:first-child {
-	font-weight: bold;
-	opacity: .7;
-	width: 200px;
-}
-
-.qos-kv tr:last-child td {
-	border-bottom: none;
-}
-
-.qos-svc > * {
-	display: inline-block;
-	margin: 0 3px 3px 0;
-}
-
-.qos-ref,
-.qos-qa {
-	margin: 0 0 10px;
-	padding: 8px 10px;
-	border: 1px solid var(--border-color-medium, rgba(128, 128, 128, .5));
-	border-radius: 4px;
-}
-
-.qos-ref summary {
-	cursor: pointer;
-	font-weight: bold;
-	font-size: 13px;
-}
-
-.qos-qa label {
-	font-size: 11px;
-	opacity: .7;
-}
-
-.qos-qa-row {
-	display: flex;
-	gap: 6px;
-	align-items: center;
-	margin: 6px 0 0;
-	flex-wrap: wrap;
-}
-
-.qos-edit {
-	width: 100%;
-	font-family: var(--font-mono, monospace);
-	font-size: 12px;
-	border: 1px solid var(--border-color-medium, rgba(128, 128, 128, .5));
-}
-
-.qos-scroll {
-	max-height: 24rem;
-	overflow: auto;
-	border: 1px solid rgba(128,128,128,.35);
-	border-radius: 3px;
-	padding: 0 .5em;
-}
-
-.qos-bars {
-	margin: .5em 0;
-	padding: .25em .6em;
-	border: 1px solid var(--border-color-medium, rgba(128,128,128,.35));
-	border-radius: 4px;
-}
-
-.qos-bar-row {
-	display: flex;
-	align-items: center;
-	gap: .75em;
-	padding: .35em .25em;
-	border-bottom: 1px solid var(--border-color-low, rgba(128,128,128,.18));
-}
-
-.qos-bar-row:last-child {
-	border-bottom: none;
-}
-
-.qos-bar-row:hover {
-	background: rgba(128,128,128,.08);
-}
-
-/* Column titles for the three figures on each row. */
-.qos-bar-head,
-.qos-bar-head:hover {
-	background: none;
-	font-size: 11px;
-	text-transform: uppercase;
-	letter-spacing: .04em;
-	opacity: .6;
-}
-
-.qos-bar-label {
-	flex: 0 0 15em;
-	display: flex;
-	align-items: center;
-	overflow: hidden;
-	white-space: nowrap;
-	font-family: var(--font-mono, monospace);
-}
-
-/* Shrinks and ellipsises so the codepoint beside it always stays on screen. */
-.qos-bar-name {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.qos-swatch {
-	flex: 0 0 auto;
-	display: inline-block;
-	width: .7em;
-	height: .7em;
-	border-radius: 2px;
-	margin-right: .5em;
-}
-
-/* The codepoint a class marks with, at the right edge of the label column. */
-.qos-mark {
-	flex: 0 0 auto;
-	margin-left: auto;
-	padding-left: .45em;
-	font-family: var(--font-mono, monospace);
-	font-size: 11px;
-	opacity: .7;
-}
-
-.qos-bar-bytes {
-	flex: 0 0 5.5em;
-	text-align: right;
-	opacity: .75;
-}
-
-.qos-bar-track {
-	flex: 1 1 auto;
-	min-width: 4em;
-	height: 1.15em;
-	border-radius: 3px;
-	background: rgba(128,128,128,.14);
-	overflow: hidden;
-}
-
-.qos-bar-fill {
-	min-width: 2px;
-	height: 100%;
-	border-radius: 3px;
-	opacity: .85;
-}
-
-.qos-bar-val {
-	flex: 0 0 17em;
-	display: flex;
-	justify-content: flex-end;
-	gap: .6em;
-	font-variant-numeric: tabular-nums;
-	white-space: nowrap;
-}
-
-.qos-bar-num {
-	flex: 0 0 7em;
-	text-align: right;
-	font-family: var(--font-mono, monospace);
-}
-
-.qos-bar-pct {
-	flex: 0 0 3.2em;
-	text-align: right;
-	opacity: .65;
-}
-
-.qos-bar-total {
-	margin-top: .3em;
-	padding-top: .45em;
-	border-top: 1px solid rgba(128,128,128,.3);
-	font-weight: bold;
-}
-
-.qos-bar-total:hover {
-	background: none;
-}
-
-@media (max-width: 600px) {
-	.qos-bar-label { flex-basis: 9em; }
-	.qos-bar-val { flex-basis: 11em; }
-	.qos-bar-bytes { display: none; }
-}
-
-.qos-pre {
-	margin: 0;
-	padding: 10px;
-	overflow: auto;
-	white-space: pre;
-	font-family: var(--font-mono, monospace);
-	font-size: 12px;
-	background: var(--background-color-low, rgba(128, 128, 128, .12));
-	color: inherit;
-	border: 1px solid var(--border-color-medium, rgba(128, 128, 128, .5));
-	border-radius: 3px;
-}
-
-/* The tc output is the only thing on the Status tab, so it takes the rest of the
-   window: the viewport less the LuCI header, the tab bar and the summary table
-   above it. calc() going negative on a short screen is caught by min-height, and
-   the box is draggable for anything the estimate gets wrong. */
-#qos-st-pre {
-	height: calc(100vh - 310px);
-	min-height: 320px;
-	resize: vertical;
-}
-
-/* Each editor is the last thing on its tab, with only the action buttons under
-   it, so it takes the rest of the window instead of a fixed 28 rows; the
-   reference and Quick Add panels above it scroll off first. The rows attribute
-   stays as the fallback if this sheet does not load. */
-#qos-config-ta,
-#qos-rules-ta {
-	height: calc(100vh - 300px);
-	min-height: 320px;
-	resize: vertical;
-}
-
-.qos-item {
-	margin: 4px 0;
-	padding: 4px 8px;
-	border: 1px solid var(--border-color-medium, rgba(128, 128, 128, .5));
-	border-radius: 3px;
-}
-CSSEOF
-	[ -s "$VIEW_DIR/qosify.css" ] || { echo "[ERROR] Failed writing $VIEW_DIR/qosify.css"; exit 1; }
+	# Stock LuCI markup only since 3.3.0; drop the stylesheet older installs wrote.
+	rm -f "$VIEW_DIR/qosify.css"
 }
 
 install_keepd() {
@@ -2728,7 +2354,6 @@ install_keepd() {
 /usr/share/qosify-luci/00-defaults.conf
 /usr/share/qosify-luci/cleanup
 /www/luci-static/resources/view/qosify/main.js
-/www/luci-static/resources/view/qosify/qosify.css
 EOF
 }
 
@@ -2815,7 +2440,7 @@ migrate_pkg() {
 	else
 		echo "[ERROR] No supported package manager"
 	fi
-	if [ -f "$VIEW_DIR/main.js" ] && [ -f "$VIEW_DIR/qosify.css" ]; then
+	if [ -f "$VIEW_DIR/main.js" ]; then
 		restart_luci_services
 		logger -t qosify-luci "migrated to luci-app-qosify package"
 		echo "[OK] Migrated — the package owns the app files now"

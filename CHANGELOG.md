@@ -2,6 +2,33 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.3.0-dev — 2026-09-15
+
+Whole app on stock LuCI markup; Map Entries jump fixed at its cause.
+
+- `qosify.css` is gone, along with every `qos-*` class. Pages use what LuCI's own
+  views use: `.table`/`.tr`/`.td left` key-value rows as on Status > Overview,
+  `.label` badges (`success` for good, `warning` for a problem, plain for off),
+  `.cbi-section-node` with `.cbi-value` rows and `.cbi-value-description` help for
+  Quick Settings and both Quick Add forms, `.cbi-input-*` controls without fixed
+  widths, `.tr.placeholder` and `<em>` for empty states, plain `pre` for the Status
+  output and `.cbi-input-textarea` at `width:100%`, 28 rows, for the editors. The
+  bordered, rounded boxes, full-window editor height and draggable output box go
+  with the stylesheet
+- Config and Rules each split into a Quick Add fieldset (reference in `details`,
+  then the form) and an editor fieldset with the file path and actions
+- Counters charts are `.cbi-progressbar` rows, figures in the bar title the theme
+  prints above it, built once per row set and then updated in place.
+  Traffic by CAKE Tin drops the `Qdiscs:` line; drops and ECN marks move from the
+  name badge into the bar figures
+- Map Entries: the real cause of the jump was the map entry total in `mapSig()`.
+  qosify adds and expires address entries for DNS results constantly, so the table
+  was rebuilt nearly every tick. The signature now covers the patterns only, the
+  total is rewritten in the footer, and the listing is a plain table, not a
+  24rem scroll box with a sticky header
+- Installer: `install_view` deletes a stale `qosify.css`, the keep list, the feed
+  `Makefile` and the `migrate` check no longer reference it
+
 ## v3.2.3-dev — 2026-09-15
 
 Counters: one tin chart, steady Map Entries, visible small bars.
