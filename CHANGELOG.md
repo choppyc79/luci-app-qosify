@@ -2,6 +2,34 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.4.1-dev — 2026-09-15
+
+qosify names throughout, full interface options, collapsible references, boxed sections.
+
+- Page title `qosify`. Every section is a `div.cbi-section` with an `h3` title, as
+  LuCI's form renderer builds them (the Material theme hides `fieldset` legends),
+  drawn as a box by a scoped style block using the theme's colour variables
+- Interface section carries every option `add_interface()` in `qosify.init` reads,
+  titled with the option name: `disabled`, `name` (always shown), `bandwidth`,
+  `bandwidth_up`, `bandwidth_down`, `mode`, `ingress`, `egress` under General
+  Settings; `overhead_type`, `overhead`, `overhead_encap`, `overhead_mpu`,
+  `overhead_vlan` under Overhead; `nat`, `host_isolate`, `autorate_ingress`,
+  `ingress_options`, `egress_options`, `options` under Advanced Settings. Newly
+  saved: `bandwidth`, `overhead_encap` (manual only), `overhead_mpu` (digits),
+  `overhead_vlan` (1 or 2)
+- Config: a collapsible option reference under each Quick Add form (`OPT_DESC`,
+  from the qosify README config parameters and `qosify.init`), plus collapsible
+  Classes, DSCP values and Defaults panels. Rules: Quick Add titled `match`,
+  `dscp`, `+` with the README match syntax as choices, and collapsible Mapping file
+  syntax and Classes panels. All start closed
+- Status reverted to the `qosify-status` output alone, fetched in one pass per tick
+  so the output no longer blinks out while the script runs
+- Counters: `get_stats` section with its field names, DNS Entries (was DNS
+  Patterns) with `dns`, `dscp`, `file / user`, `hits / packets / bytes` and `timeout`
+  columns in a box that resizes like the editors
+- Header shows active interfaces, the Service table `Active` and
+  `/etc/init.d/qosify`, matching `qosify status` and the package
+
 ## v3.4.0-dev — 2026-09-15
 
 Whole-app redesign on stock LuCI markup: no on-screen notes, state-aware controls.
