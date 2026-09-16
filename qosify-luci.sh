@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.5.1-dev"
+VERSION="3.5.2-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -794,17 +794,19 @@ return view.extend({
 		return root;
 	},
 
-	// All three tabs tick at 10 s: Overview is six ubus calls and no forks, Status forks
-	// qosify-status, which runs tc twice per active interface, and Counters is three
-	// ubus calls (service.list, get_stats, dump) plus that same fork while qosify
-	// runs. Poll.step() holds the next tick until the promise this returns settles,
+	// All three tabs tick at LuCI's poll interval (luci.main.pollinterval, 5 s unless
+	// set) and pause with its header toggle, each only while its tab is open:
+	// Overview is six ubus calls and no forks, Status forks qosify-status, which runs
+	// tc twice per active interface, and Counters is three ubus calls (service.list,
+	// get_stats, dump) plus that same fork while qosify runs.
+	// Poll.step() holds the next tick until the promise this returns settles,
 	// and refreshStatus() and refreshCounters() drop an overlapping call, so a fork
 	// slower than the interval skips ticks instead of stacking up.
 	installPollers:function(){
 		var self=this;
-		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();},10);
-		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();},10);
-		poll.add(function(){if(self.currentTab!=='cn'||self._n)return;return self.refreshCounters();},10);
+		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();});
+		poll.add(function(){if(self.currentTab!=='st'||self._n)return;return self.refreshStatus();});
+		poll.add(function(){if(self.currentTab!=='cn'||self._n)return;return self.refreshCounters();});
 	},
 
 	tabOverview:function(ctx){
@@ -851,10 +853,9 @@ return view.extend({
 		var enChecked=(w['.name']!=null&&!uciBool(w.disabled,false));
 		function chk(name,val){return E('input',{'type':'checkbox','class':'cbi-input-checkbox','id':'q-'+name,'data-q':name,'checked':val?'checked':null});}
 		function txt(name,val,ph){return E('input',{'type':'text','class':'cbi-input-text','id':'q-'+name,'data-q':name,'value':val||'','placeholder':ph||''});}
-		function sel(name,val,opts,def,hint){
+		function sel(name,val,opts,def){
 			val=qv(val);
-			var s=E('select',{'class':'cbi-input-select','id':'q-'+name,'data-q':name}),sv=val||def||'',known=false;
-			if(!def)s.appendChild(E('option',{'value':''},hint?'-- ('+hint+')':'--'));
+			var s=E('select',{'class':'cbi-input-select','id':'q-'+name,'data-q':name}),sv=val||def,known=false;
 			opts.forEach(function(o){var a={'value':o};if(sv===o){a.selected='selected';known=true;}s.appendChild(E('option',a,o));});
 			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},_('%s (current)').format(val)));
 			return s;
@@ -881,7 +882,7 @@ return view.extend({
 			desc(_('required — qosify skips sections with no name'))]]);
 		gen.push(['bandwidth_up',txt('bw_up',w.bandwidth_up,_('e.g. %s').format('100mbit'))],
 			['bandwidth_down',txt('bw_down',w.bandwidth_down,_('e.g. %s').format('100mbit'))],
-			['mode',sel('mode',w.mode,MODES,null,'diffserv4')],
+			['mode',sel('mode',w.mode,MODES,'diffserv4')],
 			['ingress',chk('ingress',numBool(w.ingress,true))],
 			['egress',chk('egress',numBool(w.egress,true))]);
 		// CAKE is only given nat/nonat when host_isolate is on; otherwise it gets

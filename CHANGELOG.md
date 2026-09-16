@@ -2,6 +2,17 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.5.2-dev — 2026-09-16
+
+Polling and Quick Settings `mode` default.
+
+- Overview, Status and Counters tick at LuCI's poll interval (`luci.main.pollinterval`,
+  5 s unless set) instead of a fixed 10 s, and pause with LuCI's header refresh toggle,
+  each only while its tab is open. Overlapping ticks are still dropped
+- Quick Settings `mode` no longer offers `-- (diffserv4)`: an unset mode selects
+  `diffserv4`, the value the shipped qosify config carries and `qosify.init` falls back
+  to, and a save writes it. An unknown value in the file is still shown as `(current)`
+
 ## v3.5.1-dev — 2026-09-16
 
 Counters tab back, and a fix for the Overview tab failing to load.
