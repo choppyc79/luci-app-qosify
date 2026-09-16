@@ -2,6 +2,28 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.6.0-dev — 2026-09-16
+
+Overview layout.
+
+- Active tab no longer set to the theme's primary colour: themes that fill the active tab
+  with that colour showed an unreadable block. The theme draws the tab highlight
+- Enable/Disable Autostart, Start, Restart, Reload and Stop moved to LuCI's page footer
+  (`addFooter`), below every tab. Status and Counters ticks keep their disabled state in
+  step with the running state
+- Service section: uptime, a Shaping count, and the per-interface rows (active, device,
+  ingress, egress) moved here from the Status tab, which now shows only `qosify-status`.
+  Stopped, disabled, missing and inactive badges are red (`.label.danger`, with a fallback
+  colour for themes that do not define it); running without shaping stays amber
+- Uptime reads `starttime` from `/proc/<pid>/stat` against `/proc/uptime`, once per pid. The
+  ACL read group grants `/proc/uptime` and `/proc/[0-9]*/stat` `read`
+- Quick settings sub-tabs replaced by one section with General Settings and Advanced
+  Settings side by side, stacking on narrow screens. `name` is always shown, QoS Enabled
+  notes the `option disabled` values, and `overhead_encap`, `overhead_mpu` and
+  `overhead_vlan` are added. The `overhead` field is gone: `manual` shows a note to put it
+  in `options` (e.g. `overhead 38`); an existing `option overhead` is kept under `manual`
+- Save bars inside sections are slimmer
+
 ## v3.5.3-dev — 2026-09-16
 
 Polling left to LuCI.

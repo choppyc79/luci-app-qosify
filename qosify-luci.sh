@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.5.3-dev"
+VERSION="3.6.0-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -277,7 +277,9 @@ install_acl() {
 				"/etc/config/qosify": [ "read", "list" ],
 				"/etc/qosify/00-defaults.conf": [ "read", "list" ],
 				"/usr/share/qosify-luci/qosify": [ "read" ],
-				"/usr/share/qosify-luci/00-defaults.conf": [ "read" ]
+				"/usr/share/qosify-luci/00-defaults.conf": [ "read" ],
+				"/proc/uptime": [ "read" ],
+				"/proc/[0-9]*/stat": [ "read" ]
 			}
 		},
 		"write": {
@@ -439,6 +441,10 @@ function isRunning(r){
 	try{var i=r.qosify.instances;for(var k in i)if(i[k].running)return true;}catch(e){}
 	return false;
 }
+function runPid(r){
+	try{var i=r.qosify.instances;for(var k in i)if(i[k].running&&i[k].pid)return i[k].pid;}catch(e){}
+	return 0;
+}
 
 function clsOpt(c){var d=c.ingress&&c.ingress!==c.egress?c.ingress+'/'+c.egress:c.egress;return c.name+(d?' ('+d+')':'');}
 function trim(s){return (s||'').replace(/^\s+|\s+$/g,'');}
@@ -471,11 +477,6 @@ function statusActive(st){
 		for(k in t)if(t[k]&&t[k].active)return true;
 	}
 	return false;
-}
-function statusNames(st){
-	var out=[];
-	['interfaces','devices'].forEach(function(g){for(var k in (st&&st[g]))if(st[g][k]&&st[g][k].active)out.push(k);});
-	return out;
 }
 function statusCount(st){
 	var groups=['interfaces','devices'],i,k,t,n=0;
@@ -668,6 +669,7 @@ function notify(msg,kind){
 // Status > Overview, .label badges, .cbi-value form rows and plain pre/textarea.
 // qosify.css draws each section as a box with the theme's own variables.
 function badge(kind,t){return E('span',{'class':kind?'label '+kind:'label'},t);}
+function desc(t){return E('div',{'class':'cbi-value-description'},t);}
 function kvRow(k,v,id){return E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},k),E('td',{'class':'td left','id':id||null},v)]);}
 function emRow(t){return E('tr',{'class':'tr placeholder'},E('td',{'class':'td'},E('em',{},t)));}
 function emP(t){return E('p',{},E('em',{},t));}
@@ -735,6 +737,8 @@ function confirmDialog(title,text,label,negative){
 return view.extend({
 	handleSaveApply:null,handleSave:null,handleReset:null,
 	currentTab:'ov',
+	// Service controls sit in LuCI's page footer, below every tab.
+	addFooter:function(){return this._footer||E([]);},
 	readonly:false,
 
 	load:function(){
@@ -790,6 +794,7 @@ return view.extend({
 			notify(_('You have read-only access to this page, so editing and service control are disabled.'),'warning');
 		}
 
+		this._footer=this.buildSvcActs(ctx);
 		this.installPollers();
 		return root;
 	},
@@ -817,6 +822,10 @@ return view.extend({
 	},
 
 	buildSvcSect:function(ctx){
+		return [E('h3',{},_('Service')),this.renderSvcTable(ctx)];
+	},
+
+	buildSvcActs:function(ctx){
 		var self=this,acts=E('div',{'class':'cbi-page-actions'},
 			E('button',{'class':'cbi-button','id':'qos-btn-auto','click':function(){return self.svcAction(self._auto?'disable':'enable');}}));
 		[['start','cbi-button-apply',_('Start')],['restart','cbi-button-action',_('Restart')],
@@ -825,15 +834,17 @@ return view.extend({
 			acts.appendChild(E('button',{'class':'cbi-button '+b[1],'id':'qos-btn-'+b[0],'click':function(){return self.svcAction(b[0]);}},b[2]));
 		});
 		this.svcButtons(ctx,acts);
-		return [E('h3',{},_('Service')),this.renderSvcTable(ctx),acts];
+		return acts;
 	},
 
+	// ctx.enabled/hasInit are only known after an Overview refresh, so the other
+	// tabs pass running alone and the cached values are reused.
 	svcButtons:function(ctx,root){
-		var ro=this.readonly||!ctx.hasInit,b,g=function(id){return root?root.querySelector('#'+id):$(id);};
-		this._auto=ctx.enabled;
+		if(ctx.enabled!=null){this._auto=ctx.enabled;this._init=ctx.hasInit;}
+		var ro=this.readonly||!this._init,b,g=function(id){return root?root.querySelector('#'+id):$(id);};
 		if((b=g('qos-btn-auto'))){
-			b.className='cbi-button '+(ctx.enabled?'cbi-button-negative':'cbi-button-positive');
-			dom.content(b,ctx.enabled?_('Disable Autostart'):_('Enable Autostart'));
+			b.className='cbi-button '+(this._auto?'cbi-button-negative':'cbi-button-positive');
+			dom.content(b,this._auto?_('Disable Autostart'):_('Enable Autostart'));
 			b.disabled=ro;
 		}
 		[['start',!ctx.running],['restart',ctx.running],['reload',ctx.running],['stop',ctx.running]].forEach(function(x){
@@ -855,65 +866,59 @@ return view.extend({
 		function sel(name,val,opts,def){
 			val=qv(val);
 			var s=E('select',{'class':'cbi-input-select','id':'q-'+name,'data-q':name}),sv=val||def,known=false;
+			if(def==null)s.appendChild(E('option',{'value':''},'--'));
 			opts.forEach(function(o){var a={'value':o};if(sv===o){a.selected='selected';known=true;}s.appendChild(E('option',a,o));});
 			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},_('%s (current)').format(val)));
 			return s;
 		}
-		function desc(t){return E('div',{'class':'cbi-value-description'},t);}
-		function pane(id,title,rows){
-			return E('div',{'data-tab':id,'data-tab-title':title},E('div',{'class':'cbi-section-node'},
-				rows.map(function(r){return valRow(r[0],r[1]);})));
+		function col(title,rows){
+			return E('div',{'class':'cbi-section-node'},[E('h4',{},title)].concat(rows.map(function(r){return valRow(r[0],r[1]);})));
 		}
 
 		var enBadge=E('span',{'id':'q-en-badge'});
 		this.updateEnBadge(enBadge,ctx,enChecked);
-		var gen=[[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge]]];
 		// qosify.init passes `option name` to add_interface(); without it the daemon
-		// gets an empty device and the section is never applied, so offer it here
-		// whenever it is missing -- anonymous sections have no other way to set it.
-		// Only `config interface` is named after the netifd interface; a `config
-		// device` section names a netdev and the two differ by convention -- the
-		// shipped config has `config device wandev` with `option name wan` -- so the
-		// section name is never a safe prefill there. Leave it empty and let ifLint()
-		// keep warning until a real netdev is entered.
+		// gets an empty device and the section is never applied. Only `config
+		// interface` is named after the netifd interface; a `config device` names a
+		// netdev (the shipped config has `config device wandev` with `option name
+		// wan`), so its section name is never a safe prefill.
 		var isDev=!!(sn&&sn.type==='device');
-		if(!w.name)gen.push(['name',[txt('name',sn?(isDev?'':sn.name):'wan',_('e.g. %s').format(isDev?'eth0':'wan')),
-			desc(_('required — qosify skips sections with no name'))]]);
-		gen.push(['bandwidth_up',txt('bw_up',w.bandwidth_up,_('e.g. %s').format('100mbit'))],
-			['bandwidth_down',txt('bw_down',w.bandwidth_down,_('e.g. %s').format('100mbit'))],
-			['mode',sel('mode',w.mode,MODES,'diffserv4')],
-			['ingress',chk('ingress',numBool(w.ingress,true))],
-			['egress',chk('egress',numBool(w.egress,true))]);
 		// CAKE is only given nat/nonat when host_isolate is on; otherwise it gets
 		// flow isolation and nat has no effect at all.
 		var hiCb=chk('host_isolate',numBool(w.host_isolate,true));
-		var natNote=desc(_('qosify only passes this to CAKE together with Host Isolate — add nat to Options to force it'));
-		function syncNat(){
-			natNote.style.display=hiCb.checked?'none':'';
-		}
-		hiCb.addEventListener('change',syncNat);
-		syncNat();
-		var grp=E('div',{},[
-			pane('qs-general',_('General Settings'),gen),
-			pane('qs-overhead',_('Overhead'),[
-				['overhead_type',sel('overhead',w.overhead_type,OVH,'none')],
-				['overhead',[txt('overhead_b',w.overhead,_('manual only')),desc(_('used only when Overhead Type is manual'))]]
-			]),
-			pane('qs-advanced',_('Advanced Settings'),[
-				['nat',[chk('nat',numBool(w.nat,!isDev)),natNote]],
-				['host_isolate',hiCb],
-				['autorate_ingress',chk('autorate',numBool(w.autorate_ingress,false))],
-				['ingress_options',txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb'))],
-				['egress_options',txt('egr_opts',w.egress_options,_('e.g. %s').format('triple-isolate memlimit 32mb wash'))],
-				['options',txt('opts',w.options,_('e.g. %s').format('overhead 44 mpu 84'))]
-			])
-		]);
-		// initTabGroup puts the tab menu before grp in its parent, so grp needs one.
-		var wrap=E('div',{},grp);
-		ui.tabs.initTabGroup(grp.childNodes);
+		var natNote=desc(_('qosify only passes this to CAKE together with host_isolate — add nat to options to force it'));
+		hiCb.addEventListener('change',function(){natNote.style.display=hiCb.checked?'none':'';});
+		natNote.style.display=hiCb.checked?'none':'';
+		// manual appends only overhead and overhead_encap, so the byte count goes in options.
+		var ovSel=sel('overhead',w.overhead_type,OVH,'none');
+		var ovNote=desc(_('manual: add the overhead to options, e.g. %s').format('overhead 38'));
+		ovSel.addEventListener('change',function(){ovNote.style.display=ovSel.value==='manual'?'':'none';});
+		ovNote.style.display=ovSel.value==='manual'?'':'none';
 		return [
 			E('h3',{},_('%s quick settings').format(sn?sn.type+(sn.name?' '+sn.name:''):'interface wan')),
-			wrap,
+			E('div',{'class':'qs-cols'},[
+				col(_('General Settings'),[
+					[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge,desc(_("option disabled — '0' when ticked, '1' when not"))]],
+					['name',[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(_('required — qosify skips sections with no name'))]],
+					['bandwidth_up',txt('bw_up',w.bandwidth_up,_('e.g. %s').format('100mbit'))],
+					['bandwidth_down',txt('bw_down',w.bandwidth_down,_('e.g. %s').format('100mbit'))],
+					['mode',sel('mode',w.mode,MODES,'diffserv4')],
+					['ingress',chk('ingress',numBool(w.ingress,true))],
+					['egress',chk('egress',numBool(w.egress,true))],
+					['autorate_ingress',chk('autorate',numBool(w.autorate_ingress,false))]
+				]),
+				col(_('Advanced Settings'),[
+					['nat',[chk('nat',numBool(w.nat,!isDev)),natNote]],
+					['host_isolate',hiCb],
+					['overhead_type',[ovSel,ovNote]],
+					['overhead_encap',[sel('overhead_encap',w.overhead_encap,ENCAP),desc(_('used only when overhead_type is manual'))]],
+					['overhead_mpu',txt('overhead_mpu',w.overhead_mpu,_('e.g. %s').format('84'))],
+					['overhead_vlan',sel('overhead_vlan',w.overhead_vlan,['0','1','2'],'0')],
+					['ingress_options',txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb'))],
+					['egress_options',txt('egr_opts',w.egress_options,_('e.g. %s').format('triple-isolate memlimit 32mb wash'))],
+					['options',txt('opts',w.options,_('e.g. %s').format('overhead 38'))]
+				])
+			]),
 			E('div',{'class':'cbi-page-actions'},
 				E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveQuick();}},_('Save & Apply')))
 		];
@@ -974,32 +979,47 @@ return view.extend({
 		if(ctx.active){el.className='label success';dom.content(el,_('Active'));}
 		else if(ctx.running&&enChecked){el.className='label warning';dom.content(el,_('Enabled — Not Shaping (check config)'));}
 		else if(enChecked){el.className='label warning';dom.content(el,_('Enabled — Not Running'));}
-		else{el.className='label';dom.content(el,_('Disabled'));}
+		else{el.className='label danger';dom.content(el,_('Disabled'));}
 	},
 
+	// Status is green while shaping, amber while running idle, red when stopped;
+	// the per-interface rows are ubus call qosify status, so they cost no forks.
 	svcNodes:function(ctx){
-		var names=statusNames(ctx.status);
 		return {
-			run:badge(ctx.running?(ctx.active?'success':'warning'):'',ctx.running?_('Running'):_('Not running')),
-			auto:badge(ctx.enabled?'success':'',ctx.enabled?_('Enabled'):_('Disabled')),
-			shaped:names.length?names.join(', '):E('em',{},_('none')),
-			init:ctx.hasInit?badge('success',_('Installed')):badge('warning',_('Missing'))
+			run:ctx.running?(ctx.active?badge('success',_('Running')):badge('warning',_('Running — Not Shaping'))):badge('danger',_('Not Running')),
+			up:ctx.uptime!=null?'%t'.format(Math.floor(ctx.uptime)):'-',
+			auto:badge(ctx.enabled?'success':'danger',ctx.enabled?_('Enabled'):_('Disabled')),
+			shaped:ctx.shaped?badge('success',N_(ctx.shaped,'%d interface','%d interfaces').format(ctx.shaped)):badge('danger',_('none')),
+			init:ctx.hasInit?badge('success',_('Installed')):badge('danger',_('Missing'))
 		};
 	},
 
 	renderSvcTable:function(ctx){
-		var n=this.svcNodes(ctx);
-		return E('table',{'class':'table','id':'qos-svc-tbl'},[
-			kvRow(_('Status'),n.run,'qos-svc-run'),
-			kvRow(_('Autostart'),n.auto,'qos-svc-auto'),
-			kvRow(_('Active'),n.shaped,'qos-svc-shaped'),
-			kvRow(E('code',{},'/etc/init.d/qosify'),n.init,'qos-svc-init')
-		]);
+		var n=this.svcNodes(ctx),rows=[
+			kvRow(_('Status'),n.run),
+			kvRow(_('Uptime'),n.up),
+			kvRow(_('Autostart'),n.auto),
+			kvRow(_('Shaping'),n.shaped)
+		];
+		['interfaces','devices'].forEach(function(g){
+			var t=ctx.status&&ctx.status[g],k,e;
+			for(k in t){
+				e=t[k]||{};
+				rows.push(kvRow((g==='devices'?'device %s':'interface %s').format(k),[
+					badge(e.active?'success':'danger',e.active?_('active'):_('inactive')),' ',
+					_('device: %s, ingress: %s, egress: %s').format(e.ifname||'-',e.ingress?_('yes'):_('no'),e.egress?_('yes'):_('no'))
+				]));
+			}
+		});
+		rows.push(kvRow(E('code',{},'/etc/init.d/qosify'),n.init));
+		return E('table',{'class':'table','id':'qos-svc-tbl'},rows);
 	},
 
+	// Rows follow the configured interfaces, so the table is swapped whole; it
+	// holds no input or focus.
 	updateSvcTable:function(ctx){
-		var n=this.svcNodes(ctx),k,el;
-		for(k in n)if((el=$('qos-svc-'+k)))dom.content(el,n[k]);
+		var t=$('qos-svc-tbl');
+		if(t)t.parentNode.replaceChild(this.renderSvcTable(ctx),t);
 		this.svcButtons(ctx);
 	},
 
@@ -1274,7 +1294,7 @@ return view.extend({
 	},
 
 	tabStatus:function(ctx){
-		var body=E('div',{'id':'qos-st-body'},[E('div',{'id':'qos-st-sum'}),E('div',{'id':'qos-st-msg'}),E('pre',{'id':'qos-st-pre','style':'display:none'})]);
+		var body=E('div',{'id':'qos-st-body'},[E('div',{'id':'qos-st-msg'}),E('pre',{'id':'qos-st-pre','style':'display:none'})]);
 		this.fillStatus(body,ctx);
 		return E('div',{'id':'qos-st'},sect('qosify-status',body));
 	},
@@ -1400,6 +1420,7 @@ return view.extend({
 			L.resolveDefault(callQosifyStats(),null)
 		]).then(function(d){
 			var ctx={running:isRunning(d[0]),stats:d[1]};
+			self.svcButtons(ctx);
 			self._cnStats=ctx.running?ctx.stats:null;
 			if(ctx.stats)self._cnDns=ctx.stats.dns!=null;
 			self.fillCounters(ctx);
@@ -1663,16 +1684,14 @@ return view.extend({
 	// is being read. ctx.qstatus null means the fork has not returned yet, '' means
 	// it returned nothing -- the two used to look the same on screen.
 	fillStatus:function(body,ctx){
-		var sum=body.querySelector('#qos-st-sum'),pre=body.querySelector('#qos-st-pre'),msg=body.querySelector('#qos-st-msg');
-		if(!sum||!pre||!msg)return;
+		var pre=body.querySelector('#qos-st-pre'),msg=body.querySelector('#qos-st-msg');
+		if(!pre||!msg)return;
 		var note=function(t){dom.content(msg,emP(t));};
 		if(!ctx.running){
-			dom.content(sum,'');
 			pre.style.display='none';
 			dom.content(msg,E('div',{'class':'alert-message warning'},_('qosify is not running. Start from the Overview tab.')));
 			return;
 		}
-		dom.content(sum,this.statusSummary(ctx.status));
 		pre.style.display=ctx.qstatus?'':'none';
 		if(ctx.qstatus){
 			if(pre.textContent!==ctx.qstatus)pre.textContent=ctx.qstatus;
@@ -1681,22 +1700,6 @@ return view.extend({
 		else if(this.readonly)note(_('The detailed tc output needs write access to this page.'));
 		else if(ctx.qstatus==null)note(_('Reading tc output...'));
 		else note(_('qosify-status returned no output.'));
-	},
-
-	// ubus call qosify status, so the per-interface summary costs no forks
-	statusSummary:function(st){
-		var rows=[];
-		['interfaces','devices'].forEach(function(g){
-			var t=st&&st[g],k,e;
-			for(k in t){
-				e=t[k]||{};
-				rows.push(kvRow((g==='devices'?_('device %s'):_('interface %s')).format(k),[
-					badge(e.active?'success':'',e.active?_('active'):_('inactive')),' ',
-					_('device: %s, ingress: %s, egress: %s').format(e.ifname||'-',e.ingress?_('yes'):_('no'),e.egress?_('yes'):_('no'))
-				]));
-			}
-		});
-		return E('table',{'class':'table'},rows.length?rows:emRow(_('qosify has no interfaces or devices configured')));
 	},
 
 	// === Actions ===
@@ -1736,7 +1739,7 @@ return view.extend({
 		var bw=function(s){return trim(s).replace(/\s+/g,'');};
 		var bwUp=bw(get('bw_up')),bwDn=bw(get('bw_down'));
 		var rate=/^(unlimited|\d+(\.\d+)?((k|m|g|t)?(bit|bps)|(ki|mi|gi)(bit|bps))?)$/i;
-		var ovh=get('overhead'),mode=get('mode'),ovhB=trim(get('overhead_b'));
+		var ovh=get('overhead'),mode=get('mode'),mpu=trim(get('overhead_mpu')),vlan=get('overhead_vlan');
 		var iopts=trim(get('ing_opts')),eopts=trim(get('egr_opts')),gopts=trim(get('opts'));
 		var safe=/^[\w\s.:-]*$/;
 		if(!safe.test(iopts)||!safe.test(eopts)||!safe.test(gopts)){
@@ -1745,7 +1748,7 @@ return view.extend({
 		}
 		if(bwUp&&!rate.test(bwUp))notify(_('bandwidth_up does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
 		if(bwDn&&!rate.test(bwDn))notify(_('bandwidth_down does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
-		if(ovh==='manual'&&ovhB&&!/^\d+$/.test(ovhB)){notify(_('Error: overhead must be a whole number of bytes'),'danger');return;}
+		if(mpu&&!/^\d+$/.test(mpu)){notify(_('Error: overhead_mpu must be a whole number of bytes'),'danger');return;}
 		var en=chk('enabled');
 		if(en&&(!bwUp||!bwDn))notify(_('Note: bandwidth not set — CAKE will run unlimited on that direction.'),'warning');
 
@@ -1767,7 +1770,11 @@ return view.extend({
 			options:gopts||null,
 			option:null
 		};
-		kv.overhead=(ovh==='manual'&&ovhB)?ovhB:null;
+		// overhead has no field: kept under manual, dropped otherwise as qosify ignores it.
+		if(ovh!=='manual')kv.overhead=null;
+		kv.overhead_encap=(ovh==='manual'&&get('overhead_encap'))?get('overhead_encap'):null;
+		kv.overhead_mpu=mpu||null;
+		kv.overhead_vlan=vlan&&vlan!=='0'?vlan:null;
 		var nmEl=$('q-name');
 		if(nmEl){
 			var nm=trim(nmEl.value);
@@ -2201,8 +2208,25 @@ return view.extend({
 			}
 			ctx.rulesN=self._rulesN;
 			ctx.cfgOk=self._cfgOk;
-			return ctx;
+			return self.uptime(d[0]).then(function(u){ctx.uptime=u;return ctx;});
 		});
+	},
+
+	// Seconds since the running qosify started, or null. procd's service list
+	// carries the pid but no start time, so starttime (field 22 of /proc/<pid>/stat,
+	// USER_HZ ticks since boot) is set against /proc/uptime: both run on the boot
+	// clock, so an NTP step does not skew it. A reload keeps the pid; the start is
+	// cached per pid, so ticks read nothing until qosify is restarted.
+	uptime:function(r){
+		var self=this,pid=runPid(r);
+		if(!pid){self._up=null;return Promise.resolve(null);}
+		if(self._up&&self._up.pid===pid)return Promise.resolve(Date.now()/1000-self._up.t);
+		return Promise.all([fs.read('/proc/'+pid+'/stat'),fs.read('/proc/uptime')]).then(function(d){
+			var st=String(d[0]),f=st.slice(st.lastIndexOf(')')+2).split(' '),up=parseFloat(d[1])-f[19]/100;
+			if(!(up>=0))return null;
+			self._up={pid:pid,t:Date.now()/1000-up};
+			return up;
+		}).catch(function(){return null;});
 	},
 
 	// Poll path: six ubus calls (uci.get and gatherCtx(false)'s five), no shell
@@ -2240,11 +2264,9 @@ return view.extend({
 		var self=this;
 		if(self.currentTab!=='st')return Promise.resolve();
 		var ex=self.readonly?Promise.resolve(null):L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),null);
-		return Promise.all([
-			L.resolveDefault(callServiceList('qosify'),{}),
-			L.resolveDefault(callQosifyStatus(),{})
-		]).then(function(d){
-			var ctx={running:isRunning(d[0]),status:d[1]||{},qstatus:self.readonly?'':null};
+		return L.resolveDefault(callServiceList('qosify'),{}).then(function(d){
+			var ctx={running:isRunning(d),qstatus:self.readonly?'':null};
+			self.svcButtons(ctx);
 			var stb=$('qos-st-body');
 			if(stb)self.fillStatus(stb,ctx);
 			return ex.then(function(r){
@@ -2291,7 +2313,6 @@ JSEOF
 	[ -s "$VIEW_DIR/main.js" ] || { echo "[ERROR] Failed writing $VIEW_DIR/main.js"; exit 1; }
 	cat > "$VIEW_DIR/qosify.css" << 'CSSEOF'
 /* SPDX-License-Identifier: MIT */
-#qos-app .cbi-tabmenu>li.cbi-tab>a{font-weight:600;color:var(--primary-color-high,inherit)}
 #qos-app .cbi-section{border:1px solid var(--border-color-medium,rgba(128,128,128,.35));border-radius:6px;padding:0 1em .75em;margin:0 0 .9em;box-shadow:0 1px 2px rgba(0,0,0,.06)}
 #qos-app .cbi-section>h3,#qos-app .cbi-section>summary{margin:0 -1em .75em;padding:.55em 1em;font-size:1.05em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));border-radius:6px 6px 0 0;background:var(--background-color-low,rgba(128,128,128,.06))}
 #qos-app .cbi-section>summary{cursor:pointer;list-style:none}#qos-app .cbi-section>summary::-webkit-details-marker{display:none}
@@ -2299,7 +2320,11 @@ JSEOF
 #qos-app details.cbi-section[open]>summary::before{transform:rotate(90deg)}
 #qos-app details.cbi-section:not([open]){padding-bottom:0}#qos-app details.cbi-section:not([open])>summary{margin-bottom:0;border-bottom:0;border-radius:6px}
 #qos-app summary>h3{display:inline;margin:0;font-size:inherit;font-weight:inherit}
-#qos-app .cbi-section .cbi-page-actions{margin:.75em -1em -.75em;border-radius:0 0 6px 6px}
+#qos-app .cbi-section .cbi-page-actions{margin:.6em -1em -.75em;padding:.35em 1em;border-radius:0 0 6px 6px}
+#qos-app .label.danger{background-color:var(--error-color-high,#c9302c);color:var(--on-error-color,#fff)}
+#qos-svc-tbl .td{padding-top:.4em;padding-bottom:.4em;vertical-align:middle}
+#qos-app .qs-cols{display:flex;flex-wrap:wrap;gap:0 2em}#qos-app .qs-cols>.cbi-section-node{flex:1 1 28em;min-width:0}
+#qos-app .qs-cols h4{margin:.2em 0 .5em;padding-bottom:.3em;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2))}
 #qos-app details:not(.cbi-section){margin:.75em 0 0}#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}
 #qos-app details:not(.cbi-section)>p,#qos-app details:not(.cbi-section)>.table{margin:.5em 0 0}
 #qos-cn .cbi-section{margin-bottom:.6em;padding-bottom:.6em}#qos-cn .cbi-section>h3{margin-bottom:.6em;padding:.45em 1em}
