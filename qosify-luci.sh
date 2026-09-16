@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.6.4-dev"
+VERSION="3.6.5-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -853,7 +853,7 @@ return view.extend({
 	},
 
 	buildCfgSect:function(ctx){
-		return [E('h3',{},_('Files')),this.renderCfgFiles(ctx)];
+		return [this.renderCfgFiles(ctx)];
 	},
 
 	buildQsSect:function(ctx){
@@ -871,8 +871,8 @@ return view.extend({
 			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},_('%s (current)').format(val)));
 			return s;
 		}
-		function col(title,rows){
-			return E('div',{'class':'qs-box'},[E('h4',{},title),E('div',{'class':'cbi-section-node'},rows.map(function(r){return valRow(r[0],r[1]);}))]);
+		function col(rows){
+			return E('div',{'class':'qs-box cbi-section-node'},rows.map(function(r){return valRow(r[0],r[1]);}));
 		}
 
 		var enBadge=E('span',{'id':'q-en-badge'});
@@ -892,7 +892,7 @@ return view.extend({
 		return [
 			E('h3',{},_('%s quick settings').format(sn?sn.type+(sn.name?' '+sn.name:''):'interface wan')),
 			E('div',{'class':'qs-cols'},[
-				col(_('General Settings'),[
+				col([
 					[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge,desc(_("option disabled — '0' when ticked, '1' when not"))]],
 					['name',[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(_('required — qosify skips sections with no name'))]],
 					['bandwidth_up',txt('bw_up',w.bandwidth_up,_('e.g. %s').format('100mbit'))],
@@ -903,7 +903,7 @@ return view.extend({
 					['nat',[chk('nat',numBool(w.nat,!isDev)),natNote]],
 					['host_isolate',hiCb]
 				]),
-				col(_('Advanced Settings'),[
+				col([
 					['mode',sel('mode',w.mode,MODES,'diffserv4')],
 					['overhead_type',sel('overhead',w.overhead_type,OVH,'none')],
 					['overhead_encap',[sel('overhead_encap',w.overhead_encap,ENCAP),desc(_('used only when overhead_type is manual'))]],
@@ -2320,13 +2320,14 @@ JSEOF
 #qos-app .cbi-section .cbi-page-actions{margin:.6em -1em -.75em;padding:.35em 1em;border-radius:0 0 6px 6px}
 #qos-app .label.danger{background-color:var(--error-color-high,#c9302c);color:var(--on-error-color,#fff)}
 #qos-ov .table .td,#qos-ov .table .th{padding-top:.35em;padding-bottom:.35em;vertical-align:middle}
-#qos-app .qs-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,28em),1fr));gap:.75em}
-#qos-app .qs-box{min-width:0;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:0 .75em .3em}
-#qos-app .qs-box>h4{margin:0 -.75em .5em;padding:.3em .75em;font-size:.9em;line-height:1.5;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));background:var(--background-color-low,rgba(128,128,128,.06))}
-#qos-qs-sect .cbi-value{margin-bottom:.4em;align-items:flex-start}#qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 9.5em;padding-top:0;line-height:28px}
-#qos-qs-sect .cbi-value-field{margin-left:.75em;min-width:0;line-height:28px}#qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}#qos-qs-sect .cbi-value-field input[type=checkbox]{margin:0;vertical-align:middle}
+#qos-app .qs-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,28em),1fr));gap:1em}
+#qos-app .qs-box{min-width:0;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:.6em 1em .3em}
+#qos-app #qos-cfg-sect{padding:0;overflow:hidden}#qos-app #qos-cfg-sect>.table{margin:0;border:0}#qos-cfg-sect .th,#qos-cfg-sect .td{padding-left:1em;padding-right:1em}
+#qos-cfg-sect .tr.cbi-section-table-titles .th{border-top:0;padding-top:.45em;padding-bottom:.45em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));background:var(--background-color-low,rgba(128,128,128,.06))}
+#qos-qs-sect .cbi-value{margin-bottom:.55em;align-items:flex-start}#qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 11em;padding-top:0;line-height:28px}
+#qos-qs-sect .cbi-value-field{margin-left:1em;min-width:0;line-height:28px}#qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}#qos-qs-sect .cbi-value-field input[type=checkbox]{margin:0;vertical-align:middle}
 #qos-app .cbi-section>.table,#qos-app .cbi-section>div>.table{margin-bottom:0}
-#qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field select{width:100%;max-width:16em;box-sizing:border-box}
+#qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field select{width:100%;max-width:none;box-sizing:border-box}
 #qos-app details:not(.cbi-section){margin:.75em 0 0}#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}
 #qos-app details:not(.cbi-section)>p,#qos-app details:not(.cbi-section)>.table{margin:.5em 0 0}
 #qos-cn .cbi-section{margin-bottom:.6em;padding-bottom:.6em}#qos-cn .cbi-section>h3{margin-bottom:.6em;padding:.45em 1em}

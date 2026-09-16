@@ -2,6 +2,14 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.6.5-dev — 2026-09-16
+
+- Quick settings boxes lose their General Settings and Advanced Settings headers and fill
+  the page width: inputs are no longer capped, with wider titles and a little more room
+  between rows
+- Files drops its `Files` title; the table's column header is the box title bar, so the
+  box has one header
+
 ## v3.6.4-dev — 2026-09-16
 
 - Quick settings `mode` moved to the top of Advanced Settings
