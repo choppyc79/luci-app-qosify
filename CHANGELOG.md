@@ -2,6 +2,20 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.6.3-dev — 2026-09-16
+
+Tidier Overview.
+
+- Quick settings back under one `interface wan quick settings` section, with General
+  Settings and Advanced Settings as two boxes inside it, side by side
+- `nat` and `host_isolate` moved to General Settings
+- The `overhead_type` `manual` note (put the overhead in `options`) is removed
+- Section title bars no longer take the theme's 36px heading line height, so they are
+  shorter on every tab; boxes and gaps between them are tighter
+- Quick settings rows are compact: narrower titles, less space between rows, inputs
+  capped in width, checkboxes aligned with their titles. Service and Files tables have
+  shorter rows and no trailing gap
+
 ## v3.6.1-dev — 2026-09-16
 
 Quick settings in two boxes.

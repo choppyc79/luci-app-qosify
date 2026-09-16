@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.6.1-dev"
+VERSION="3.6.3-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -816,7 +816,7 @@ return view.extend({
 	tabOverview:function(ctx){
 		return E('div',{'id':'qos-ov'},[
 			E('div',{'class':'cbi-section','id':'qos-svc-sect'},this.buildSvcSect(ctx)),
-			E('div',{'id':'qos-qs-sect'},this.buildQsSect(ctx)),
+			E('div',{'class':'cbi-section','id':'qos-qs-sect'},this.buildQsSect(ctx)),
 			E('div',{'class':'cbi-section','id':'qos-cfg-sect'},this.buildCfgSect(ctx))
 		]);
 	},
@@ -871,9 +871,8 @@ return view.extend({
 			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},_('%s (current)').format(val)));
 			return s;
 		}
-		var ttl=sn?sn.type+(sn.name?' '+sn.name:''):'interface wan';
 		function col(title,rows){
-			return E('div',{'class':'cbi-section'},[E('h3',{},title),E('div',{'class':'cbi-section-node'},rows.map(function(r){return valRow(r[0],r[1]);}))]);
+			return E('div',{'class':'qs-box'},[E('h4',{},title),E('div',{'class':'cbi-section-node'},rows.map(function(r){return valRow(r[0],r[1]);}))]);
 		}
 
 		var enBadge=E('span',{'id':'q-en-badge'});
@@ -890,14 +889,10 @@ return view.extend({
 		var natNote=desc(_('qosify only passes this to CAKE together with host_isolate — add nat to options to force it'));
 		hiCb.addEventListener('change',function(){natNote.style.display=hiCb.checked?'none':'';});
 		natNote.style.display=hiCb.checked?'none':'';
-		// manual appends only overhead and overhead_encap, so the byte count goes in options.
-		var ovSel=sel('overhead',w.overhead_type,OVH,'none');
-		var ovNote=desc(_('manual: add the overhead to options, e.g. %s').format('overhead 38'));
-		ovSel.addEventListener('change',function(){ovNote.style.display=ovSel.value==='manual'?'':'none';});
-		ovNote.style.display=ovSel.value==='manual'?'':'none';
 		return [
+			E('h3',{},_('%s quick settings').format(sn?sn.type+(sn.name?' '+sn.name:''):'interface wan')),
 			E('div',{'class':'qs-cols'},[
-				col(_('%s general settings').format(ttl),[
+				col(_('General Settings'),[
 					[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge,desc(_("option disabled — '0' when ticked, '1' when not"))]],
 					['name',[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(_('required — qosify skips sections with no name'))]],
 					['bandwidth_up',txt('bw_up',w.bandwidth_up,_('e.g. %s').format('100mbit'))],
@@ -905,12 +900,12 @@ return view.extend({
 					['mode',sel('mode',w.mode,MODES,'diffserv4')],
 					['ingress',chk('ingress',numBool(w.ingress,true))],
 					['egress',chk('egress',numBool(w.egress,true))],
-					['autorate_ingress',chk('autorate',numBool(w.autorate_ingress,false))]
-				]),
-				col(_('%s advanced settings').format(ttl),[
+					['autorate_ingress',chk('autorate',numBool(w.autorate_ingress,false))],
 					['nat',[chk('nat',numBool(w.nat,!isDev)),natNote]],
-					['host_isolate',hiCb],
-					['overhead_type',[ovSel,ovNote]],
+					['host_isolate',hiCb]
+				]),
+				col(_('Advanced Settings'),[
+					['overhead_type',sel('overhead',w.overhead_type,OVH,'none')],
 					['overhead_encap',[sel('overhead_encap',w.overhead_encap,ENCAP),desc(_('used only when overhead_type is manual'))]],
 					['overhead_mpu',txt('overhead_mpu',w.overhead_mpu,_('e.g. %s').format('84'))],
 					['overhead_vlan',sel('overhead_vlan',w.overhead_vlan,['0','1','2'],'0')],
@@ -2315,8 +2310,8 @@ JSEOF
 	sed -i "s/@VERSION@/$VERSION/" "$VIEW_DIR/main.js"
 	cat > "$VIEW_DIR/qosify.css" << 'CSSEOF'
 /* SPDX-License-Identifier: MIT */
-#qos-app .cbi-section{border:1px solid var(--border-color-medium,rgba(128,128,128,.35));border-radius:6px;padding:0 1em .75em;margin:0 0 .9em;box-shadow:0 1px 2px rgba(0,0,0,.06)}
-#qos-app .cbi-section>h3,#qos-app .cbi-section>summary{margin:0 -1em .75em;padding:.55em 1em;font-size:1.05em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));border-radius:6px 6px 0 0;background:var(--background-color-low,rgba(128,128,128,.06))}
+#qos-app .cbi-section{border:1px solid var(--border-color-medium,rgba(128,128,128,.35));border-radius:6px;padding:0 1em .6em;margin:0 0 .75em;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+#qos-app .cbi-section>h3,#qos-app .cbi-section>summary{margin:0 -1em .6em;padding:.45em 1em;font-size:1em;line-height:1.5;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));border-radius:6px 6px 0 0;background:var(--background-color-low,rgba(128,128,128,.06))}
 #qos-app .cbi-section>summary{cursor:pointer;list-style:none}#qos-app .cbi-section>summary::-webkit-details-marker{display:none}
 #qos-app .cbi-section>summary::before{content:"\25B8";display:inline-block;width:1.1em;transition:transform .15s}
 #qos-app details.cbi-section[open]>summary::before{transform:rotate(90deg)}
@@ -2324,9 +2319,14 @@ JSEOF
 #qos-app summary>h3{display:inline;margin:0;font-size:inherit;font-weight:inherit}
 #qos-app .cbi-section .cbi-page-actions{margin:.6em -1em -.75em;padding:.35em 1em;border-radius:0 0 6px 6px}
 #qos-app .label.danger{background-color:var(--error-color-high,#c9302c);color:var(--on-error-color,#fff)}
-#qos-svc-tbl .td{padding-top:.4em;padding-bottom:.4em;vertical-align:middle}
-#qos-app .qs-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,30em),1fr));gap:0 .9em}#qos-app .qs-cols>.cbi-section{min-width:0}
-#qos-qs-sect>.cbi-page-actions{margin:0 0 .9em;padding:.35em 1em;border-radius:6px}
+#qos-ov .table .td,#qos-ov .table .th{padding-top:.35em;padding-bottom:.35em;vertical-align:middle}
+#qos-app .qs-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,28em),1fr));gap:.75em}
+#qos-app .qs-box{min-width:0;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:0 .75em .3em}
+#qos-app .qs-box>h4{margin:0 -.75em .5em;padding:.3em .75em;font-size:.9em;line-height:1.5;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));background:var(--background-color-low,rgba(128,128,128,.06))}
+#qos-qs-sect .cbi-value{margin-bottom:.4em;align-items:flex-start}#qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 9.5em;padding-top:0;line-height:28px}
+#qos-qs-sect .cbi-value-field{margin-left:.75em;min-width:0;line-height:28px}#qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}#qos-qs-sect .cbi-value-field input[type=checkbox]{margin:0;vertical-align:middle}
+#qos-app .cbi-section>.table,#qos-app .cbi-section>div>.table{margin-bottom:0}
+#qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field select{width:100%;max-width:16em;box-sizing:border-box}
 #qos-app details:not(.cbi-section){margin:.75em 0 0}#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}
 #qos-app details:not(.cbi-section)>p,#qos-app details:not(.cbi-section)>.table{margin:.5em 0 0}
 #qos-cn .cbi-section{margin-bottom:.6em;padding-bottom:.6em}#qos-cn .cbi-section>h3{margin-bottom:.6em;padding:.45em 1em}
