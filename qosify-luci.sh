@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.6.5-dev"
+VERSION="3.6.6-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -737,8 +737,6 @@ function confirmDialog(title,text,label,negative){
 return view.extend({
 	handleSaveApply:null,handleSave:null,handleReset:null,
 	currentTab:'ov',
-	// Service controls sit in LuCI's page footer, below every tab.
-	addFooter:function(){return this._footer||E([]);},
 	readonly:false,
 
 	load:function(){
@@ -794,7 +792,6 @@ return view.extend({
 			notify(_('You have read-only access to this page, so editing and service control are disabled.'),'warning');
 		}
 
-		this._footer=this.buildSvcActs(ctx);
 		this.installPollers();
 		return root;
 	},
@@ -817,7 +814,8 @@ return view.extend({
 		return E('div',{'id':'qos-ov'},[
 			E('div',{'class':'cbi-section','id':'qos-svc-sect'},this.buildSvcSect(ctx)),
 			E('div',{'class':'cbi-section','id':'qos-qs-sect'},this.buildQsSect(ctx)),
-			E('div',{'class':'cbi-section','id':'qos-cfg-sect'},this.buildCfgSect(ctx))
+			E('div',{'class':'cbi-section','id':'qos-cfg-sect'},this.buildCfgSect(ctx)),
+			this.buildSvcActs(ctx)
 		]);
 	},
 
@@ -837,11 +835,9 @@ return view.extend({
 		return acts;
 	},
 
-	// ctx.enabled/hasInit are only known after an Overview refresh, so the other
-	// tabs pass running alone and the cached values are reused.
 	svcButtons:function(ctx,root){
-		if(ctx.enabled!=null){this._auto=ctx.enabled;this._init=ctx.hasInit;}
-		var ro=this.readonly||!this._init,b,g=function(id){return root?root.querySelector('#'+id):$(id);};
+		this._auto=ctx.enabled;
+		var ro=this.readonly||!ctx.hasInit,b,g=function(id){return root?root.querySelector('#'+id):$(id);};
 		if((b=g('qos-btn-auto'))){
 			b.className='cbi-button '+(this._auto?'cbi-button-negative':'cbi-button-positive');
 			dom.content(b,this._auto?_('Disable Autostart'):_('Enable Autostart'));
@@ -1415,7 +1411,6 @@ return view.extend({
 			L.resolveDefault(callQosifyStats(),null)
 		]).then(function(d){
 			var ctx={running:isRunning(d[0]),stats:d[1]};
-			self.svcButtons(ctx);
 			self._cnStats=ctx.running?ctx.stats:null;
 			if(ctx.stats)self._cnDns=ctx.stats.dns!=null;
 			self.fillCounters(ctx);
@@ -2261,7 +2256,6 @@ return view.extend({
 		var ex=self.readonly?Promise.resolve(null):L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),null);
 		return L.resolveDefault(callServiceList('qosify'),{}).then(function(d){
 			var ctx={running:isRunning(d),qstatus:self.readonly?'':null};
-			self.svcButtons(ctx);
 			var stb=$('qos-st-body');
 			if(stb)self.fillStatus(stb,ctx);
 			return ex.then(function(r){
@@ -2319,12 +2313,14 @@ JSEOF
 #qos-app summary>h3{display:inline;margin:0;font-size:inherit;font-weight:inherit}
 #qos-app .cbi-section .cbi-page-actions{margin:.6em -1em -.75em;padding:.35em 1em;border-radius:0 0 6px 6px}
 #qos-app .label.danger{background-color:var(--error-color-high,#c9302c);color:var(--on-error-color,#fff)}
-#qos-ov .table .td,#qos-ov .table .th{padding-top:.35em;padding-bottom:.35em;vertical-align:middle}
-#qos-app .qs-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,28em),1fr));gap:1em}
-#qos-app .qs-box{min-width:0;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:.6em 1em .3em}
-#qos-app #qos-cfg-sect{padding:0;overflow:hidden}#qos-app #qos-cfg-sect>.table{margin:0;border:0}#qos-cfg-sect .th,#qos-cfg-sect .td{padding-left:1em;padding-right:1em}
-#qos-cfg-sect .tr.cbi-section-table-titles .th{border-top:0;padding-top:.45em;padding-bottom:.45em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));background:var(--background-color-low,rgba(128,128,128,.06))}
-#qos-qs-sect .cbi-value{margin-bottom:.55em;align-items:flex-start}#qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 11em;padding-top:0;line-height:28px}
+#qos-ov .table .td,#qos-ov .table .th{padding-top:.5em;padding-bottom:.5em;vertical-align:middle}
+#qos-ov .cbi-section{margin-bottom:1.25em;padding-bottom:.9em}#qos-ov .cbi-section>h3{margin-bottom:.9em;padding:.6em 1em}
+#qos-ov .cbi-section .cbi-page-actions{margin:.9em -1em -.9em;padding:.45em 1em}#qos-ov>.cbi-page-actions{margin-top:1.25em}
+#qos-app .qs-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,28em),1fr));gap:1.25em}
+#qos-app .qs-box{min-width:0;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:1em 1.25em .5em}
+#qos-app #qos-cfg-sect{padding:0;overflow:hidden}#qos-ov #qos-cfg-sect .td{padding-top:.6em;padding-bottom:.6em}#qos-app #qos-cfg-sect>.table{margin:0;border:0}#qos-cfg-sect .th,#qos-cfg-sect .td{padding-left:1em;padding-right:1em}
+#qos-cfg-sect .tr.cbi-section-table-titles .th{border-top:0;padding-top:.6em;padding-bottom:.6em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));background:var(--background-color-low,rgba(128,128,128,.06))}
+#qos-qs-sect .cbi-value{margin-bottom:.8em;align-items:flex-start}#qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 11em;padding-top:0;line-height:28px}
 #qos-qs-sect .cbi-value-field{margin-left:1em;min-width:0;line-height:28px}#qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}#qos-qs-sect .cbi-value-field input[type=checkbox]{margin:0;vertical-align:middle}
 #qos-app .cbi-section>.table,#qos-app .cbi-section>div>.table{margin-bottom:0}
 #qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field select{width:100%;max-width:none;box-sizing:border-box}

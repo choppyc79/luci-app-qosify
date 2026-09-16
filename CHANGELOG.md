@@ -2,6 +2,14 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.6.6-dev — 2026-09-16
+
+- Service control bar (Autostart, Start, Restart, Reload, Stop) moved from LuCI's page
+  footer to the bottom of the Overview tab, so it no longer shows under the other tabs;
+  Status and Counters ticks stop updating it
+- Overview spacing is roomier: more space between boxes, taller title bars and table rows,
+  wider gap between and inside the quick settings boxes
+
 ## v3.6.5-dev — 2026-09-16
 
 - Quick settings boxes lose their General Settings and Advanced Settings headers and fill
