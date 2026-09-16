@@ -5,9 +5,9 @@ LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / 
 
 qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Rules, Status, Counters, and Advanced — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles as LuCI's own forms render them, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-tabmenu` sub-tabs, `.cbi-section-table` grids, `.cbi-progressbar` bars and plain `pre`/`textarea` — plus a small style block inside the view, using the theme's own colour variables, that gives the tab bar an underline style and draws each section as a box with a title bar; there is no separate stylesheet. Option names on screen are the qosify UCI option and ubus field names.
+The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles as LuCI's own forms render them, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-tabmenu` sub-tabs, `.cbi-section-table` grids, `.cbi-progressbar` bars and plain `pre`/`textarea` — plus a small style block inside the view, using the theme's own colour variables, that draws each section as a box with a title bar and marks the active tab in bold with the theme's primary colour, leaving the tabs themselves to the theme so each sits on its own as on other LuCI pages; there is no separate stylesheet. Option names on screen are the qosify UCI option and ubus field names.
 
-Current version: **3.4.4-dev**
+Current version: **3.4.5-dev**
 
 ## Tabs
 

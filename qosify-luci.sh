@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.4.4-dev"
+VERSION="3.4.5-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -325,11 +325,7 @@ var MAP_ROWS=200;
 // Each section is a box, scoped to this page and drawn with the theme's own
 // variables; the DNS entries box resizes like the editors.
 var CSS=[
-	'#qos-app .cbi-tabmenu{display:flex;flex-wrap:wrap;gap:.25em;margin:0 0 1em;padding:0;border-bottom:1px solid var(--border-color-medium,rgba(128,128,128,.35))}',
-	'#qos-app .cbi-tabmenu>li{height:auto;max-width:none;margin:0;background:none;border:0;border-radius:0}',
-	'#qos-app .cbi-tabmenu>li>a{display:block;padding:.55em 1em;line-height:1.2;border-radius:0;border-bottom:2px solid transparent;margin-bottom:-1px;opacity:.75}',
-	'#qos-app .cbi-tabmenu>li>a:hover{opacity:1;border-bottom-color:var(--border-color-high,rgba(128,128,128,.6))}',
-	'#qos-app .cbi-tabmenu>li.cbi-tab>a{opacity:1;font-weight:600;color:var(--primary-color-high,#0069d6);border-bottom-color:var(--primary-color-high,#0069d6)}',
+	'#qos-app .cbi-tabmenu>li.cbi-tab>a{font-weight:600;color:var(--primary-color-high,inherit)}',
 	'#qos-app .cbi-section{border:1px solid var(--border-color-medium,rgba(128,128,128,.35));border-radius:6px;padding:0 1em .75em;margin:0 0 .9em;box-shadow:0 1px 2px rgba(0,0,0,.06)}',
 	'#qos-app .cbi-section>h3,#qos-app .cbi-section>summary{margin:0 -1em .75em;padding:.55em 1em;font-size:1.05em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));border-radius:6px 6px 0 0;background:var(--background-color-low,rgba(128,128,128,.06))}',
 	'#qos-app .cbi-section>summary{cursor:pointer;list-style:none}#qos-app .cbi-section>summary::-webkit-details-marker{display:none}',

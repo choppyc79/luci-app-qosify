@@ -2,6 +2,17 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.4.5-dev — 2026-09-15
+
+Tabs drawn by the theme again.
+
+- Removed the tab-bar overrides that flattened the main tabs (Overview, Config,
+  Rules, Status, Counters, Advanced) and the quick settings sub-tabs (General
+  Settings, Overhead, Advanced Settings) into an underlined strip. Each tab is back
+  to the active theme's own tab, as on other LuCI pages, so it no longer blends in
+  when the theme changes. The active tab keeps its bold, primary-coloured label on
+  top of the theme's own highlight
+
 ## v3.4.4-dev — 2026-09-15
 
 Counters headers above the rows in every box; editors fill the window.
