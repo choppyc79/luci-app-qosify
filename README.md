@@ -2,11 +2,11 @@
 
 LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / ImmortalWrt.
 
-qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Rules, Status, and Advanced — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
+qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Rules, Status, Counters, and Advanced — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-tabmenu` sub-tabs and `.cbi-section-table` grids — and `qosify.css` draws each section as a box with a title bar using the theme's own colour variables. Option names on screen are the qosify UCI option names.
+The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-tabmenu` sub-tabs, `.cbi-section-table` grids and `.cbi-progressbar` bars — and `qosify.css` draws each section as a box with a title bar using the theme's own colour variables. Option names on screen are the qosify UCI option names.
 
-Current version: **3.5.0-dev**
+Current version: **3.5.1-dev**
 
 ## Tabs
 
@@ -25,6 +25,15 @@ Editor for `/etc/qosify/00-defaults.conf`, laid out like the Config tab. The fol
 
 ### Status
 A per-interface summary from `ubus call qosify status` — active state, resolved device, ingress and egress — followed by the detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress. The tab fetches as soon as it is opened, the summary appears before the `tc` output it does not depend on, and the scroll position survives a refresh. Polled every 10 seconds, and only while the tab is open — a tick that would overlap a still-running `qosify-status` is skipped rather than queued.
+
+### Counters
+Always on the tab bar, and polled every 10 seconds while open, like the Overview and Status tabs. The two traffic views come from different places and are not expected to match: **Traffic by Class** is qosify's own classifier statistics, **Traffic by CAKE Tin** is CAKE's queue statistics as `qosify-status` prints them.
+
+**Traffic by Class** shows the per-class packet totals from `ubus call qosify get_stats` as a compact box with its header above the rows, as on DNS Entries: class, its `dscp`, a progress bar, then `packets`, `bytes` and share with grouped digits in right-aligned columns, and a total row. Bar length is the cube root of each row against the largest, so the biggest row fills the track and a row at 0.1% of it still shows at a tenth of the track, and a bulk download does not flatten everything else; the share column stays exact. Cells and bars are updated in place, so the bars ease to their new length and nothing below them moves. Each class is grouped and coloured by the CAKE tin its egress codepoint lands in, highest priority tin first and by codepoint within a tin, matching the tin bars: red bulk, blue best effort, yellow video and green voice, with the extra diffserv8 and precedence tins in their own colours. When the shaped sections do not share one mode, classes fall back to a colour per name. They are totals since qosify last reloaded, not rates, so nothing is lost while the tab is closed. **get_stats** lists `ebpf_map_entries`, `last_reload_time` and `dns_cache` where the running daemon reports them. The qosify OpenWrt 24.10 ships returns per-class packets only, and the tab shows just that.
+
+**Traffic by CAKE Tin** graphs the `qosify-status` output shown on the Status tab as one chart: egress and ingress are summed tin by tin from the `pkts` and `bytes` rows `tc` prints, highest priority tin first, in the tin colours above, in the same boxed layout with `tc`'s own `pkts`, `bytes` and `drops` columns, and `marks` on hover. Qdiscs running a different CAKE mode, whose tins do not line up, get a table of their own. These are CAKE's counters for each qdisc since it was created, so they count what CAKE queued after any re-marking and firewall marks, not the rule a packet matched. `qosify-status` is forked once per tick only while qosify runs, and a tick where it fails keeps the last chart; it needs write access, as on the Status tab.
+
+**DNS Entries** lists the `dns` entries from `ubus call qosify dump` with `hits`, `packets` and `bytes` from the `get_stats` `dns` table, under the field names qosify uses. Port and address entries are left out, because qosify keeps no per-entry counters for them. The section title carries the entry count, and the table sits in a box that can be dragged taller or shorter like the editors, with its header above the box rather than inside it, so no rows scroll under it; header and rows share fixed column widths, and the header is padded by the scrollbar width so they line up. The list is read on each tick after the counters; while its entries are unchanged only the figures are rewritten in place, so it does not redraw or move and a text selection holds.
 
 ### Advanced
 **Backup & Restore** is one table of both files with size, modification time, a Download button and a file picker; Upload & Apply replaces the chosen files (validated, 64 KB cap, binary rejected). **Defaults** resets both files back to qosify defaults after a confirmation.
@@ -78,7 +87,7 @@ The app registers every file it owns, including the stylesheet, in `/lib/upgrade
 
 ## Read-only access
 
-A session with only *read* access to the `luci-app-qosify` ACL group gets a read-only page: the editors, Quick Add forms and service controls are disabled rather than offered and failing with a permission error. Backup downloads stay available.
+A session with only *read* access to the `luci-app-qosify` ACL group gets a read-only page: the editors, Quick Add forms and service controls are disabled rather than offered and failing with a permission error. Backup downloads and the Counters tab stay available, apart from Traffic by CAKE Tin, which needs the `qosify-status` exec grant.
 
 ## Configuration
 

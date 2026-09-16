@@ -2,6 +2,22 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.5.1-dev — 2026-09-16
+
+Counters tab back, and a fix for the Overview tab failing to load.
+
+- Overview threw `TypeError: Cannot read properties of null (reading 'insertBefore')`
+  and the page did not render. `ui.tabs.initTabGroup()` inserts the tab menu before the
+  panes' parent in its own parent, and the quick settings sub-tab group was initialised
+  before it was wrapped, so it had none. It is now wrapped first, as on v3.4.7-dev
+- Counters tab restored from v3.4.7-dev, between Status and Advanced: Traffic by Class
+  from `ubus call qosify get_stats`, Traffic by CAKE Tin from `qosify-status`, the
+  `get_stats` daemon fields, and DNS Entries from `ubus call qosify dump`. The ACL read
+  group grants `qosify` `get_stats` and `dump` again, and `qosify.css` carries the
+  Counters rules. Polled every 10 seconds while the tab is open, like Overview and Status
+- The rest of v3.4.7-dev stays out (uptime and its `/proc` grants, the `check` helper,
+  rule key validation, the extra Quick Settings options, LuCI-interval polling)
+
 ## v3.5.0-dev — 2026-09-16
 
 Dev realigned on main v2.9.11. The only difference from main is the LuCI styling and
