@@ -2,6 +2,16 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.6.1-dev — 2026-09-16
+
+Quick settings in two boxes.
+
+- General and advanced settings are two boxes side by side, `interface wan general
+  settings` and `interface wan advanced settings`, stacking below 60em, with one slim
+  Save & Apply bar under both
+- The stylesheet link carries `?v=<VERSION>`, set by the installer, so an update is not
+  served from the browser cache
+
 ## v3.6.0-dev — 2026-09-16
 
 Overview layout.
