@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.5.2-dev"
+VERSION="3.5.3-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -799,9 +799,8 @@ return view.extend({
 	// Overview is six ubus calls and no forks, Status forks qosify-status, which runs
 	// tc twice per active interface, and Counters is three ubus calls (service.list,
 	// get_stats, dump) plus that same fork while qosify runs.
-	// Poll.step() holds the next tick until the promise this returns settles,
-	// and refreshStatus() and refreshCounters() drop an overlapping call, so a fork
-	// slower than the interval skips ticks instead of stacking up.
+	// Poll.step() holds the next tick until the promise this returns settles, so a
+	// fork slower than the interval skips ticks instead of stacking up.
 	installPollers:function(){
 		var self=this;
 		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();});
@@ -1395,8 +1394,7 @@ return view.extend({
 	// is unchanged, so the one-entry-per-port dump costs a compare, not a redraw.
 	refreshCounters:function(){
 		var self=this;
-		if(self.currentTab!=='cn'||self._cn)return Promise.resolve();
-		self._cn=true;
+		if(self.currentTab!=='cn')return Promise.resolve();
 		return Promise.all([
 			L.resolveDefault(callServiceList('qosify'),{}),
 			L.resolveDefault(callQosifyStats(),null)
@@ -1411,7 +1409,7 @@ return view.extend({
 			self.fillTins(r[1],r[2]);
 			self.fillMap(r[0],self._cnStats&&self._cnStats.dns,
 				self._cnDns==null?null:self._cnDns);
-		}).finally(function(){self._cn=false;});
+		});
 	},
 
 	tabCounters:function(){
@@ -2240,8 +2238,7 @@ return view.extend({
 
 	refreshStatus:function(){
 		var self=this;
-		if(self.currentTab!=='st'||self._st)return Promise.resolve();
-		self._st=true;
+		if(self.currentTab!=='st')return Promise.resolve();
 		var ex=self.readonly?Promise.resolve(null):L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),null);
 		return Promise.all([
 			L.resolveDefault(callServiceList('qosify'),{}),
@@ -2254,7 +2251,7 @@ return view.extend({
 				ctx.qstatus=self.readonly?'':((r&&r.stdout)||'');
 				if(stb)self.fillStatus(stb,ctx);
 			});
-		}).finally(function(){self._st=false;});
+		});
 	},
 
 	// which = 'cfg' | 'rules' | undefined: the editor for the file just written is

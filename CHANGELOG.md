@@ -2,6 +2,15 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.5.3-dev — 2026-09-16
+
+Polling left to LuCI.
+
+- `refreshStatus()` and `refreshCounters()` drop their own in-flight guards (`_st`,
+  `_cn`). `Poll.step()` already skips a poller whose last promise has not settled, so the
+  guards only duplicated it. Ticks still only run while their tab is open and not during
+  a save
+
 ## v3.5.2-dev — 2026-09-16
 
 Polling and Quick Settings `mode` default.
