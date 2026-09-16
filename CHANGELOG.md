@@ -2,6 +2,23 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.4.3-dev — 2026-09-15
+
+DNS Entries header outside the scroll box, no page status strip, bandwidth off the forms.
+
+- DNS Entries: the header is its own fixed-layout table above the scroll box, with
+  the same `colgroup` widths as the rows and padded by the scrollbar width, so the
+  box starts under the header and nothing scrolls beneath it. `MAP_TH`, `solidBg()`
+  and the sticky header go; long cells ellipsise, with the full dns pattern on hover
+- Removed the running / active interfaces / autostart strip under the page title
+  and `setHeader()`; that state stays in the Overview Service section. Status and
+  Counters drop the `qosify status` call they made only for the strip
+- `bandwidth` removed from the quick settings General Settings tab and from Quick
+  Add: config interface / config device. Saving no longer writes or deletes it; an
+  existing `bandwidth` still counts for the unlimited-direction warning
+- The Overview section is titled `<type> <name> quick settings`, e.g.
+  `interface wan quick settings`
+
 ## v3.4.2-dev — 2026-09-15
 
 Folding Quick Add sections, compact Counters, opaque DNS header, modern tab bar.

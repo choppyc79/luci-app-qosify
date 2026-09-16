@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.4.2-dev"
+VERSION="3.4.3-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -349,7 +349,10 @@ var CSS=[
 	'#qos-cn .cbi-progressbar{height:.75em;margin:0;min-width:5em;border-radius:3px}',
 	'#qos-cn .qn{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;width:1%}',
 	'#qos-cn .qt .td{font-weight:600;border-top:1px solid var(--border-color-medium,rgba(128,128,128,.35))}',
-	'#qos-cn-map-box{height:24rem;min-height:6rem;overflow:auto;resize:vertical;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px}'
+	'#qos-cn-map-head{background:var(--background-color-medium,rgba(128,128,128,.08));border-bottom:1px solid var(--border-color-medium,rgba(128,128,128,.35))}',
+	'#qos-cn-map-head .tr.table-titles{background:none}',
+	'#qos-cn-map-box{height:24rem;min-height:6rem;overflow-y:scroll;resize:vertical}',
+	'#qos-cn-map-head .th,#qos-cn-map-box .td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
 ].join('');
 // Option reference, from the qosify README (ubus config parameters) and the
 // qosify.init that maps each UCI option onto them.
@@ -369,7 +372,6 @@ var OPT_DESC={
 	egress:_('DSCP value for egress'),
 	name:_('netifd interface (config interface) or netdev (config device) to enable QoS on'),
 	disabled:_('Skip this section'),
-	bandwidth:_('Bandwidth for both directions, where bandwidth_up or bandwidth_down is not set'),
 	bandwidth_up:_('Uplink bandwidth (same format as tc)'),
 	bandwidth_down:_('Downlink bandwidth (same format as tc)'),
 	'if.ingress':_('Enable ingress shaping'),
@@ -391,8 +393,6 @@ var OPT_DESC={
 var QA_COLS=6;
 // Map Entries header, pinned inside its scroll box; .table is border-collapse,
 // so an inset shadow stands in for the border the sticky cell drops.
-var MAP_TH={'class':'th','style':'position:sticky;top:0;z-index:2;background-clip:padding-box;'+
-	'box-shadow:inset 0 -1px 0 var(--border-color-medium,rgba(128,128,128,.5))'};
 // Bar length is (row/largest row)^BAR_EXP: the largest row fills the track and a
 // 0.1% row still shows at a tenth of it, so a bulk download does not hide the rest.
 var BAR_EXP=1/3;
@@ -727,15 +727,6 @@ function sect(title,kids,attrs){
 	a['class']='cbi-section';
 	return E('div',a,[E('h3',{'id':a.id?a.id+'-title':null},title)].concat(kids));
 }
-// The first opaque background up the tree; a theme colour variable can be
-// translucent, which let the pinned DNS header show the rows scrolling under it.
-function solidBg(el){
-	for(;el&&el.nodeType===1;el=el.parentNode){
-		var m=(getComputedStyle(el).backgroundColor.match(/[\d.]+/g)||[]);
-		if(m.length>=3&&(m.length<4||+m[3]===1))return 'rgb('+m.slice(0,3).join(',')+')';
-	}
-	return 'Canvas';
-}
 // A section that folds, open state kept for the browser session.
 function fold(id,title,kids,open){
 	var k='qosify.fold.'+id,st=null,d;
@@ -798,8 +789,6 @@ return view.extend({
 		var root=E('div',{'class':'cbi-map','id':'qos-app'});
 		root.appendChild(E('style',{},CSS));
 		root.appendChild(E('h2',{},_('qosify')));
-		root.appendChild(this._hdrEl=E('div',{'class':'cbi-map-descr'}));
-		this.setHeader({running:ctx.running,shaped:ctx.shaped,enabled:ctx.enabled});
 
 		var names={ov:'overview',cf:'config',ru:'rules',st:'status',cn:'counters',ad:'advanced'};
 		var hash=(location.hash||'').slice(1),want='ov',k;
@@ -856,15 +845,7 @@ return view.extend({
 		poll.add(function(){if(self.currentTab!=='cn'||self._n)return;return self.refreshCounters();});
 	},
 
-	setHeader:function(p){
-		var h=this._hdr=Object.assign(this._hdr||{},p);
-		if(!this._hdrEl)return;
-		dom.content(this._hdrEl,[
-			h.running?badge('success',_('Running')):badge('',_('Not running')),' ',
-			!h.running?'':badge(h.shaped?'success':'warning',N_(h.shaped,'%d active interface','%d active interfaces').format(h.shaped)),' ',
-			h.enabled==null?'':badge(h.enabled?'success':'',h.enabled?_('Autostart enabled'):_('Autostart disabled'))
-		]);
-	},
+
 
 	tabOverview:function(ctx){
 		return E('div',{'id':'qos-ov'},[
@@ -931,7 +912,6 @@ return view.extend({
 			pane('qs-general',_('General Settings'),[
 				['disabled',chk('disabled',!enChecked)],
 				['name',txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan'))],
-				['bandwidth',txt('bandwidth',w.bandwidth,_('e.g. %s').format('100mbit'))],
 				['bandwidth_up',txt('bw_up',w.bandwidth_up,_('e.g. %s').format('100mbit'))],
 				['bandwidth_down',txt('bw_down',w.bandwidth_down,_('e.g. %s').format('100mbit'))],
 				['mode',sel('mode',w.mode,MODES,'diffserv4')],
@@ -957,7 +937,7 @@ return view.extend({
 		var wrap=E('div',{},grp);
 		ui.tabs.initTabGroup(grp.childNodes);
 		return [
-			E('h3',{},sn?sn.type+(sn.name?' '+sn.name:''):'interface wan'),
+			E('h3',{},_('%s quick settings').format(sn?sn.type+(sn.name?' '+sn.name:''):'interface wan')),
 			wrap,
 			E('div',{'class':'cbi-page-actions'},
 				E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveQuick();}},_('Save & Apply')))
@@ -1045,7 +1025,6 @@ return view.extend({
 		var n=this.svcNodes(ctx),k,el;
 		for(k in n)if((el=$('qos-svc-'+k)))dom.content(el,n[k]);
 		this.svcButtons(ctx);
-		this.setHeader({running:ctx.running,shaped:ctx.shaped,enabled:ctx.enabled});
 	},
 
 	renderCfgFiles:function(ctx){
@@ -1106,7 +1085,6 @@ return view.extend({
 		this.qaSelect(qadIf,'disabled',['0','1']);
 		this.qaInput(qadIf,'bandwidth_up','option','100mbit');
 		this.qaInput(qadIf,'bandwidth_down','option','100mbit');
-		this.qaInput(qadIf,'bandwidth','option','100mbit');
 		this.qaSelect(qadIf,'mode',MODES);
 		this.qaSelect(qadIf,'ingress',['0','1']);
 		this.qaSelect(qadIf,'egress',['0','1']);
@@ -1405,23 +1383,31 @@ return view.extend({
 	},
 
 	// qosify_map_dump() emits timeout for user entries only; no column without one.
+	// Header and rows are two fixed-layout tables sharing column widths: the
+	// header sits above the scroll box, so nothing scrolls under it, and is
+	// padded by the scrollbar width so the columns line up.
 	mapNodes:function(rows,hasDns){
-		var tcol=hasDns!==false,cells=this._mapCells=[];
-		var wcol=rows.some(function(r){return r.timeout!=null;});
-		var hdr=[E('th',MAP_TH,'dns'),E('th',MAP_TH,'dscp'),E('th',MAP_TH,'file / user')];
-		if(tcol)hdr.push(E('th',MAP_TH,'hits / packets / bytes'));
-		if(wcol)hdr.push(E('th',MAP_TH,'timeout'));
-		var tbl=E('table',{'class':'table'},E('tr',{'class':'tr table-titles'},hdr));
-		this._mapHead=hdr;
-		rows.slice(0,MAP_ROWS).forEach(function(r){
-			var src=[],c={t:tcol?E('td',{'class':'td qn'}):null,w:wcol?E('td',{'class':'td qn'}):null};
+		var cells=this._mapCells=[],tcol=hasDns!==false,wcol=rows.some(function(r){return r.timeout!=null;}),
+			cols=[['dns',34],['dscp',14],['file / user',12]];
+		if(tcol)cols.push(['hits / packets / bytes',28]);
+		if(wcol)cols.push(['timeout',12]);
+		var sum=cols.reduce(function(t,c){return t+c[1];},0);
+		function grid(kids){
+			return E('table',{'class':'table','style':'table-layout:fixed'},[E('colgroup',{},cols.map(function(c){
+				return E('col',{'style':'width:'+(c[1]*100/sum).toFixed(2)+'%'});}))].concat(kids));
+		}
+		var trs=rows.slice(0,MAP_ROWS).map(function(r){
+			var src=[],a=String(r.addr!=null?r.addr:'-'),c={t:tcol?E('td',{'class':'td qn'}):null,w:wcol?E('td',{'class':'td qn'}):null};
 			if(r.file)src.push('file');
 			if(r.user)src.push('user');
 			cells.push(c);
-			tbl.appendChild(E('tr',{'class':'tr'},[E('td',{'class':'td'},E('code',{},String(r.addr!=null?r.addr:'-'))),
-				E('td',{'class':'td'},r.dscp||'-'),E('td',{'class':'td'},src.join(', ')||'-'),c.t||'',c.w||'']));
+			return E('tr',{'class':'tr'},[E('td',{'class':'td','title':a},E('code',{},a)),
+				E('td',{'class':'td'},r.dscp||'-'),E('td',{'class':'td'},src.join(', ')||'-'),c.t||'',c.w||'']);
 		});
-		return E('div',{'id':'qos-cn-map-box'},tbl);
+		return E('div',{'class':'qbox'},[
+			E('div',{'id':'qos-cn-map-head'},grid(E('tr',{'class':'tr table-titles'},cols.map(function(c){return E('th',{'class':'th'},c[0]);})))),
+			E('div',{'id':'qos-cn-map-box'},grid(trs))
+		]);
 	},
 
 	mapValues:function(rows,dns){
@@ -1435,6 +1421,8 @@ return view.extend({
 		});
 		t=rows.length>MAP_ROWS?_('DNS Entries (%d of %d)').format(MAP_ROWS,rows.length):_('DNS Entries (%d)').format(rows.length);
 		if(lg&&lg.textContent!==t)lg.textContent=t;
+		var mb=$('qos-cn-map-box'),mh=$('qos-cn-map-head');
+		if(mb&&mh)mh.style.paddingRight=Math.max(0,mb.offsetWidth-mb.clientWidth)+'px';
 	},
 
 	// One service list and one get_stats, then dump alongside qosify-status: the
@@ -1449,11 +1437,9 @@ return view.extend({
 		self._cn=true;
 		return Promise.all([
 			L.resolveDefault(callServiceList('qosify'),{}),
-			L.resolveDefault(callQosifyStats(),null),
-			L.resolveDefault(callQosifyStatus(),{})
+			L.resolveDefault(callQosifyStats(),null)
 		]).then(function(d){
 			var ctx={running:isRunning(d[0]),stats:d[1]};
-			self.setHeader({running:ctx.running,shaped:statusCount(d[2])});
 			self._cnStats=ctx.running?ctx.stats:null;
 			if(ctx.stats)self._cnDns=ctx.stats.dns!=null;
 			self.fillCounters(ctx);
@@ -1699,9 +1685,7 @@ return view.extend({
 			t=t?t.scrollTop:0;
 			this._mapSig=sig;
 			dom.content(box,this.mapNodes(rows,hasDns));
-			var mb=$('qos-cn-map-box'),bg=solidBg(mb);
-			this._mapHead.forEach(function(h){h.style.backgroundColor=bg;h.style.backgroundImage='linear-gradient(var(--background-color-low,rgba(128,128,128,.06)),var(--background-color-low,rgba(128,128,128,.06)))';});
-			mb.scrollTop=t;
+			$('qos-cn-map-box').scrollTop=t;
 		}
 		this.mapValues(rows,dns);
 	},
@@ -1773,7 +1757,7 @@ return view.extend({
 		var get=function(id){var e=$('q-'+id);return e?e.value:'';};
 		var chk=function(id){var e=$('q-'+id);return e&&e.checked;};
 		var bw=function(s){return trim(s).replace(/\s+/g,'');};
-		var bwUp=bw(get('bw_up')),bwDn=bw(get('bw_down')),bwAll=bw(get('bandwidth'));
+		var bwUp=bw(get('bw_up')),bwDn=bw(get('bw_down')),sx=ifSect(),bwAll=sx?(uci.get('qosify',sx.id,'bandwidth')||''):'';
 		var encap=get('overhead_encap'),mpu=trim(get('overhead_mpu')),vlan=get('overhead_vlan');
 		var rate=/^(unlimited|\d+(\.\d+)?((k|m|g|t)?(bit|bps)|(ki|mi|gi)(bit|bps))?)$/i;
 		var ovh=get('overhead'),mode=get('mode'),ovhB=trim(get('overhead_b'));
@@ -1785,7 +1769,6 @@ return view.extend({
 		}
 		if(bwUp&&!rate.test(bwUp))notify(_('bandwidth_up does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
 		if(bwDn&&!rate.test(bwDn))notify(_('bandwidth_down does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
-		if(bwAll&&!rate.test(bwAll))notify(_('bandwidth does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
 		if(mpu&&!/^\d+$/.test(mpu)){notify(_('Error: overhead_mpu must be a whole number of bytes'),'danger');return;}
 		if(ovh==='manual'&&ovhB&&!/^\d+$/.test(ovhB)){notify(_('Error: overhead must be a whole number of bytes'),'danger');return;}
 		var en=!chk('disabled');
@@ -1795,7 +1778,6 @@ return view.extend({
 		// null = remove the option, so clearing a field actually clears it
 		var kv={
 			disabled:en?'0':'1',
-			bandwidth:bwAll||null,
 			bandwidth_up:bwUp||null,
 			bandwidth_down:bwDn||null,
 			overhead_type:ovh||null,
@@ -2304,11 +2286,9 @@ return view.extend({
 		self._st=true;
 		return Promise.all([
 			L.resolveDefault(callServiceList('qosify'),{}),
-			L.resolveDefault(callQosifyStatus(),{}),
 			self.readonly?null:L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),null)
 		]).then(function(d){
-			var ctx={running:isRunning(d[0]),qstatus:self.readonly?'':((d[2]&&d[2].stdout)||'')},stb=$('qos-st-body');
-			self.setHeader({running:ctx.running,shaped:statusCount(d[1])});
+			var ctx={running:isRunning(d[0]),qstatus:self.readonly?'':((d[1]&&d[1].stdout)||'')},stb=$('qos-st-body');
 			if(stb)self.fillStatus(stb,ctx);
 		}).finally(function(){self._st=false;});
 	},
