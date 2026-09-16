@@ -57,6 +57,7 @@ define Package/luci-app-qosify/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/share/qosify-luci/qosify $(1)/usr/share/qosify-luci/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/share/qosify-luci/00-defaults.conf $(1)/usr/share/qosify-luci/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/share/qosify-luci/cleanup $(1)/usr/share/qosify-luci/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/share/qosify-luci/check $(1)/usr/share/qosify-luci/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/www/luci-static/resources/view/qosify/main.js $(1)/www/luci-static/resources/view/qosify/
 endef
 

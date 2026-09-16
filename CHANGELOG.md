@@ -2,6 +2,32 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.4.6-dev — 2026-09-16
+
+Config is parsed by uci before it is written; a broken file no longer blocks saves.
+
+- Fixed `Save failed: RPCError: RPC call to uci/revert failed with ubus code 9`.
+  rpcd's `uci revert` loads the package first, so once `/etc/config/qosify` held
+  text libuci cannot parse, every save failed at the revert before writing and the
+  file could not be repaired from the page. The revert now runs after the write
+- New `/usr/share/qosify-luci/check` helper (write ACL, `exec`) runs `uci show` on
+  the candidate text from a temp dir, by absolute path so no deltas apply. Quick
+  Settings, the Config editor, Clear, Upload and Reset all go through one
+  `writeUci()`: nothing is written unless libuci loads it, and the error shows
+  uci's own reason, line and byte
+- The page load and every refresh after an action check the file on disk; a file
+  uci cannot load is reported with uci's message and the Overview badge shows it
+  as invalid. Saving rules warns when the config does not load, since
+  `qosify.init` reads nothing from it on the reload
+- Quick Add: config refused a section name already used by any other type. uci
+  section names share one name space, and a `config alias video` next to
+  `config class video` is a parse error in strict mode (the likely source of the
+  broken file)
+- Rules: warns about matches `qosify_map_parse_line()` drops without a word — a
+  `tcp:`/`udp:` port or range `qosify_map_set_port()` rejects, an IPv4 or IPv6
+  address `inet_pton()` rejects, or a key with no `tcp:`/`udp:`/`dns` prefix and
+  neither `:` nor `.`. Non-blocking, as qosify itself skips the line
+
 ## v3.4.5-dev — 2026-09-15
 
 Tabs drawn by the theme again.

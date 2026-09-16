@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.4.5-dev"
+VERSION="3.4.6-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -219,7 +219,27 @@ config_foreach clear_device device
 
 exit 0
 EOF
-	chmod +x "$TPL_DIR/cleanup"
+	cat > "$TPL_DIR/check" << 'EOF'
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Parse qosify UCI text with libuci, the parser rpcd and qosify.init use. A file
+# uci cannot load makes rpcd's uci revert and load fail ("Unspecified error"),
+# so it is refused before it reaches /etc/config/qosify.
+#
+# $1 is the text to check; without it the file on disk is checked. An absolute
+# path loads without deltas; the temp dir has no dot, as uci splits on '.'.
+# A missing file is left to the caller.
+
+[ $# -gt 0 ] || { [ -f /etc/config/qosify ] || exit 0; exec uci show /etc/config/qosify >/dev/null; }
+d=$(mktemp -d /tmp/qosify-luci-XXXXXX) || exit 1
+printf '%s' "$1" >"$d/qosify"
+uci show "$d/qosify" >/dev/null
+r=$?
+rm -rf "$d"
+exit $r
+EOF
+	chmod +x "$TPL_DIR/cleanup" "$TPL_DIR/check"
 }
 
 install_defaults() {
@@ -293,7 +313,8 @@ install_acl() {
 				"/etc/config/qosify": [ "write" ],
 				"/etc/qosify/00-defaults.conf": [ "write" ],
 				"/usr/sbin/qosify-status": [ "exec" ],
-				"/usr/share/qosify-luci/cleanup": [ "exec" ]
+				"/usr/share/qosify-luci/cleanup": [ "exec" ],
+				"/usr/share/qosify-luci/check": [ "exec" ]
 			}
 		}
 	}
@@ -472,6 +493,22 @@ var callUciRevert=rpc.declare({
 	params:['config'],
 	reject:true
 });
+// libuci's verdict on qosify UCI text (null checks the file on disk): null when
+// it loads, else uci's message. No helper or no exec grant also gives null.
+function uciCheck(d){
+	return L.resolveDefault(fs.exec('/usr/share/qosify-luci/check',d==null?[]:[d]),null).then(function(r){
+		return (r&&r.code)?(String(r.stderr||'').replace(/^uci: |\s+$/g,'')||_('parse error')):null;
+	});
+}
+// Check, write, then drop staged uci changes. Revert runs after the write: rpcd
+// parses the file to revert it, so before the write a file uci cannot load
+// blocks the very save that repairs it (uci/revert ubus code 9).
+function writeUci(d){
+	return uciCheck(d).then(function(e){
+		if(e)throw new Error(_('%s not written, uci cannot load it: %s').format(UCI_PATH,e));
+		return fs.write(UCI_PATH,d);
+	}).then(function(){return callUciRevert('qosify');});
+}
 function isRunning(r){
 	try{var i=r.qosify.instances;for(var k in i)if(i[k].running)return true;}catch(e){}
 	return false;
@@ -671,14 +708,26 @@ function dscpNum(v){
 	if(/^(0|[1-9]\d*)$/.test(v))return parseInt(v,10);
 	return null;
 }
+// Match keys qosify_map_parse_line() drops without a word: a port that fails
+// qosify_map_set_port(), an address inet_pton() rejects (musl: no leading zeros),
+// or a key with no tcp:/udp:/dns prefix and neither ':' nor '.'.
+var IP4=/^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+function ruleKeyOk(k){
+	var m=/^(tcp|udp):(.*)$/.exec(k),p,a,b;
+	if(m){p=m[2].split('-');a=dscpNum(p[0]);b=p.length>1?dscpNum(p[1]):a;return p.length<3&&a!==null&&b!==null&&a>0&&b>=a&&b<65535;}
+	if(/^dns(_q|_c)?:/.test(k))return true;
+	if(k.indexOf(':')>=0){try{new URL('http://['+k+']');return true;}catch(e){return false;}}
+	return IP4.test(k);
+}
 function ruleWarn(txt,names){
-	var w=[],bad=[],bare=[],lines=(txt||'').split('\n');
+	var w=[],bad=[],bare=[],drop=[],lines=(txt||'').split('\n');
 	for(var i=0;i<lines.length;i++){
 		var l=lines[i],h=l.indexOf('#');
 		if(h>=0)l=l.slice(0,h);
 		l=trim(l);if(!l)continue;
 		var f=l.split(/\s+/);
 		if(f.length<2){if(bare.length<5)bare.push(String(i+1));continue;}
+		if(!ruleKeyOk(f[0])&&drop.length<5)drop.push(String(i+1));
 		var v=f[1].replace(/^\+/,'');
 		if(names.indexOf(v)>=0||DSCP.indexOf(v)>=0)continue;
 		var n=dscpNum(v);
@@ -687,6 +736,7 @@ function ruleWarn(txt,names){
 	}
 	if(bare.length)w.push(_('No DSCP target on line %s — qosify skips single-field lines').format(bare.join(', ')));
 	if(bad.length)w.push(_('Unknown class/DSCP target: %s').format(bad.slice(0,5).join(', ')));
+	if(drop.length)w.push(_('qosify drops the match on line %s — not a valid tcp:/udp: port or range, dns entry or IP address').format(drop.join(', ')));
 	return w;
 }
 
@@ -793,7 +843,8 @@ return view.extend({
 
 		this.readonly=!L.hasViewPermission();
 
-		if(d[0]===null)notify(_('The qosify UCI configuration could not be loaded — class and interface lists may be incomplete.'),'warning');
+		if(ctx.cfgErr)notify(_('%s cannot be loaded by uci: %s — fix it in the Config editor or use Reset.').format(UCI_PATH,ctx.cfgErr),'danger');
+		else if(d[0]===null)notify(_('The qosify UCI configuration could not be loaded — class and interface lists may be incomplete.'),'warning');
 
 		var root=E('div',{'class':'cbi-map','id':'qos-app'});
 		root.appendChild(E('style',{},CSS));
@@ -1806,13 +1857,11 @@ return view.extend({
 
 		self.lock();
 		ui.showModal(_('Saving'),[E('p',{},_('Saving settings and applying...'))]);
-		return callUciRevert('qosify').then(function(){
-			return Promise.all([fs.read(UCI_PATH),L.resolveDefault(fs.stat(UCI_PATH),null)]);
-		}).then(function(r){
+		return Promise.all([fs.read(UCI_PATH),L.resolveDefault(fs.stat(UCI_PATH),null)]).then(function(r){
 			var txt=r[0]||'',st=r[1];
 			if(!trim(txt)&&st&&st.size>0)
 				throw new Error(_('%s came back empty although it is %d bytes on disk — refusing to overwrite it').format(UCI_PATH,st.size));
-			return fs.write(UCI_PATH,setOpts(txt,sty,sec,sidx,kv));
+			return writeUci(setOpts(txt,sty,sec,sidx,kv));
 		}).then(function(){
 			uci.unload('qosify');
 			return uci.load('qosify');
@@ -1875,9 +1924,7 @@ return view.extend({
 				if(!go)return null;
 				var stopped=false;
 				self.lock();
-				return callUciRevert('qosify').then(function(){
-					return fs.write(UCI_PATH,'');
-				}).then(function(){
+				return writeUci('').then(function(){
 					return callRcInit('qosify','stop');
 				}).then(function(){
 					return self.waitForStopped(4000);
@@ -1906,9 +1953,7 @@ return view.extend({
 		var self=this;
 		self.lock();
 		ui.showModal(_('Saving'),[E('p',{},_('Writing config and reloading qosify...'))]);
-		return callUciRevert('qosify').then(function(){
-			return fs.write(UCI_PATH,data);
-		}).then(function(){
+		return writeUci(data).then(function(){
 			uci.unload('qosify');
 			return uci.load('qosify');
 		}).then(function(){
@@ -1971,6 +2016,9 @@ return view.extend({
 			ui.hideModal();
 			notify(msg.text,msg.kind);
 			rwarn.forEach(function(t){notify(t,'warning');});
+			return uciCheck();
+		}).then(function(e){
+			if(e)notify(_('%s cannot be loaded by uci, so qosify.init reads none of it: %s').format(UCI_PATH,e),'danger');
 			return self.refreshAll('rules');
 		}).catch(function(e){
 			ui.hideModal();
@@ -2031,13 +2079,11 @@ return view.extend({
 		if(f1)p=p.then(function(){return readFile(f1).then(function(d){
 			var e=validateUci(d);
 			if(e){errs.push(_('Config: %s').format(e));return null;}
-			return callUciRevert('qosify').then(function(){
-				return fs.write(UCI_PATH,d);
-			}).then(function(){
+			return writeUci(d).then(function(){
 				names.push(UCI_PATH);
 				uci.unload('qosify');
 				return uci.load('qosify');
-			});
+			},function(e){errs.push(_('Config: %s').format(e.message||e));});
 		},function(e){errs.push(_('Config: %s').format(e));});});
 		if(f2)p=p.then(function(){return readFile(f2).then(function(d){
 			var e=validateRules(d);
@@ -2085,13 +2131,11 @@ return view.extend({
 		var self=this;
 		self.lock();
 		ui.showModal(_('Resetting'),[E('p',{},_('Restoring defaults...'))]);
-		return callUciRevert('qosify').then(function(){
-			return Promise.all([
-				fs.read('/usr/share/qosify-luci/qosify'),
-				fs.read('/usr/share/qosify-luci/00-defaults.conf')
-			]);
-		}).then(function(t){
-			return fs.write(UCI_PATH,t[0]).catch(function(e){
+		return Promise.all([
+			fs.read('/usr/share/qosify-luci/qosify'),
+			fs.read('/usr/share/qosify-luci/00-defaults.conf')
+		]).then(function(t){
+			return writeUci(t[0]).catch(function(e){
 				throw new Error(_('%s was not written: %s').format(UCI_PATH,e));
 			}).then(function(){
 				return fs.write(RULES_PATH,t[1]).catch(function(e){
@@ -2177,7 +2221,9 @@ return view.extend({
 			if(!/^[a-zA-Z0-9_]+$/.test(nm)){notify(_('A section name may only contain letters, digits and underscores.'),'danger');return;}
 		}
 		if(ty==='defaults'&&secs.some(function(x){return x.type==='defaults';})){notify(_('A config defaults section already exists.'),'danger');return;}
-		if(nm&&secs.some(function(x){return x.type===ty&&x.name===nm;})){notify(_('Section %s already exists.').format(nm),'danger');return;}
+		// One name space for all types: uci refuses a file where a name is reused
+		// with a different type, and merges a same-type one into the first.
+		if(nm&&secs.some(function(x){return x.name===nm;})){notify(_('Section %s already exists.').format(nm),'danger');return;}
 		var s='config '+ty+(nm?" '"+nm+"'":'');
 		var div=$('qac-opts-'+p);
 		var els=div.querySelectorAll('[data-opt]');
@@ -2209,7 +2255,8 @@ return view.extend({
 			L.resolveDefault(fs.stat(UCI_PATH),null),
 			L.resolveDefault(fs.stat(RULES_PATH),null),
 			withFiles?fs.read(UCI_PATH).catch(function(){return null;}):null,
-			withFiles?fs.read(RULES_PATH).catch(function(){return null;}):null
+			withFiles?fs.read(RULES_PATH).catch(function(){return null;}):null,
+			withFiles?uciCheck():null
 		]).then(function(d){
 			var rc=d[1]&&d[1].qosify;
 			var ctx={
@@ -2227,11 +2274,12 @@ return view.extend({
 			};
 			if(withFiles){
 				self._rulesN=countRules(ctx.rulesText);
+				self._cfgErr=ctx.cfgErr=d[7];
 				self._cfgOk=(ctx.cfgRaw||'').length>10&&/(^|\n)config /.test(ctx.cfgRaw||'');
 				if(ctx.cfgRaw===null)notify(_('%s could not be read — the editor is left empty and will not be saved over it.').format(UCI_PATH),'danger');
 			}
 			ctx.rulesN=self._rulesN;
-			ctx.cfgOk=self._cfgOk;
+			ctx.cfgOk=self._cfgOk&&!self._cfgErr;
 			return self.uptime(d[0]).then(function(u){ctx.uptime=u;return ctx;});
 		});
 	},
@@ -2298,7 +2346,10 @@ return view.extend({
 	// reloaded, the other one keeps whatever the user has typed.
 	refreshAll:function(which){
 		var self=this;
-		return self.refreshOverviewFull().then(function(){
+		return uciCheck().then(function(e){
+			self._cfgErr=e;
+			return self.refreshOverviewFull();
+		}).then(function(){
 			self.refreshClasses();
 			return Promise.all([
 				self.reloadEditor('qos-config-ta',UCI_PATH,which==='cfg'),
@@ -2346,6 +2397,7 @@ install_keepd() {
 /usr/share/qosify-luci/qosify
 /usr/share/qosify-luci/00-defaults.conf
 /usr/share/qosify-luci/cleanup
+/usr/share/qosify-luci/check
 /www/luci-static/resources/view/qosify/main.js
 EOF
 }
