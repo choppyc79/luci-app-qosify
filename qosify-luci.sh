@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.4.6-dev"
+VERSION="3.4.7-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -370,7 +370,15 @@ var CSS=[
 	'#qos-cn .qhead .tr.table-titles{background:none}',
 	'#qos-cn-map-box{height:24rem;min-height:6rem;overflow-y:scroll;resize:vertical}',
 	'#qos-cn .qhead .th,#qos-cn .qbox .td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-	'#qos-config-ta,#qos-rules-ta{height:calc(100vh - 240px);min-height:320px;resize:vertical}'
+	'#qos-config-ta,#qos-rules-ta{height:calc(100vh - 240px);min-height:320px;resize:vertical}',
+	'#qos-app .qa{margin:0 0 .9em}#qos-app .qa>details.cbi-section{margin:0 0 .3em;padding:0 .6em;border-radius:4px;box-shadow:none}',
+	'#qos-app .qa>details.cbi-section>summary{margin:0 -.6em;padding:.3em .6em;font-size:.95em;line-height:1.5;border-radius:4px 4px 0 0}#qos-app .qa summary>h3{line-height:inherit}',
+	'#qos-app .qa>details[open]{padding-bottom:.5em}#qos-app .qa>details[open]>summary{margin-bottom:.4em}#qos-app .qa>details:not([open])>summary{border-radius:4px}',
+	'#qos-app .qa .table{table-layout:fixed;margin:0 0 .3em}#qos-app .qa .th,#qos-app .qa .td{padding:.15em .3em;vertical-align:middle}',
+	'#qos-app .qa .th{font-size:.85em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+	'#qos-app .qa .td input:not([type=checkbox]),#qos-app .qa .td select{width:100%;min-width:0;box-sizing:border-box}#qos-app .qa .td input[type=checkbox]{margin:0;vertical-align:middle}',
+	'#qos-app .qa-foot{display:flex;align-items:flex-start;gap:.3em 1em}#qos-app .qa-foot>details{flex:1 1 0;min-width:0;margin:.15em 0 0}',
+	'#qos-app .qa details:not(.cbi-section)>summary{font-size:.9em}#qos-app .qa details:not(.cbi-section)>p,#qos-app .qa details:not(.cbi-section)>.table{margin:.3em 0 0}'
 ].join('');
 // Option reference, from the qosify README (ubus config parameters) and the
 // qosify.init that maps each UCI option onto them.
@@ -408,7 +416,7 @@ var OPT_DESC={
 	options:_('CAKE options for ingress + egress')
 };
 // Quick Add grids hold at most this many options per table.
-var QA_COLS=6;
+var QA_COLS=7;
 // Map Entries header, pinned inside its scroll box; .table is border-collapse,
 // so an inset shadow stands in for the border the sticky cell drops.
 // Bar length is (row/largest row)^BAR_EXP: the largest row fills the track and a
@@ -1111,7 +1119,8 @@ return view.extend({
 				[E('option',{'value':a},'config '+a),E('option',{'value':b},'config '+b)])],
 				[_('section name'),E('input',{'type':'text','class':'cbi-input-text','id':'qac-'+p.id.slice(9)+'-name','placeholder':_('section name')})]];
 		}
-		function add(p){return E('div',{'class':'right'},E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd(p);}},_('Add')));}
+		function add(p){return E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qacAdd(p);}},_('Add'));}
+		var qa=E('div',{'class':'qa'});
 
 		// config defaults — add_defaults() in qosify.init
 		var qadDef=E('div',{'id':'qac-opts-defaults'});
@@ -1168,14 +1177,15 @@ return view.extend({
 		].forEach(function(p){
 			var opts=p[0].qaCells.filter(function(c){return c[1].hasAttribute('data-opt');});
 			self.qaGrid(p[0],p[0].qaCells);
-			section.appendChild(fold('qos-qa-'+p[1],_('Quick Add: %s').format(p[2]),[p[0],add(p[1]),
-				refBox(_('Options'),p[3],opts.map(function(c){return [c[0],OPT_DESC[p[4]+c[0]]||OPT_DESC[c[0]]||''];}))],false));
+			qa.appendChild(fold('qos-qa-'+p[1],_('Quick Add: %s').format(p[2]),[p[0],E('div',{'class':'qa-foot'},[
+				refBox(_('Options'),p[3],opts.map(function(c){return [c[0],OPT_DESC[p[4]+c[0]]||OPT_DESC[c[0]]||''];})),add(p[1])])],false));
 		});
-		section.appendChild(fold('qos-qa-ref',_('Reference'),[
+		qa.appendChild(fold('qos-qa-ref',_('Reference'),[
 			this.classRef('qos-cls-cfg'),
 			refBox(_('DSCP values'),_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF. A raw value from 0 to 63 is accepted too, and any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero.'),[]),
 			refBox(_('Defaults'),_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).'),[])
 		],false));
+		section.appendChild(qa);
 		section.appendChild(this.editorSect('qos-config-ta',UCI_PATH,ctx.cfgRaw,ctx.cfgStat,function(){return self.clearCfg();},function(){return self.saveConfig();}));
 		return section;
 	},
@@ -1191,8 +1201,9 @@ return view.extend({
 		var n=Math.ceil(cells.length/QA_COLS),cols=Math.ceil(cells.length/n),w='width:'+(100/cols).toFixed(2)+'%',i,c;
 		for(i=0;i<cells.length;i+=cols){
 			c=cells.slice(i,i+cols);
+			while(c.length<cols)c.push(['','']);
 			parent.appendChild(E('table',{'class':'table cbi-section-table'},[
-				E('tr',{'class':'tr cbi-section-table-titles'},c.map(function(x){return E('th',{'class':'th','style':w},x[0]);})),
+				E('tr',{'class':'tr cbi-section-table-titles'},c.map(function(x){return E('th',{'class':'th','style':w,'title':x[0]},x[0]);})),
 				E('tr',{'class':'tr cbi-section-table-row'},c.map(function(x){return E('td',{'class':'td','style':w,'data-title':x[0]},x[1]);}))
 			]));
 		}
@@ -1292,15 +1303,13 @@ return view.extend({
 			qarType.appendChild(E('option',{'value':o[0]},o[1]));
 		});
 		var qarCls=E('select',{'class':'cbi-input-select','id':'qar-cls'},this.getClasses().map(function(c){return E('option',{'value':c.name},clsOpt(c));}));
-		section.appendChild(fold('qos-qa-rule',_('Quick Add'),[
-			this.qaGrid(E('div'),[
-				['match',qarType],
-				['',E('input',{'type':'text','class':'cbi-input-text','id':'qar-val','placeholder':_('e.g. %s').format('4500')})],
-				['dscp',qarCls],
-				['+',E('input',{'type':'checkbox','class':'cbi-input-checkbox','id':'qar-prio'})]
-			]),
-			E('div',{'class':'right'},E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},_('Add'))),
-			refBox(_('Mapping file syntax'),_('Each line has two whitespace separated fields, match and dscp. dscp can be a raw value, a codepoint like CS0, or a class name. DNS entries are compared in the order in which they are specified, using the first matching entry.'),[
+		var qr=[['match',5,qarType],['',8,E('input',{'type':'text','class':'cbi-input-text','id':'qar-val','placeholder':_('e.g. %s').format('4500')})],
+			['dscp',6,qarCls],['+',1,E('input',{'type':'checkbox','class':'cbi-input-checkbox','id':'qar-prio'})],
+			['',2,E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},_('Add'))]];
+		section.appendChild(E('div',{'class':'qa'},fold('qos-qa-rule',_('Quick Add'),[
+			colTable(qr,[E('tr',{'class':'tr cbi-section-table-titles'},qr.map(function(c){return E('th',{'class':'th','title':c[0]},c[0]);})),
+				E('tr',{'class':'tr cbi-section-table-row'},qr.map(function(c){return E('td',{'class':'td','data-title':c[0]},c[2]);}))]),
+			E('div',{'class':'qa-foot'},[refBox(_('Mapping file syntax'),_('Each line has two whitespace separated fields, match and dscp. dscp can be a raw value, a codepoint like CS0, or a class name. DNS entries are compared in the order in which they are specified, using the first matching entry.'),[
 				['tcp:<port>[-<endport>]',_('TCP single port, or range from <port> to <endport>')],
 				['udp:<port>[-<endport>]',_('UDP single port, or range from <port> to <endport>')],
 				['<ipaddr>',_('IPv4 address, e.g. 1.1.1.1')],
@@ -1310,8 +1319,8 @@ return view.extend({
 				['dns_c:...',_('Like dns:... but only matches cname entries')],
 				['+<dscp>',_('Only override the DSCP value if it is zero')]
 			]),
-			this.classRef('qos-cls-ru')
-		],false));
+			this.classRef('qos-cls-ru')])
+		],false)));
 		section.appendChild(this.editorSect('qos-rules-ta',RULES_PATH,ctx.rulesText,ctx.rulesStat,function(){return self.clearRules();},function(){return self.saveRules();}));
 		return section;
 	},

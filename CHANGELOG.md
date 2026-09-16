@@ -2,6 +2,24 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.4.7-dev — 2026-09-16
+
+Slimmer, tidier Quick Add on Config and Rules.
+
+- Quick Add folds sit in one tight stack as slim bars: a closed bar is about half
+  the height (the theme's 36px `h3` line-height no longer applies inside the
+  summary), with less padding and spacing. Scoped to a new `.qa` wrapper, so the
+  other boxes keep their look
+- Open panels use compact grids: tighter cell padding, smaller option headers
+  that ellipsise with the full option name on hover, and inputs filling their
+  column. `QA_COLS` goes from 6 to 7, so config interface / config device takes
+  three rows instead of four, and a short last row is padded so its columns line
+  up with the rows above. The interface panel is under half its previous height
+- Config: Options reference and Add share one footer line
+- Rules: Quick Add is a single row, `match`, value, `dscp`, `+` and Add, with
+  weighted column widths; Mapping file syntax and Classes sit side by side
+  beneath it
+
 ## v3.4.6-dev — 2026-09-16
 
 Config is parsed by uci before it is written; a broken file no longer blocks saves.
