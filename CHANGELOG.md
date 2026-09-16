@@ -2,6 +2,18 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.4.4-dev — 2026-09-15
+
+Counters headers above the rows in every box; editors fill the window.
+
+- Traffic by Class and Traffic by CAKE Tin use the DNS Entries layout: a header
+  table above the rows, both fixed-layout with shared column weights, via new
+  `colHead()`/`colTable()` helpers that `mapNodes()` now uses too. The `.qhead`
+  style replaces the DNS-only `#qos-cn-map-head` rules; cells ellipsise, with the
+  class or tin name on hover
+- Config and Rules editors default to the window height (`calc(100vh - 240px)`,
+  320px minimum) and stay draggable; `rows` remains the fallback
+
 ## v3.4.3-dev — 2026-09-15
 
 DNS Entries header outside the scroll box, no page status strip, bandwidth off the forms.

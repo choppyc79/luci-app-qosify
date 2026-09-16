@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.4.3-dev"
+VERSION="3.4.4-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -346,13 +346,14 @@ var CSS=[
 	'#qos-cn .table{margin:0}#qos-cn .table .th,#qos-cn .table .td{padding:.35em .6em;vertical-align:middle}',
 	'#qos-cn .table .tr.table-titles .th{font-weight:600;font-size:.9em;white-space:nowrap}',
 	'#qos-cn .qbox .table .tr:not(.table-titles):hover .td{background:var(--background-color-low,rgba(128,128,128,.06))}',
-	'#qos-cn .cbi-progressbar{height:.75em;margin:0;min-width:5em;border-radius:3px}',
+	'#qos-cn .cbi-progressbar{height:.75em;margin:0;min-width:0;border-radius:3px}',
 	'#qos-cn .qn{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;width:1%}',
 	'#qos-cn .qt .td{font-weight:600;border-top:1px solid var(--border-color-medium,rgba(128,128,128,.35))}',
-	'#qos-cn-map-head{background:var(--background-color-medium,rgba(128,128,128,.08));border-bottom:1px solid var(--border-color-medium,rgba(128,128,128,.35))}',
-	'#qos-cn-map-head .tr.table-titles{background:none}',
+	'#qos-cn .qhead{background:var(--background-color-medium,rgba(128,128,128,.08));border-bottom:1px solid var(--border-color-medium,rgba(128,128,128,.35))}',
+	'#qos-cn .qhead .tr.table-titles{background:none}',
 	'#qos-cn-map-box{height:24rem;min-height:6rem;overflow-y:scroll;resize:vertical}',
-	'#qos-cn-map-head .th,#qos-cn-map-box .td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+	'#qos-cn .qhead .th,#qos-cn .qbox .td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+	'#qos-config-ta,#qos-rules-ta{height:calc(100vh - 240px);min-height:320px;resize:vertical}'
 ].join('');
 // Option reference, from the qosify README (ubus config parameters) and the
 // qosify.init that maps each UCI option onto them.
@@ -734,6 +735,18 @@ function fold(id,title,kids,open){
 	d=E('details',{'class':'cbi-section','id':id,'open':(st==null?open:st==='1')?'':null},[E('summary',{},E('h3',{},title))].concat(kids));
 	d.addEventListener('toggle',function(){try{sessionStorage.setItem(k,d.open?'1':'0');}catch(e){}});
 	return d;
+}
+// Counters tables: a header table above the rows, both fixed-layout with the same
+// column weights, so every box has its header outside the rows. cols: [title,
+// weight, numeric].
+function colTable(cols,kids){
+	var sum=cols.reduce(function(t,c){return t+c[1];},0);
+	return E('table',{'class':'table','style':'table-layout:fixed'},[E('colgroup',{},cols.map(function(c){
+		return E('col',{'style':'width:'+(c[1]*100/sum).toFixed(2)+'%'});}))].concat(kids));
+}
+function colHead(cols,id){
+	return E('div',{'class':'qhead','id':id||null},colTable(cols,E('tr',{'class':'tr table-titles'},
+		cols.map(function(c){return E('th',{'class':c[2]?'th qn':'th left'},c[0]);}))));
 }
 function refBox(title,note,rows){
 	return E('details',{},[E('summary',{},title),note?E('p',{},note):'',
@@ -1389,13 +1402,8 @@ return view.extend({
 	mapNodes:function(rows,hasDns){
 		var cells=this._mapCells=[],tcol=hasDns!==false,wcol=rows.some(function(r){return r.timeout!=null;}),
 			cols=[['dns',34],['dscp',14],['file / user',12]];
-		if(tcol)cols.push(['hits / packets / bytes',28]);
-		if(wcol)cols.push(['timeout',12]);
-		var sum=cols.reduce(function(t,c){return t+c[1];},0);
-		function grid(kids){
-			return E('table',{'class':'table','style':'table-layout:fixed'},[E('colgroup',{},cols.map(function(c){
-				return E('col',{'style':'width:'+(c[1]*100/sum).toFixed(2)+'%'});}))].concat(kids));
-		}
+		if(tcol)cols.push(['hits / packets / bytes',28,1]);
+		if(wcol)cols.push(['timeout',12,1]);
 		var trs=rows.slice(0,MAP_ROWS).map(function(r){
 			var src=[],a=String(r.addr!=null?r.addr:'-'),c={t:tcol?E('td',{'class':'td qn'}):null,w:wcol?E('td',{'class':'td qn'}):null};
 			if(r.file)src.push('file');
@@ -1404,10 +1412,7 @@ return view.extend({
 			return E('tr',{'class':'tr'},[E('td',{'class':'td','title':a},E('code',{},a)),
 				E('td',{'class':'td'},r.dscp||'-'),E('td',{'class':'td'},src.join(', ')||'-'),c.t||'',c.w||'']);
 		});
-		return E('div',{'class':'qbox'},[
-			E('div',{'id':'qos-cn-map-head'},grid(E('tr',{'class':'tr table-titles'},cols.map(function(c){return E('th',{'class':'th'},c[0]);})))),
-			E('div',{'id':'qos-cn-map-box'},grid(trs))
-		]);
+		return E('div',{'class':'qbox'},[colHead(cols,'qos-cn-map-head'),E('div',{'id':'qos-cn-map-box'},colTable(cols,trs))]);
 	},
 
 	mapValues:function(rows,dns){
@@ -1563,7 +1568,7 @@ return view.extend({
 	// row. Built again only when the rows or columns change; otherwise cells and
 	// bar widths are set in place, so the bars ease and nothing below moves.
 	// Length is (row/largest row)^BAR_EXP, a non-zero row kept at 1%.
-	// A compact .table in its own box: name, codepoint where a row has one, a
+	// A compact box, header table above the rows as on DNS Entries: name, codepoint where a row has one, a
 	// .cbi-progressbar, then the counters under the names their source uses
 	// (get_stats packets/bytes, tc pkts/bytes/drops) and share, with a total row.
 	// Built again only when the rows or columns change; otherwise cells and bar
@@ -1579,22 +1584,21 @@ return view.extend({
 		rows.forEach(function(r){if(r.v>max)max=r.v;});
 		sig=[dcol,bcol,xcol].concat(rows.map(function(r){return r.name;})).join('\n');
 		function td(n,t){return E('td',{'class':n?'td qn':'td left','data-title':t});}
-		function th(t,n){return E('th',{'class':n?'th qn':'th left'},t);}
 		function set(el,v){if(el&&el.textContent!==v)el.textContent=v;}
 		function num(n){return Number(n||0).toLocaleString();}
 		if(!c||c.sig!==sig){
-			var hdr=[th(head)];
-			if(dcol)hdr.push(th('dscp'));
-			hdr.push(E('th',{'class':'th'}),th(pk,1));
-			if(bcol)hdr.push(th('bytes',1));
-			if(xcol)hdr.push(th('drops',1));
-			hdr.push(th(_('share'),1));
+			var cols=[[head,20]];
+			if(dcol)cols.push(['dscp',10]);
+			cols.push(['',34],[pk,13,1]);
+			if(bcol)cols.push(['bytes',13,1]);
+			if(xcol)cols.push(['drops',9,1]);
+			cols.push([_('share'),9,1]);
 			c=box.qosChart={sig:sig,rows:[]};
 			var trs=rows.map(function(){
 				var o={name:td(0,head),dscp:dcol?td(0,'dscp'):null,fill:E('div'),pkt:td(1,pk),
 					bytes:bcol?td(1,'bytes'):null,drops:xcol?td(1,'drops'):null,share:td(1,_('share'))};
 				o.tr=E('tr',{'class':'tr'},[o.name,o.dscp||'',
-					E('td',{'class':'td','width':'100%'},E('div',{'class':'cbi-progressbar'},o.fill)),
+					E('td',{'class':'td'},E('div',{'class':'cbi-progressbar'},o.fill)),
 					o.pkt,o.bytes||'',o.drops||'',o.share]);
 				c.rows.push(o);
 				return o.tr;
@@ -1602,13 +1606,14 @@ return view.extend({
 			c.tot={pkt:td(1,pk),bytes:bcol?td(1,'bytes'):null,drops:xcol?td(1,'drops'):null};
 			trs.push(E('tr',{'class':'tr qt'},[E('td',{'class':'td left'},_('total')),dcol?E('td',{'class':'td'}):'',E('td',{'class':'td'}),
 				c.tot.pkt,c.tot.bytes||'',c.tot.drops||'',E('td',{'class':'td qn'},_('%s%%').format(100))]));
-			dom.content(box,E('div',{'class':'qbox'},E('table',{'class':'table'},[E('tr',{'class':'tr table-titles'},hdr)].concat(trs))));
+			dom.content(box,E('div',{'class':'qbox'},[colHead(cols),colTable(cols,trs)]));
 		}
 		rows.forEach(function(r,i){
 			var o=c.rows[i],share=total?(r.v/total)*100:0,
 				len=max&&r.v?Math.max(Math.pow(r.v/max,BAR_EXP)*100,1):0,
 				tip=r.marks!=null?'marks %d'.format(r.marks):'';
 			set(o.name,r.name);
+			if(o.name.title!==r.name)o.name.title=r.name;
 			set(o.dscp,r.mark||'');
 			set(o.pkt,num(r.v));
 			if(o.bytes)set(o.bytes,'%1024.2mB'.format(r.bytes||0));
