@@ -2,6 +2,10 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.6.4-dev — 2026-09-16
+
+- Quick settings `mode` moved to the top of Advanced Settings
+
 ## v3.6.3-dev — 2026-09-16
 
 Tidier Overview.

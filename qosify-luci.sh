@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.6.3-dev"
+VERSION="3.6.4-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -897,7 +897,6 @@ return view.extend({
 					['name',[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(_('required — qosify skips sections with no name'))]],
 					['bandwidth_up',txt('bw_up',w.bandwidth_up,_('e.g. %s').format('100mbit'))],
 					['bandwidth_down',txt('bw_down',w.bandwidth_down,_('e.g. %s').format('100mbit'))],
-					['mode',sel('mode',w.mode,MODES,'diffserv4')],
 					['ingress',chk('ingress',numBool(w.ingress,true))],
 					['egress',chk('egress',numBool(w.egress,true))],
 					['autorate_ingress',chk('autorate',numBool(w.autorate_ingress,false))],
@@ -905,6 +904,7 @@ return view.extend({
 					['host_isolate',hiCb]
 				]),
 				col(_('Advanced Settings'),[
+					['mode',sel('mode',w.mode,MODES,'diffserv4')],
 					['overhead_type',sel('overhead',w.overhead_type,OVH,'none')],
 					['overhead_encap',[sel('overhead_encap',w.overhead_encap,ENCAP),desc(_('used only when overhead_type is manual'))]],
 					['overhead_mpu',txt('overhead_mpu',w.overhead_mpu,_('e.g. %s').format('84'))],
