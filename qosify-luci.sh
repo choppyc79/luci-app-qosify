@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.9-dev"
+VERSION="3.7.10-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -904,9 +904,9 @@ return view.extend({
 			return s;
 		}
 		function num(name,val,ph){var e=txt(name,val,ph);e.type='number';return e;}
-		function pane(id,title,rows,top){
+		function pane(id,title,rows,top,cls){
 			return E('div',{'data-tab':id,'data-tab-title':title,'data-tab-active':id===self._qsTab?'true':null},
-				E('div',{'class':'qs-box cbi-section-node'},(top||[]).concat(rows.map(function(r){return Array.isArray(r)?valRow(r[0],r[1]):r;}))));
+				E('div',{'class':'qs-box cbi-section-node'+(cls?' '+cls:'')},(top||[]).concat(rows.map(function(r){return Array.isArray(r)?valRow(r[0],r[1]):r;}))));
 		}
 
 		var enBadge=E('span',{'id':'q-en-badge'});
@@ -957,7 +957,7 @@ return view.extend({
 				[_('Ingress CAKE options'),[txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb')),desc(_('CAKE ingress options, space separated.'))]],
 				[_('Egress CAKE options'),[txt('egr_opts',w.egress_options,_('e.g. %s').format('wash')),desc(_('CAKE egress options, space separated.'))]],
 				[_('Common CAKE options'),[txt('opts',w.options,_('e.g. %s').format('overhead 46 memlimit 32mb')),desc(_('CAKE options for ingress + egress.'))]]
-			],[E('div',{'class':'cbi-tab-descr'},_('Invalid CAKE options can stop qosify starting.'))])
+			],[E('div',{'class':'cbi-tab-descr'},_('Invalid CAKE options can stop qosify starting.'))],'qs-wide')
 		]);
 		// Every pane is marked, as the sub tabs share LuCI's stored tab id with the page tabs.
 		if(!grp.querySelector('[data-tab-active="true"]'))grp.firstChild.setAttribute('data-tab-active','true');
@@ -2494,16 +2494,17 @@ JSEOF
 #qos-ov .table .td,#qos-ov .table .th{padding-top:.5em;padding-bottom:.5em;vertical-align:middle}
 #qos-ov .cbi-section{margin-bottom:1.25em;padding-bottom:.9em}#qos-ov .cbi-section>h3{margin-bottom:.9em;padding:.6em 1em}
 #qos-ov .cbi-section .cbi-page-actions{margin:.9em -1em -.9em;padding:.45em 1em}#qos-ov>.cbi-page-actions{margin-top:1.25em}
-#qos-app .qs-box{min-width:0;min-height:17em;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:1.25em 1.5em 1em}
+#qos-app .qs-box{min-width:0;min-height:17em;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:.7em 1.5em}
 #qos-app #qos-cfg-sect{padding:0;overflow:hidden}#qos-ov #qos-cfg-sect .td{padding-top:.6em;padding-bottom:.6em}#qos-app #qos-cfg-sect>.table{margin:0;border:0}#qos-cfg-sect .th,#qos-cfg-sect .td{padding-left:1em;padding-right:1em}
 #qos-cfg-sect .tr.cbi-section-table-titles .th{border-top:0;padding-top:.6em;padding-bottom:.6em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));background:var(--background-color-low,rgba(128,128,128,.06))}
-#qos-qs-sect .cbi-value{margin-bottom:1.1em;align-items:flex-start}#qos-qs-sect .cbi-value:last-child{margin-bottom:0}
+#qos-qs-sect .cbi-value{align-items:flex-start;padding:.55em 0}
+#qos-qs-sect .cbi-value+.cbi-value{border-top:1px solid var(--border-color-low,rgba(128,128,128,.2))}
 #qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 16em;padding-top:0;line-height:30px;font-weight:600}
 /* Control then hint on one line, so a short input no longer leaves the row empty
    and every hint still starts in the same column. */
 #qos-qs-sect .cbi-value-field{display:grid;grid-template-columns:minmax(0,18em) minmax(0,1fr);align-items:center;gap:.3em 1.5em;flex:1 1 auto;margin-left:1.5em;min-width:0;line-height:30px}
 #qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}
-#qos-qs-sect .qs-note,#qos-qs-sect [data-q$=opts],#qos-qs-sect [data-q$=opts]+.cbi-value-description{grid-column:1/-1}
+#qos-qs-sect .qs-note{grid-column:1/-1}
 #qos-qs-sect .cbi-value-field input[type=checkbox]{justify-self:start;margin:0;vertical-align:middle}
 #qos-app .cbi-section>.table,#qos-app .cbi-section>div>.table{margin-bottom:0}
 #qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field input[type=number],#qos-qs-sect .cbi-value-field select{max-width:100%;box-sizing:border-box}
@@ -2512,6 +2513,7 @@ JSEOF
 #qos-qs-sect [data-q=overhead_vlan],#qos-qs-sect [data-q=overhead_encap]{width:9em}
 #qos-qs-sect [data-q=name],#qos-qs-sect [data-q=bw_up],#qos-qs-sect [data-q=bw_down]{width:14em}
 #qos-qs-sect [data-q=mode],#qos-qs-sect [data-q=overhead]{width:18em}
+#qos-qs-sect .qs-wide .cbi-value-field{grid-template-columns:minmax(0,28em) minmax(0,1fr)}
 #qos-qs-sect [data-q$=opts]{width:100%}
 /* Phones: label, then control, then hint, one under the other. */
 @media (max-width:600px){#qos-qs-sect .cbi-value{display:block}#qos-qs-sect .cbi-value label.cbi-value-title{line-height:1.5}
