@@ -36,7 +36,7 @@ Always on the tab bar, and polled like the other tabs at LuCI's refresh interval
 **DNS Entries** only appears when `get_stats` has a `dns` table (qosify `beeb87e`, OpenWrt snapshots); on 25.12 and 24.10 it stays hidden and `dump` is never called, and it appears by itself once a release or backport ships the newer qosify. It lists the `dns` entries from `ubus call qosify dump` with `hits`, `packets` and `bytes` from the `get_stats` `dns` table, under the field names qosify uses. Port and address entries are left out, because qosify keeps no per-entry counters for them. The section title carries the entry count, and the table sits in a box that can be dragged taller or shorter like the editors, with its header above the box rather than inside it, so no rows scroll under it; header and rows share fixed column widths, and the header is padded by the scrollbar width so they line up. The list is read on each tick after the counters; while its entries are unchanged only the figures are rewritten in place, so it does not redraw or move and a text selection holds.
 
 ### Advanced
-**Backup & Restore** is one table of both files with size, modification time, a Download button and a file picker; Upload & Apply replaces the chosen files (validated, 64 KB cap, binary rejected). **Defaults** resets both files back to qosify defaults after a confirmation.
+**Backup** lists both files with size, modification time and a Download button. **Restore** is a file picker per file; Upload & Apply replaces the chosen files (validated, 64 KB cap, binary rejected). **Defaults** resets both files back to qosify defaults after a confirmation.
 
 ## Requirements
 

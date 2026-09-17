@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.3-dev"
+VERSION="3.7.4-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -1274,15 +1274,26 @@ return view.extend({
 
 	tabAdvanced:function(ctx){
 		var self=this;
-		function row(i,path,fn,st,id){
-			return [E('code',{},path),E('span',{'id':'qos-bk-sz-'+i},st?fmtSize(st.size):'-'),E('span',{'id':'qos-bk-mt-'+i},st?fmtMtime(st.mtime):'-'),
-				self.dlBtn(path,fn),E('input',{'type':'file','id':id})];
+		function bkRow(i,path,fn,st){
+			return [E('code',{},path),E('span',{'id':'qos-bk-sz-'+i},st?fmtSize(st.size):'-'),
+				E('span',{'id':'qos-bk-mt-'+i},st?fmtMtime(st.mtime):'-'),self.dlBtn(path,fn)];
+		}
+		function reRow(path,id){
+			return [E('code',{},path),E('input',{'type':'file','id':id})];
 		}
 		return E('div',{'id':'qos-ad'},[
-			sect(_('Backup & Restore'),[
-				gridTable([_('File'),_('Size'),_('Modified'),_('Backup'),_('Restore')],[
-					row(0,UCI_PATH,'qosify',ctx.cfgStat,'qos-up-cfg'),
-					row(1,RULES_PATH,'00-defaults.conf',ctx.rulesStat,'qos-up-rules')
+			sect(_('Backup'),[
+				desc(_('Download the current files from the router.')),
+				gridTable([_('File'),_('Size'),_('Modified'),_('Download')],[
+					bkRow(0,UCI_PATH,'qosify',ctx.cfgStat),
+					bkRow(1,RULES_PATH,'00-defaults.conf',ctx.rulesStat)
+				])
+			]),
+			sect(_('Restore'),[
+				desc(_('The selected files replace the ones on the router and qosify is reloaded.')),
+				gridTable([_('File'),_('Upload')],[
+					reRow(UCI_PATH,'qos-up-cfg'),
+					reRow(RULES_PATH,'qos-up-rules')
 				]),
 				E('div',{'class':'cbi-page-actions'},
 					E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.uploadFiles();}},_('Upload & Apply')))
