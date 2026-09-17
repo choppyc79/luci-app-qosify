@@ -2,6 +2,23 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.5-dev — 2026-09-17
+
+- Counters gated on the daemon the way Status is: with qosify stopped the charts are
+  cleared and the tin, `get_stats` and DNS Entries boxes are dropped, leaving one notice,
+  so a stopped daemon cannot leave the last poll's figures on screen looking live. Running
+  with an empty reply now says `get_stats returned no output.` instead of `No counters.`
+- Overview: **Reload Rules**, `ubus call qosify reload` — re-reads only the files in the
+  `defaults` list (`qosify_map_reload()`), leaving qdiscs and interface config alone. The
+  existing Reload is unchanged and still does the full init-script config push
+- Advanced: **Mapping Files** edits the `defaults` list in `config defaults` (the ubus
+  config `files` array). Written as `list defaults` lines in place via a new `setList()`,
+  the rest of the file untouched; entries validated as absolute paths with no whitespace
+  or shell metacharacters, since `qosify.init` word-splits and globs them in a `for` loop
+- Advanced: **Maintenance** with Check Devices, `ubus call qosify check_devices`
+  (`qosify_iface_check()`), for a device that appeared after qosify started
+- ACL: `reload` and `check_devices` added to the qosify ubus object in the **write** group
+
 ## v3.7.4-dev — 2026-09-17
 
 - Advanced: the single Backup & Restore table split back into two boxes — **Backup** (file,
