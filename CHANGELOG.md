@@ -2,6 +2,12 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.2-dev — 2026-09-17
+
+- Quick settings down from six tabs to four: Basic (enable, interface, bandwidth, queueing
+  mode), Shaping (ingress, egress, autorate, NAT awareness, host isolation), Overhead and
+  Advanced; fields, descriptions and UCI keys unchanged
+
 ## v3.7.1-dev — 2026-09-17
 
 - Quick settings descriptions shortened to qosify's own wording (Enable ingress shaping,

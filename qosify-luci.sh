@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.1-dev"
+VERSION="3.7.2-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -899,19 +899,15 @@ return view.extend({
 				[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge,desc(_('Unticked sets disabled 1 and qosify skips this section.'))]],
 				[isDev?_('Device'):_('Interface'),[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(isDev?_('Netdev to enable QoS on. Required.'):_('netifd interface to enable QoS on. Required.'))]],
 				[_('Upload bandwidth'),[txt('bw_up',w.bandwidth_up,_('e.g. %s').format('850mbit')),desc(_('Uplink bandwidth, same format as tc. Set just below line speed.'))]],
-				[_('Download bandwidth'),[txt('bw_down',w.bandwidth_down,_('e.g. %s').format('850mbit')),desc(_('Downlink bandwidth, same format as tc. Set just below line speed.'))]]
+				[_('Download bandwidth'),[txt('bw_down',w.bandwidth_down,_('e.g. %s').format('850mbit')),desc(_('Downlink bandwidth, same format as tc. Set just below line speed.'))]],
+				[_('Queueing mode'),[sel('mode',w.mode,MODES,'diffserv4'),desc(_('CAKE diffserv mode.'))]]
 			]),
-			pane('qs-traffic',_('Traffic'),[
+			pane('qs-shaping',_('Shaping'),[
 				[_('Download shaping'),[chk('ingress',numBool(w.ingress,true)),desc(_('Enable ingress shaping.'))]],
 				[_('Upload shaping'),[chk('egress',numBool(w.egress,true)),desc(_('Enable egress shaping.'))]],
-				[_('Automatic download rate'),[chk('autorate',numBool(w.autorate_ingress,false)),desc(_('Enable CAKE automatic rate estimation for ingress.'))]]
-			]),
-			pane('qs-fairness',_('Fairness'),[
+				[_('Automatic download rate'),[chk('autorate',numBool(w.autorate_ingress,false)),desc(_('Enable CAKE automatic rate estimation for ingress.'))]],
 				[_('NAT awareness'),[chk('nat',numBool(w.nat,!isDev)),desc(_('Enable CAKE NAT host detection via conntrack.')),natNote]],
 				[_('Host isolation'),[hiCb,desc(_('Enable CAKE host isolation.'))]]
-			]),
-			pane('qs-diffserv',_('DiffServ'),[
-				[_('Queueing mode'),[sel('mode',w.mode,MODES,'diffserv4'),desc(_('CAKE diffserv mode.'))]]
 			]),
 			pane('qs-overhead',_('Overhead'),[
 				[_('Overhead preset'),[ovSel,desc(_('CAKE overhead keyword. Use none if unsure.'))]],
