@@ -2,6 +2,32 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.8-dev — 2026-09-17
+
+- Service state is tri-state: a status call that rpcd never answered no longer reads as a
+  stopped, unshaped, uninstalled qosify. `rc.list`, `service.list` and `qosify.status` are
+  declared with `reject:true` — without it a ubus status code (6 once the session's ACL no
+  longer covers the object, 4 when the object is gone) stays in `result[0]` and
+  `expect{'':{}}` rewrites it to the same `{}` a working call with nothing to report
+  returns, so `L.resolveDefault()` could not tell the two apart. `gatherCtx()` now catches
+  each rejection to `null`, and `running`, `enabled`, `hasInit`, `active` and `shaped` go
+  `null` rather than `false`
+- One condition covers the lot: `rc` and `service` answer whenever rpcd does and the ACL
+  still covers this app, so either failing sets `ctx.rpcOk` false. The qosify object goes
+  with the daemon, so a stopped qosify explains an unanswered `status` by itself and
+  shaping only reads unknown while qosify is running
+- Overview shows amber **Unknown** badges for Status, Autostart, Shaping and
+  `/etc/init.d/qosify`, with the cause named once on the Status row instead of repeated per
+  row; the enabled badge beside Quick Settings reads **Status Unknown**. Unknown is not
+  Missing, so the service buttons stay clickable and report the call's own error — only
+  Autostart, whose label is the state, is disabled
+- Saving a config or rules edit no longer warns "not shaping" when the check could not run:
+  `waitForShaping()` returns `null` for an unanswered `status` call (still retried like an
+  idle reply) and the save says shaping could not be checked. On a box with a stale ACL
+  that warning was a false negative while qosify was shaping fine
+- Status and Counters tabs say rpcd is not answering instead of "qosify is not running",
+  and skip the `qosify-status` fork while the state is unknown
+
 ## v3.7.7-dev — 2026-09-17
 
 - Config and Rules editors no longer collapse after a visit to Advanced.
