@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.4-dev"
+VERSION="3.7.5-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -284,6 +284,7 @@ install_acl() {
 		},
 		"write": {
 			"ubus": {
+				"qosify": [ "reload", "check_devices" ],
 				"rc": [ "init" ],
 				"uci": [ "revert" ],
 				"file": [ "write", "exec" ]
@@ -423,6 +424,19 @@ var callQosifyStats=rpc.declare({
 var callQosifyDump=rpc.declare({
 	object:'qosify',
 	method:'dump',
+	expect:{'':{}}
+});
+// reload re-reads the files in the defaults list (qosify_map_reload) and nothing
+// else; check_devices re-runs qosify_iface_check(). Both take no arguments and
+// return an empty reply, so success is the call not throwing.
+var callQosifyReload=rpc.declare({
+	object:'qosify',
+	method:'reload',
+	expect:{'':{}}
+});
+var callQosifyCheckDevices=rpc.declare({
+	object:'qosify',
+	method:'check_devices',
 	expect:{'':{}}
 });
 var callServiceList=rpc.declare({
@@ -620,6 +634,39 @@ function setOpts(txt,type,name,idx,kv){
 	}
 	for(k in kv)if(!seen[k]&&kv[k]!=null)out.push("\toption "+k+" '"+qv(kv[k])+"'");
 	return lines.slice(0,s.start).concat(out,lines.slice(s.end+1)).join('\n');
+}
+// Replace every `list <key>` line in one config block with vals, in place of the
+// first one, leaving the rest of the block byte for byte. An empty vals drops the
+// list. setOpts() refuses lists on purpose, so this is the only writer for them.
+function setList(txt,type,name,idx,key,vals){
+	var lines=(txt||'').split('\n'),secs=cfgSections(txt),s=null,n=0,i,at=-1,
+		add=vals.map(function(v){return "\tlist "+key+" '"+qv(v)+"'";});
+	for(i=0;i<secs.length;i++){
+		if(secs[i].type!==type)continue;
+		if(name?secs[i].name===name:n++===idx){s=secs[i];break;}
+	}
+	if(!s){
+		var t=(txt||'').replace(/\s+$/,'');
+		return (t?t+'\n\n':'')+["config "+type+(name?" '"+name+"'":'')].concat(add).join('\n')+'\n';
+	}
+	var out=[lines[s.start]];
+	for(i=s.start+1;i<=s.end;i++){
+		var lm=/^\s*list\s+(\S+)(\s|$)/.exec(lines[i]);
+		if(lm&&lm[1]===key){if(at<0)at=out.length;continue;}
+		out.push(lines[i]);
+	}
+	if(at<0)at=out.length;
+	return lines.slice(0,s.start).concat(out.slice(0,at),add,out.slice(at),lines.slice(s.end+1)).join('\n');
+}
+// qosify.init does `for i in $files`, so each entry is word-split and glob-expanded
+// by the shell before it reaches the daemon: a path with whitespace becomes two
+// entries, and the metacharacters below break or run inside that loop.
+function fileEnt(v){
+	if(!v)return _('Empty path');
+	if(/\s/.test(v))return _('No whitespace — qosify.init word-splits this list');
+	if(/['"`$;&|<>(){}\\]/.test(v))return _('Shell metacharacters are not allowed here');
+	if(v.charAt(0)!=='/')return _('Must be an absolute path');
+	return null;
 }
 // Non-blocking sanity pass: flag rule targets that are neither a defined class,
 // a DSCP codepoint, nor a raw numeric value.
@@ -829,10 +876,16 @@ return view.extend({
 	buildSvcActs:function(ctx){
 		var self=this,acts=E('div',{'class':'cbi-page-actions'},
 			E('button',{'class':'cbi-button','id':'qos-btn-auto','click':function(){return self.svcAction(self._auto?'disable':'enable');}}));
+		// Reload is the init script's reload_service(): a full ubus config push, so it
+		// picks up /etc/config/qosify as well as the mapping files. Reload Rules is the
+		// qosify reload method, which re-reads the mapping files alone and leaves the
+		// qdiscs and interface config untouched -- what a rules edit actually needs.
 		[['start','cbi-button-apply',_('Start')],['restart','cbi-button-action',_('Restart')],
-		 ['reload','cbi-button-reload',_('Reload')],['stop','cbi-button-negative',_('Stop')]].forEach(function(b){
+		 ['reload','cbi-button-reload',_('Reload')],['maps','cbi-button-reload',_('Reload Rules'),1],
+		 ['stop','cbi-button-negative',_('Stop')]].forEach(function(b){
 			acts.appendChild(document.createTextNode(' '));
-			acts.appendChild(E('button',{'class':'cbi-button '+b[1],'id':'qos-btn-'+b[0],'click':function(){return self.svcAction(b[0]);}},b[2]));
+			acts.appendChild(E('button',{'class':'cbi-button '+b[1],'id':'qos-btn-'+b[0],'title':b[3]?_('Re-read the mapping files only'):null,
+				'click':function(){return b[3]?self.mapReload():self.svcAction(b[0]);}},b[2]));
 		});
 		this.svcButtons(ctx,acts);
 		return acts;
@@ -849,6 +902,8 @@ return view.extend({
 		[['start',!ctx.running],['restart',ctx.running],['reload',ctx.running],['stop',ctx.running]].forEach(function(x){
 			if((b=g('qos-btn-'+x[0])))b.disabled=ro||!x[1];
 		});
+		// Reload Rules is a ubus call, so it needs the daemon up but not the init script.
+		if((b=g('qos-btn-maps')))b.disabled=this.readonly||!ctx.running;
 	},
 
 	buildCfgSect:function(ctx){
@@ -1298,11 +1353,93 @@ return view.extend({
 				E('div',{'class':'cbi-page-actions'},
 					E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.uploadFiles();}},_('Upload & Apply')))
 			]),
+			sect(_('Mapping Files'),[
+				desc(_('The files qosify loads port, address and DNS mappings from — the defaults list in config defaults, passed to the daemon as the config files array. Shell globs are expanded by qosify.init when the config is pushed.')),
+				E('div',{'id':'qos-mf'},this.mfTable()),
+				E('div',{'class':'cbi-value'},[
+					E('label',{'class':'cbi-value-title','for':'qos-mf-add'},_('Add file')),
+					E('div',{'class':'cbi-value-field'},[
+						E('input',{'type':'text','class':'cbi-input-text','id':'qos-mf-add','placeholder':'/etc/qosify/*.conf'}),' ',
+						E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.mfAdd();}},_('Add'))])
+				]),
+				E('div',{'class':'cbi-page-actions'},
+					E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveMapFiles();}},_('Save & Apply')))
+			]),
+			sect(_('Maintenance'),[
+				E('div',{'class':'cbi-section-node'},valRow(_('Re-check devices'),[
+					E('button',{'class':'cbi-button cbi-button-action','id':'qos-btn-chkdev','click':function(){return self.checkDevices();}},_('Check Devices')),
+					desc(_('Runs the daemon\'s own device pass, so a device that appeared after qosify started is picked up without rebuilding the qdiscs.'))]))
+			]),
 			sect(_('Defaults'),[
 				E('div',{'class':'cbi-section-node'},valRow(_('Restore qosify defaults'),
 					E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},_('Reset'))))
 			])
 		]);
+	},
+
+	// config defaults `list defaults`. uci gives a list as an array and a lone
+	// entry as a string; qosify.init word-splits it either way.
+	defFiles:function(){
+		var s=uci.sections('qosify','defaults')[0],v=s&&s.defaults;
+		return (v==null?[]:Array.isArray(v)?v:String(v).split(/\s+/)).filter(function(x){return trim(x)!=='';});
+	},
+
+	mfTable:function(){
+		var self=this;
+		if(!this._mf)this._mf=this.defFiles();
+		return gridTable([_('Path'),_('Remove')],this._mf.map(function(p,i){
+			return [E('code',{},p),E('button',{'class':'cbi-button cbi-button-remove',
+				'click':function(){self._mf.splice(i,1);self.mfDraw();}},_('Remove'))];
+		}),_('No files listed — qosify loads no mappings.'));
+	},
+
+	// Rebuilt after every add or remove, so the rows miss the render-time pass.
+	mfDraw:function(){
+		var b=$('qos-mf');
+		if(!b)return;
+		dom.content(b,this.mfTable());
+		this.applyReadonly(b);
+	},
+
+	mfAdd:function(){
+		var el=$('qos-mf-add'),v=trim(el&&el.value),e=fileEnt(v);
+		if(e){notify(e,'warning');return;}
+		if(this._mf.indexOf(v)>=0){notify(_('%s is already listed.').format(v),'warning');return;}
+		this._mf.push(v);
+		el.value='';
+		this.mfDraw();
+	},
+
+	// Written as a list, so setOpts() is no use here. The daemon only picks the new
+	// list up from a config push, which is what applyService() does.
+	saveMapFiles:function(){
+		var self=this,vals=(self._mf||[]).slice(),bad=null;
+		vals.forEach(function(v){if(!bad)bad=fileEnt(v);});
+		if(bad){notify(bad,'danger');return;}
+		self.lock();
+		ui.showModal(_('Saving'),[E('p',{},_('Writing the file list and reloading qosify...'))]);
+		return callUciRevert('qosify').then(function(){
+			return Promise.all([fs.read(UCI_PATH),L.resolveDefault(fs.stat(UCI_PATH),null)]);
+		}).then(function(r){
+			var txt=r[0]||'',st=r[1];
+			if(!trim(txt)&&st&&st.size>0)
+				throw new Error(_('%s came back empty although it is %d bytes on disk — refusing to overwrite it').format(UCI_PATH,st.size));
+			return fs.write(UCI_PATH,setList(txt,'defaults','',0,'defaults',vals));
+		}).then(function(){
+			uci.unload('qosify');
+			return uci.load('qosify');
+		}).then(function(){
+			return self.applyService();
+		}).then(function(){
+			ui.hideModal();
+			notify(vals.length?_('File list saved, qosify reloaded.'):_('File list emptied — qosify has no mappings to load.'),vals.length?'info':'warning');
+			self._mf=self.defFiles();
+			self.mfDraw();
+			return self.refreshAll();
+		}).catch(function(e){
+			ui.hideModal();
+			notify(_('Save failed: %s').format(e),'danger');
+		}).finally(function(){self.unlock();});
 	},
 
 	updateFiles:function(ctx){
@@ -1473,7 +1610,7 @@ return view.extend({
 		return E('div',{'id':'qos-cn'},[
 			sect(_('Traffic by Class'),[E('div',{'id':'qos-cn-msg'}),E('div',{'id':'qos-cn-bars'})]),
 			sect(_('Traffic by CAKE Tin'),E('div',{'id':'qos-cn-tins'},emP(_('Loading...'))),{'id':'qos-cn-tin-sect','style':'display:none'}),
-			sect('get_stats',E('div',{'id':'qos-cn-info'})),
+			sect('get_stats',E('div',{'id':'qos-cn-info'}),{'id':'qos-cn-info-sect','style':'display:none'}),
 			sect(_('DNS Entries'),E('div',{'id':'qos-cn-map'},emP(_('Loading...'))),{'id':'qos-cn-map-sect','style':'display:none'})
 		]);
 	},
@@ -1665,15 +1802,22 @@ return view.extend({
 		t.forEach(function(rows,i){self.drawChart(box.childNodes[i],rows,'','tin');});
 	},
 
+	// Nothing here survives the daemon: get_stats counts since the last reload and
+	// the tin figures come from qdiscs a stop removes. So a stopped qosify clears
+	// the charts and drops every box but the notice, as the Status tab does, rather
+	// than leaving the last poll's numbers on screen looking live. _cnDns is reset
+	// with it, or DNS Entries would keep a stale listing until stats return.
 	fillCounters:function(ctx){
-		var msg=$('qos-cn-msg'),info=$('qos-cn-info');
+		var msg=$('qos-cn-msg'),info=$('qos-cn-info'),is=$('qos-cn-info-sect');
+		if(is)is.style.display=ctx.running&&ctx.stats?'':'none';
 		if(!ctx.running){
+			this._cnDns=false;
 			if(info)dom.content(info,'');
 			this.drawBars();
-			if(msg)dom.content(msg,E('div',{'class':'alert-message warning'},_('qosify is not running.')));
+			if(msg)dom.content(msg,E('div',{'class':'alert-message warning'},_('qosify is not running. Start from the Overview tab.')));
 			return;
 		}
-		if(msg)dom.content(msg,ctx.stats?'':emP(_('No counters.')));
+		if(msg)dom.content(msg,ctx.stats?'':emP(_('get_stats returned no output.')));
 		this.drawBars();
 		if(info)dom.content(info,ctx.stats?this.infoNodes(ctx.stats):'');
 	},
@@ -1763,6 +1907,42 @@ return view.extend({
 			return self.refreshOverview();
 		}).catch(function(e){
 			notify(_('Service action failed: %s').format(e),'danger');
+		}).finally(function(){
+			ui.hideModal();
+			self.unlock();
+		});
+	},
+
+	// ubus call qosify reload. The reply is empty either way, so the only failure
+	// this can report is the call itself; last_reload_time on Counters moves when
+	// it worked.
+	mapReload:function(){
+		var self=this;
+		self.lock();
+		ui.showModal(_('Working'),[E('p',{},_('Re-reading the mapping files...'))]);
+		return callQosifyReload().then(function(){
+			notify(_('Mapping files reloaded.'),'info');
+			return self.refreshOverview();
+		}).catch(function(e){
+			notify(_('Reload failed: %s').format(e),'danger');
+		}).finally(function(){
+			ui.hideModal();
+			self.unlock();
+		});
+	},
+
+	// ubus call qosify check_devices -- qosify_iface_check(), the same pass the
+	// daemon runs at the end of a config push. Picks up a device that appeared
+	// after qosify started without bouncing the qdiscs a restart would rebuild.
+	checkDevices:function(){
+		var self=this;
+		self.lock();
+		ui.showModal(_('Working'),[E('p',{},_('Re-checking devices...'))]);
+		return callQosifyCheckDevices().then(function(){
+			notify(_('Device check requested.'),'info');
+			return self.refreshOverview();
+		}).catch(function(e){
+			notify(_('Device check failed: %s').format(e),'danger');
 		}).finally(function(){
 			ui.hideModal();
 			self.unlock();
