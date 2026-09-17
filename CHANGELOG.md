@@ -2,6 +2,12 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.4-dev — 2026-09-17
+
+- Advanced: the single Backup & Restore table split back into two boxes — **Backup** (file,
+  size, modified, Download) and **Restore** (file, upload picker, Upload & Apply). Same
+  paths, same validation, same size/mtime refresh
+
 ## v3.7.3-dev — 2026-09-17
 
 - Config and Rules editors sized so the whole tab fits the window by default, refitted when
