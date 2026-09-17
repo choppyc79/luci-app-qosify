@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.5-dev"
+VERSION="3.7.6-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -634,39 +634,6 @@ function setOpts(txt,type,name,idx,kv){
 	}
 	for(k in kv)if(!seen[k]&&kv[k]!=null)out.push("\toption "+k+" '"+qv(kv[k])+"'");
 	return lines.slice(0,s.start).concat(out,lines.slice(s.end+1)).join('\n');
-}
-// Replace every `list <key>` line in one config block with vals, in place of the
-// first one, leaving the rest of the block byte for byte. An empty vals drops the
-// list. setOpts() refuses lists on purpose, so this is the only writer for them.
-function setList(txt,type,name,idx,key,vals){
-	var lines=(txt||'').split('\n'),secs=cfgSections(txt),s=null,n=0,i,at=-1,
-		add=vals.map(function(v){return "\tlist "+key+" '"+qv(v)+"'";});
-	for(i=0;i<secs.length;i++){
-		if(secs[i].type!==type)continue;
-		if(name?secs[i].name===name:n++===idx){s=secs[i];break;}
-	}
-	if(!s){
-		var t=(txt||'').replace(/\s+$/,'');
-		return (t?t+'\n\n':'')+["config "+type+(name?" '"+name+"'":'')].concat(add).join('\n')+'\n';
-	}
-	var out=[lines[s.start]];
-	for(i=s.start+1;i<=s.end;i++){
-		var lm=/^\s*list\s+(\S+)(\s|$)/.exec(lines[i]);
-		if(lm&&lm[1]===key){if(at<0)at=out.length;continue;}
-		out.push(lines[i]);
-	}
-	if(at<0)at=out.length;
-	return lines.slice(0,s.start).concat(out.slice(0,at),add,out.slice(at),lines.slice(s.end+1)).join('\n');
-}
-// qosify.init does `for i in $files`, so each entry is word-split and glob-expanded
-// by the shell before it reaches the daemon: a path with whitespace becomes two
-// entries, and the metacharacters below break or run inside that loop.
-function fileEnt(v){
-	if(!v)return _('Empty path');
-	if(/\s/.test(v))return _('No whitespace — qosify.init word-splits this list');
-	if(/['"`$;&|<>(){}\\]/.test(v))return _('Shell metacharacters are not allowed here');
-	if(v.charAt(0)!=='/')return _('Must be an absolute path');
-	return null;
 }
 // Non-blocking sanity pass: flag rule targets that are neither a defined class,
 // a DSCP codepoint, nor a raw numeric value.
@@ -1353,93 +1320,16 @@ return view.extend({
 				E('div',{'class':'cbi-page-actions'},
 					E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.uploadFiles();}},_('Upload & Apply')))
 			]),
-			sect(_('Mapping Files'),[
-				desc(_('The files qosify loads port, address and DNS mappings from — the defaults list in config defaults, passed to the daemon as the config files array. Shell globs are expanded by qosify.init when the config is pushed.')),
-				E('div',{'id':'qos-mf'},this.mfTable()),
-				E('div',{'class':'cbi-value'},[
-					E('label',{'class':'cbi-value-title','for':'qos-mf-add'},_('Add file')),
-					E('div',{'class':'cbi-value-field'},[
-						E('input',{'type':'text','class':'cbi-input-text','id':'qos-mf-add','placeholder':'/etc/qosify/*.conf'}),' ',
-						E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.mfAdd();}},_('Add'))])
-				]),
-				E('div',{'class':'cbi-page-actions'},
-					E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveMapFiles();}},_('Save & Apply')))
-			]),
 			sect(_('Maintenance'),[
 				E('div',{'class':'cbi-section-node'},valRow(_('Re-check devices'),[
 					E('button',{'class':'cbi-button cbi-button-action','id':'qos-btn-chkdev','click':function(){return self.checkDevices();}},_('Check Devices')),
-					desc(_('Runs the daemon\'s own device pass, so a device that appeared after qosify started is picked up without rebuilding the qdiscs.'))]))
+					desc(_('Re-runs the daemon\'s own device pass: every shaped section is looked up again, one whose device now exists is started and one whose device has gone is stopped. Nothing is reported back by the call — the result shows in the Service table on the Overview tab.'))]))
 			]),
 			sect(_('Defaults'),[
 				E('div',{'class':'cbi-section-node'},valRow(_('Restore qosify defaults'),
 					E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},_('Reset'))))
 			])
 		]);
-	},
-
-	// config defaults `list defaults`. uci gives a list as an array and a lone
-	// entry as a string; qosify.init word-splits it either way.
-	defFiles:function(){
-		var s=uci.sections('qosify','defaults')[0],v=s&&s.defaults;
-		return (v==null?[]:Array.isArray(v)?v:String(v).split(/\s+/)).filter(function(x){return trim(x)!=='';});
-	},
-
-	mfTable:function(){
-		var self=this;
-		if(!this._mf)this._mf=this.defFiles();
-		return gridTable([_('Path'),_('Remove')],this._mf.map(function(p,i){
-			return [E('code',{},p),E('button',{'class':'cbi-button cbi-button-remove',
-				'click':function(){self._mf.splice(i,1);self.mfDraw();}},_('Remove'))];
-		}),_('No files listed — qosify loads no mappings.'));
-	},
-
-	// Rebuilt after every add or remove, so the rows miss the render-time pass.
-	mfDraw:function(){
-		var b=$('qos-mf');
-		if(!b)return;
-		dom.content(b,this.mfTable());
-		this.applyReadonly(b);
-	},
-
-	mfAdd:function(){
-		var el=$('qos-mf-add'),v=trim(el&&el.value),e=fileEnt(v);
-		if(e){notify(e,'warning');return;}
-		if(this._mf.indexOf(v)>=0){notify(_('%s is already listed.').format(v),'warning');return;}
-		this._mf.push(v);
-		el.value='';
-		this.mfDraw();
-	},
-
-	// Written as a list, so setOpts() is no use here. The daemon only picks the new
-	// list up from a config push, which is what applyService() does.
-	saveMapFiles:function(){
-		var self=this,vals=(self._mf||[]).slice(),bad=null;
-		vals.forEach(function(v){if(!bad)bad=fileEnt(v);});
-		if(bad){notify(bad,'danger');return;}
-		self.lock();
-		ui.showModal(_('Saving'),[E('p',{},_('Writing the file list and reloading qosify...'))]);
-		return callUciRevert('qosify').then(function(){
-			return Promise.all([fs.read(UCI_PATH),L.resolveDefault(fs.stat(UCI_PATH),null)]);
-		}).then(function(r){
-			var txt=r[0]||'',st=r[1];
-			if(!trim(txt)&&st&&st.size>0)
-				throw new Error(_('%s came back empty although it is %d bytes on disk — refusing to overwrite it').format(UCI_PATH,st.size));
-			return fs.write(UCI_PATH,setList(txt,'defaults','',0,'defaults',vals));
-		}).then(function(){
-			uci.unload('qosify');
-			return uci.load('qosify');
-		}).then(function(){
-			return self.applyService();
-		}).then(function(){
-			ui.hideModal();
-			notify(vals.length?_('File list saved, qosify reloaded.'):_('File list emptied — qosify has no mappings to load.'),vals.length?'info':'warning');
-			self._mf=self.defFiles();
-			self.mfDraw();
-			return self.refreshAll();
-		}).catch(function(e){
-			ui.hideModal();
-			notify(_('Save failed: %s').format(e),'danger');
-		}).finally(function(){self.unlock();});
 	},
 
 	updateFiles:function(ctx){
@@ -1932,14 +1822,20 @@ return view.extend({
 	},
 
 	// ubus call qosify check_devices -- qosify_iface_check(), the same pass the
-	// daemon runs at the end of a config push. Picks up a device that appeared
-	// after qosify started without bouncing the qdiscs a restart would rebuild.
+	// daemon runs at the end of a config push. Every shaped section is looked up
+	// again (if_nametoindex for a device, netifd for an interface) and started or
+	// stopped to match, so a device that appeared after qosify started is picked up
+	// without bouncing the qdiscs a restart would rebuild. The method only arms a
+	// 10ms uloop timer and returns an empty reply, so the work happens after the
+	// call resolves: settle first, or the refresh reads the old state.
 	checkDevices:function(){
 		var self=this;
 		self.lock();
 		ui.showModal(_('Working'),[E('p',{},_('Re-checking devices...'))]);
 		return callQosifyCheckDevices().then(function(){
-			notify(_('Device check requested.'),'info');
+			return new Promise(function(r){setTimeout(r,800);});
+		}).then(function(){
+			notify(_('Device check done — see the Service table for what changed.'),'info');
 			return self.refreshOverview();
 		}).catch(function(e){
 			notify(_('Device check failed: %s').format(e),'danger');

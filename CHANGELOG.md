@@ -2,6 +2,14 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.6-dev — 2026-09-17
+
+- Advanced: **Mapping Files** removed — the `defaults` list stays in the Config tab's Quick
+  Add. The `setList()` and `fileEnt()` helpers it needed go with it
+- Check Devices waits for the pass before refreshing: `check_devices` only arms a 10 ms
+  uloop timer and returns an empty reply, so the refresh was reading the state from before
+  the check. Its description now says what the pass does and where the result shows
+
 ## v3.7.5-dev — 2026-09-17
 
 - Counters gated on the daemon the way Status is: with qosify stopped the charts are
