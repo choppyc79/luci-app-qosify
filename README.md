@@ -89,6 +89,8 @@ The app registers every file it owns, including the stylesheet, in `/lib/upgrade
 
 A session with only *read* access to the `luci-app-qosify` ACL group gets a read-only page: the editors, Quick Add forms and service controls are disabled rather than offered and failing with a permission error. Backup downloads and the Counters tab stay available, apart from Traffic by CAKE Tin, which needs the `qosify-status` exec grant.
 
+If rpcd answers for none of the app's status calls — an ACL left behind by an older install, a session that predates it, or rpcd itself not running — the page reports **Unknown** instead of guessing. Status, Autostart, Shaping and `/etc/init.d/qosify` show an amber Unknown badge with one line naming the cause, the service buttons stay clickable so the failing call reports its own error, and a save says shaping could not be checked rather than warning that qosify is not shaping. Restarting rpcd after an upgrade (`/etc/init.d/rpcd restart`) is what the installer does at the end of an install.
+
 ## Configuration
 
 The shipped config has QoS **disabled** for a safe first run. Set your WAN bandwidth in Quick Settings on the Overview tab and enable it there; no raw editing is needed for common setups. The Config and Rules tabs are there when you want full control, and the Advanced tab accepts pre-built files.
