@@ -2,6 +2,12 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.1-dev — 2026-09-17
+
+- Quick settings descriptions shortened to qosify's own wording (Enable ingress shaping,
+  CAKE diffserv mode, Uplink bandwidth, same format as tc, ...); overhead fields say what
+  is sent to CAKE (overhead, mpu, ether-vlan, atm/noatm/ptm)
+
 ## v3.7.0-dev — 2026-09-17
 
 Quick settings back in tabs.

@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.0-dev"
+VERSION="3.7.1-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -884,47 +884,47 @@ return view.extend({
 		// CAKE is only given nat/nonat when host_isolate is on; otherwise it gets
 		// flow isolation and nat has no effect at all.
 		var hiCb=chk('host_isolate',numBool(w.host_isolate,true));
-		var natNote=desc(_('qosify only passes this to CAKE together with host isolation — add nat to common CAKE options to force it'));
+		var natNote=desc(_('Only sent with host isolation on — add nat to common CAKE options to force it'));
 		hiCb.addEventListener('change',function(){natNote.style.display=hiCb.checked?'none':'';});
 		natNote.style.display=hiCb.checked?'none':'';
 		// qosify.init only reads overhead and overhead_encap under overhead_type manual.
 		var ovSel=sel('overhead',w.overhead_type,OVH,'none');
-		var manRows=[valRow(_('Manual overhead'),[num('ovh_bytes',w.overhead,'--'),desc(_('Additional packet overhead in bytes.'))]),
-			valRow(_('Encapsulation overhead'),[sel('overhead_encap',w.overhead_encap,ENCAP),desc(_('Link layer added with manual overhead: atm, noatm or ptm.'))])];
+		var manRows=[valRow(_('Manual overhead'),[num('ovh_bytes',w.overhead,'--'),desc(_('Sent to CAKE as overhead, in bytes.'))]),
+			valRow(_('Encapsulation overhead'),[sel('overhead_encap',w.overhead_encap,ENCAP),desc(_('Sent to CAKE as atm, noatm or ptm.'))])];
 		function syncOvh(){manRows.forEach(function(r){r.style.display=ovSel.value==='manual'?'':'none';});}
 		ovSel.addEventListener('change',syncOvh);
 		syncOvh();
 		var grp=E('div',{},[
 			pane('qs-basic',_('Basic'),[
-				[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge,desc(_("Checked = QoS enabled (disabled '0'), unchecked = QoS disabled (disabled '1')."))]],
-				[isDev?_('Device'):_('Interface'),[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(_('The network %s qosify should operate on. qosify skips configuration sections without a name.').format(isDev?_('device'):_('interface')))]],
-				[_('Upload bandwidth'),[txt('bw_up',w.bandwidth_up,_('e.g. %s').format('850mbit')),desc(_('Set slightly below the maximum achievable upload speed so CAKE remains the bottleneck.'))]],
-				[_('Download bandwidth'),[txt('bw_down',w.bandwidth_down,_('e.g. %s').format('850mbit')),desc(_('Set slightly below the maximum achievable download speed so CAKE remains the bottleneck.'))]]
+				[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge,desc(_('Unticked sets disabled 1 and qosify skips this section.'))]],
+				[isDev?_('Device'):_('Interface'),[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(isDev?_('Netdev to enable QoS on. Required.'):_('netifd interface to enable QoS on. Required.'))]],
+				[_('Upload bandwidth'),[txt('bw_up',w.bandwidth_up,_('e.g. %s').format('850mbit')),desc(_('Uplink bandwidth, same format as tc. Set just below line speed.'))]],
+				[_('Download bandwidth'),[txt('bw_down',w.bandwidth_down,_('e.g. %s').format('850mbit')),desc(_('Downlink bandwidth, same format as tc. Set just below line speed.'))]]
 			]),
 			pane('qs-traffic',_('Traffic'),[
-				[_('Download shaping'),[chk('ingress',numBool(w.ingress,true)),desc(_('Enables CAKE shaping for incoming/download traffic.'))]],
-				[_('Upload shaping'),[chk('egress',numBool(w.egress,true)),desc(_('Enables CAKE shaping for outgoing/upload traffic.'))]],
-				[_('Automatic download rate'),[chk('autorate',numBool(w.autorate_ingress,false)),desc(_('Automatically adjusts the ingress/download rate. Normally leave disabled for a fixed-rate connection.'))]]
+				[_('Download shaping'),[chk('ingress',numBool(w.ingress,true)),desc(_('Enable ingress shaping.'))]],
+				[_('Upload shaping'),[chk('egress',numBool(w.egress,true)),desc(_('Enable egress shaping.'))]],
+				[_('Automatic download rate'),[chk('autorate',numBool(w.autorate_ingress,false)),desc(_('Enable CAKE automatic rate estimation for ingress.'))]]
 			]),
 			pane('qs-fairness',_('Fairness'),[
-				[_('NAT awareness'),[chk('nat',numBool(w.nat,!isDev)),desc(_('Enables CAKE NAT awareness and allows traffic from hosts behind NAT to be identified for host-based handling.')),natNote]],
-				[_('Host isolation'),[hiCb,desc(_('Improves fairness between different hosts/devices sharing the connection. Host isolation is most useful together with NAT awareness.'))]]
+				[_('NAT awareness'),[chk('nat',numBool(w.nat,!isDev)),desc(_('Enable CAKE NAT host detection via conntrack.')),natNote]],
+				[_('Host isolation'),[hiCb,desc(_('Enable CAKE host isolation.'))]]
 			]),
 			pane('qs-diffserv',_('DiffServ'),[
-				[_('Queueing mode'),[sel('mode',w.mode,MODES,'diffserv4'),desc(_('Controls how CAKE divides traffic into priority classes/tins.'))]]
+				[_('Queueing mode'),[sel('mode',w.mode,MODES,'diffserv4'),desc(_('CAKE diffserv mode.'))]]
 			]),
 			pane('qs-overhead',_('Overhead'),[
-				[_('Overhead preset'),[ovSel,desc(_('Select the overhead/framing used by your WAN connection. If unsure, use none rather than entering arbitrary values.'))]],
-				[_('VLAN tags'),[sel('overhead_vlan',w.overhead_vlan,['0','1','2'],'0'),desc(_('Number of additional VLAN tags carried by packets. Each VLAN tag adds Ethernet framing overhead.'))]],
+				[_('Overhead preset'),[ovSel,desc(_('CAKE overhead keyword. Use none if unsure.'))]],
+				[_('VLAN tags'),[sel('overhead_vlan',w.overhead_vlan,['0','1','2'],'0'),desc(_('Sent to CAKE as ether-vlan, once per tag.'))]],
 				manRows[0],
-				[_('Minimum packet unit (MPU)'),[num('overhead_mpu',w.overhead_mpu,'--'),desc(_('Minimum packet size, in bytes, used by CAKE when calculating overhead.'))]],
+				[_('Minimum packet unit (MPU)'),[num('overhead_mpu',w.overhead_mpu,'--'),desc(_('Sent to CAKE as mpu, in bytes.'))]],
 				manRows[1]
 			]),
 			pane('qs-advanced',_('Advanced'),[
-				[_('Ingress CAKE options'),[txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb')),desc(_('Raw CAKE options applied to the ingress/download qdisc. Separate options with spaces.'))]],
-				[_('Egress CAKE options'),[txt('egr_opts',w.egress_options,_('e.g. %s').format('wash')),desc(_('Raw CAKE options applied to the egress/upload qdisc. Separate options with spaces.'))]],
-				[_('Common CAKE options'),[txt('opts',w.options,_('e.g. %s').format('overhead 46 memlimit 32mb')),desc(_('Raw CAKE options applied to both ingress and egress.'))]]
-			],[E('div',{'class':'cbi-tab-descr'},_('Warning: Incorrect CAKE options may prevent qosify from starting or may produce unexpected traffic-shaping behaviour.'))])
+				[_('Ingress CAKE options'),[txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb')),desc(_('CAKE ingress options, space separated.'))]],
+				[_('Egress CAKE options'),[txt('egr_opts',w.egress_options,_('e.g. %s').format('wash')),desc(_('CAKE egress options, space separated.'))]],
+				[_('Common CAKE options'),[txt('opts',w.options,_('e.g. %s').format('overhead 46 memlimit 32mb')),desc(_('CAKE options for ingress + egress.'))]]
+			],[E('div',{'class':'cbi-tab-descr'},_('Invalid CAKE options can stop qosify starting.'))])
 		]);
 		// Every pane is marked, as the sub tabs share LuCI's stored tab id with the page tabs.
 		if(!grp.querySelector('[data-tab-active="true"]'))grp.firstChild.setAttribute('data-tab-active','true');
