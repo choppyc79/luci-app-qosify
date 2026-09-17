@@ -2,6 +2,17 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.10-dev — 2026-09-17
+
+- Quick settings rows are separated by the same faint hairline the Service table uses
+  (`--border-color-low`), on all four tabs. The line is a `border-top` between rows, so a
+  hidden Overhead row never leaves a stray line and the last row has none. Row spacing moved
+  from a bottom margin to `.55em` padding top and bottom, and the pane box padding dropped
+  to `.7em 1.5em` to suit
+- Advanced tab now matches the others: the hint sits beside the field rather than under it,
+  and the three CAKE option boxes are a 28em column — about half their old full-row length,
+  still long enough for an option string
+
 ## v3.7.9-dev — 2026-09-17
 
 - Overview quick settings fill the width instead of leaving the right half of each tab
