@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.6-dev"
+VERSION="3.7.7-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -1243,11 +1243,23 @@ return view.extend({
 	// Sizes the open editor so the page fits the window. At the window's height the
 	// page overflows by exactly what sits above and below the editor, so the space
 	// left is the window less that: 2 * innerHeight - scrollHeight.
+	// Measured on the next frame, never in the handler: ui.tabs.switchTab() walks the
+	// panes in document order and fires cbi-tab-active from inside that loop, so every
+	// pane after the new one is still data-tab-active when it runs. Coming back from
+	// Advanced, the last tab, scrollHeight counted that pane too and the editor lost
+	// its whole height -- in practice collapsing to the 160px floor. One frame later
+	// the switch has finished and only the open pane is laid out. Repeat calls
+	// coalesce, so a resize drag measures once per frame.
 	fitEditor:function(){
-		var ta=$({cf:'qos-config-ta',ru:'qos-rules-ta'}[this.currentTab]),w=window.innerHeight;
-		if(!ta||!ta.offsetParent)return;
-		ta.style.height=w+'px';
-		ta.style.height=Math.max(160,2*w-document.documentElement.scrollHeight)+'px';
+		var self=this;
+		if(self._fitReq)cancelAnimationFrame(self._fitReq);
+		self._fitReq=requestAnimationFrame(function(){
+			self._fitReq=0;
+			var ta=$({cf:'qos-config-ta',ru:'qos-rules-ta'}[self.currentTab]),w=window.innerHeight;
+			if(!ta||!ta.offsetParent)return;
+			ta.style.height=w+'px';
+			ta.style.height=Math.max(160,2*w-document.documentElement.scrollHeight)+'px';
+		});
 	},
 
 	editorSect:function(id,path,text,st,clear,save){

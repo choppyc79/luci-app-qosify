@@ -2,6 +2,16 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.7-dev — 2026-09-17
+
+- Config and Rules editors no longer collapse after a visit to Advanced.
+  `ui.tabs.switchTab()` walks the panes in document order and fires `cbi-tab-active`
+  from inside that loop, so panes after the new one are still `data-tab-active` when the
+  handler runs; the fit counted the tab being left as well and, coming back from
+  Advanced (the last tab), dropped the editor to its 160px floor. The measurement now
+  happens on the next animation frame, once the switch has finished, and repeat calls
+  coalesce so a resize drag measures once per frame
+
 ## v3.7.6-dev — 2026-09-17
 
 - Advanced: **Mapping Files** removed — the `defaults` list stays in the Config tab's Quick
