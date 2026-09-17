@@ -2,6 +2,22 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.9-dev — 2026-09-17
+
+- Overview quick settings fill the width instead of leaving the right half of each tab
+  empty: every row is a two column grid, control then its hint on the same line, with the
+  hints aligned in one column. Rows are spaced 1.1em apart, the label column is 16em, the
+  pane box has 1.25em/1.5em padding and a 17em floor so the four tabs stay the same height
+  and the page does not jump between them
+- Fields are sized by what goes in them rather than all stretched to full width: Manual
+  overhead and MPU are 7em, VLAN tags and Encapsulation overhead 9em, Interface and the two
+  bandwidths 14em, Queueing mode and Overhead preset 18em. The three Advanced CAKE option
+  fields keep the full row, since option strings are long
+- The host isolation note under NAT awareness spans the row, and the enable checkbox and
+  its state badge are wrapped together so the grid keeps one control per cell
+- Below 600px the label, control and hint stack, and the control column shrinks rather than
+  overflowing on tablet widths
+
 ## v3.7.8-dev — 2026-09-17
 
 - Service state is tri-state: a status call that rpcd never answered no longer reads as a
