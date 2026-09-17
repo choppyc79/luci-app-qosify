@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.2-dev"
+VERSION="3.7.3-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -780,12 +780,15 @@ return view.extend({
 				// this from a requestAnimationFrame, so the pane is in the DOM.
 				if(t[0]==='st')self.refreshStatus();
 				if(t[0]==='cn')self.refreshCounters();
+				self.fitEditor();
 			});
 			group.appendChild(pane);
 		});
 		root.appendChild(group);
 		ui.tabs.initTabGroup(group.childNodes);
 		this.currentTab=want;
+		window.addEventListener('resize',function(){self.fitEditor();});
+		root.firstChild.addEventListener('load',function(){self.fitEditor();});
 
 		if(this.readonly){
 			this.applyReadonly(root);
@@ -799,8 +802,8 @@ return view.extend({
 	// All three tabs tick at LuCI's poll interval (luci.main.pollinterval, 5 s unless
 	// set) and pause with its header toggle, each only while its tab is open:
 	// Overview is six ubus calls and no forks, Status forks qosify-status, which runs
-	// tc twice per active interface, and Counters is three ubus calls (service.list,
-	// get_stats, dump) plus that same fork while qosify runs.
+	// tc twice per active interface, and Counters is two ubus calls (service.list,
+	// get_stats), dump where get_stats has a dns table, plus that fork while qosify runs.
 	// Poll.step() holds the next tick until the promise this returns settles, so a
 	// fork slower than the interval skips ticks instead of stacking up.
 	installPollers:function(){
@@ -1126,6 +1129,7 @@ return view.extend({
 			refBox(_('Defaults'),_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).'),[])
 		],false));
 		section.appendChild(qa);
+		section.addEventListener('toggle',function(){self.fitEditor();},true);
 		section.appendChild(this.editorSect('qos-config-ta',UCI_PATH,ctx.cfgRaw,ctx.cfgStat,function(){return self.clearCfg();},function(){return self.saveConfig();}));
 		return section;
 	},
@@ -1214,6 +1218,16 @@ return view.extend({
 		return E('details',{},[E('summary',{},_('Classes')),E('table',{'class':'table'},E('tbody',{'id':id},this.classRows(this.getClasses())))]);
 	},
 
+	// Sizes the open editor so the page fits the window. At the window's height the
+	// page overflows by exactly what sits above and below the editor, so the space
+	// left is the window less that: 2 * innerHeight - scrollHeight.
+	fitEditor:function(){
+		var ta=$({cf:'qos-config-ta',ru:'qos-rules-ta'}[this.currentTab]),w=window.innerHeight;
+		if(!ta||!ta.offsetParent)return;
+		ta.style.height=w+'px';
+		ta.style.height=Math.max(160,2*w-document.documentElement.scrollHeight)+'px';
+	},
+
 	editorSect:function(id,path,text,st,clear,save){
 		var ta=E('textarea',{'id':id,'class':'cbi-input-textarea','style':'width:100%','rows':28,'spellcheck':'false','wrap':'off'},text||'');
 		ta.dataset.orig=text||'';
@@ -1253,6 +1267,7 @@ return view.extend({
 			]),
 			this.classRef('qos-cls-ru')])
 		],false)));
+		section.addEventListener('toggle',function(){self.fitEditor();},true);
 		section.appendChild(this.editorSect('qos-rules-ta',RULES_PATH,ctx.rulesText,ctx.rulesStat,function(){return self.clearRules();},function(){return self.saveRules();}));
 		return section;
 	},
@@ -1366,16 +1381,15 @@ return view.extend({
 		return rows.sort(byDscp).concat(dyn.sort(byDscp));
 	},
 	// dns is the get_stats dns table keyed by pattern; a pattern with no traffic is
-	// omitted from it, so it is zero once the table exists. hasDns false means the
-	// daemon has no such table (24.10) and the column goes; null is not asked yet.
+	// omitted from it, so it is zero once the table exists.
 	// hits counts every matching lookup, packets the pattern_id in the address map
 	// entry, which __qosify_map_set_entry() only writes when the DSCP changes.
 	// The signature covers the listing's shape only, not the map entry total:
 	// qosify adds and expires address entries for DNS results all the time, and
 	// with the total in it the table was rebuilt on nearly every tick. While it
 	// holds, the traffic and timeout cells and the footer are set in place.
-	mapSig:function(rows,hasDns){
-		var out=[rows.length,hasDns].join('|'),i,r;
+	mapSig:function(rows){
+		var out=String(rows.length),i,r;
 		for(i=0;i<rows.length&&i<MAP_ROWS;i++){
 			r=rows[i];
 			out+='\n'+[r.addr,r.dscp,r.file,r.user,r.timeout!=null].join(',');
@@ -1387,18 +1401,17 @@ return view.extend({
 	// Header and rows are two fixed-layout tables sharing column widths: the
 	// header sits above the scroll box, so nothing scrolls under it, and is
 	// padded by the scrollbar width so the columns line up.
-	mapNodes:function(rows,hasDns){
-		var cells=this._mapCells=[],tcol=hasDns!==false,wcol=rows.some(function(r){return r.timeout!=null;}),
-			cols=[['dns',34],['dscp',14],['file / user',12]];
-		if(tcol)cols.push(['hits / packets / bytes',28,1]);
+	mapNodes:function(rows){
+		var cells=this._mapCells=[],wcol=rows.some(function(r){return r.timeout!=null;}),
+			cols=[['dns',34],['dscp',14],['file / user',12],['hits / packets / bytes',28,1]];
 		if(wcol)cols.push(['timeout',12,1]);
 		var trs=rows.slice(0,MAP_ROWS).map(function(r){
-			var src=[],a=String(r.addr!=null?r.addr:'-'),c={t:tcol?E('td',{'class':'td qn'}):null,w:wcol?E('td',{'class':'td qn'}):null};
+			var src=[],a=String(r.addr!=null?r.addr:'-'),c={t:E('td',{'class':'td qn'}),w:wcol?E('td',{'class':'td qn'}):null};
 			if(r.file)src.push('file');
 			if(r.user)src.push('user');
 			cells.push(c);
 			return E('tr',{'class':'tr'},[E('td',{'class':'td','title':a},E('code',{},a)),
-				E('td',{'class':'td'},r.dscp||'-'),E('td',{'class':'td'},src.join(', ')||'-'),c.t||'',c.w||'']);
+				E('td',{'class':'td'},r.dscp||'-'),E('td',{'class':'td'},src.join(', ')||'-'),c.t,c.w||'']);
 		});
 		return E('div',{'class':'qbox'},[colHead(cols,'qos-cn-map-head'),E('div',{'id':'qos-cn-map-box'},colTable(cols,trs))]);
 	},
@@ -1409,7 +1422,7 @@ return view.extend({
 			var r=rows[i],e=(dns&&dns[r.addr])||{},t,w;
 			t=!dns?'-':[Number(e.hits||0).toLocaleString(),Number(e.packets||0).toLocaleString()].concat(e.bytes==null?[]:['%1024.2mB'.format(e.bytes)]).join(' / ');
 			w=r.timeout!=null?'%t'.format(r.timeout):'-';
-			if(c.t&&c.t.textContent!==t)c.t.textContent=t;
+			if(c.t.textContent!==t)c.t.textContent=t;
 			if(c.w&&c.w.textContent!==w)c.w.textContent=w;
 		});
 		t=rows.length>MAP_ROWS?_('DNS Entries (%d of %d)').format(MAP_ROWS,rows.length):_('DNS Entries (%d)').format(rows.length);
@@ -1422,8 +1435,10 @@ return view.extend({
 	// map listing's traffic column reads the stats just fetched, so both are
 	// chained after them, and qosify-status is only forked while qosify runs.
 	// Master always opens the dns table, so its absence identifies the build
-	// rather than a quiet period. fillMap() skips the rebuild while its signature
-	// is unchanged, so the one-entry-per-port dump costs a compare, not a redraw.
+	// rather than a quiet period: 25.12 and 24.10 (1501e09) have none, so dump is
+	// not called and DNS Entries stays hidden, and it shows by itself on any build
+	// that gains the table. fillMap() skips the rebuild while its signature is
+	// unchanged, so the one-entry-per-port dump costs a compare, not a redraw.
 	refreshCounters:function(){
 		var self=this;
 		if(self.currentTab!=='cn')return Promise.resolve();
@@ -1435,12 +1450,11 @@ return view.extend({
 			self._cnStats=ctx.running?ctx.stats:null;
 			if(ctx.stats)self._cnDns=ctx.stats.dns!=null;
 			self.fillCounters(ctx);
-			return Promise.all([L.resolveDefault(callQosifyDump(),null),ctx.running,
+			return Promise.all([self._cnDns?L.resolveDefault(callQosifyDump(),null):null,ctx.running,
 				ctx.running&&!self.readonly?L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),null):null]);
 		}).then(function(r){
 			self.fillTins(r[1],r[2]);
-			self.fillMap(r[0],self._cnStats&&self._cnStats.dns,
-				self._cnDns==null?null:self._cnDns);
+			self.fillMap(r[0],self._cnStats&&self._cnStats.dns);
 		});
 	},
 
@@ -1449,7 +1463,7 @@ return view.extend({
 			sect(_('Traffic by Class'),[E('div',{'id':'qos-cn-msg'}),E('div',{'id':'qos-cn-bars'})]),
 			sect(_('Traffic by CAKE Tin'),E('div',{'id':'qos-cn-tins'},emP(_('Loading...'))),{'id':'qos-cn-tin-sect','style':'display:none'}),
 			sect('get_stats',E('div',{'id':'qos-cn-info'})),
-			sect(_('DNS Entries'),E('div',{'id':'qos-cn-map'},emP(_('Loading...'))),{'id':'qos-cn-map-sect'})
+			sect(_('DNS Entries'),E('div',{'id':'qos-cn-map'},emP(_('Loading...'))),{'id':'qos-cn-map-sect','style':'display:none'})
 		]);
 	},
 
@@ -1655,9 +1669,10 @@ return view.extend({
 
 	// Rebuilt only when the listing's shape changes; otherwise only the figures
 	// and footer are rewritten.
-	fillMap:function(r,dns,hasDns){
-		var box=$('qos-cn-map'),lg=$('qos-cn-map-sect-title');
-		if(!box)return;
+	fillMap:function(r,dns){
+		var box=$('qos-cn-map'),lg=$('qos-cn-map-sect-title'),sc=$('qos-cn-map-sect');
+		if(sc)sc.style.display=this._cnDns?'':'none';
+		if(!box||!this._cnDns)return;
 		var e=(r&&r.entries)||[],rows=this.mapRows(e),sig,t;
 		if(!rows.length){
 			this._mapSig=this._mapCells=null;
@@ -1666,12 +1681,12 @@ return view.extend({
 			if(box.textContent!==t)dom.content(box,emP(t));
 			return;
 		}
-		sig=this.mapSig(rows,hasDns);
+		sig=this.mapSig(rows);
 		if(sig!==this._mapSig){
 			t=$('qos-cn-map-box');
 			t=t?t.scrollTop:0;
 			this._mapSig=sig;
-			dom.content(box,this.mapNodes(rows,hasDns));
+			dom.content(box,this.mapNodes(rows));
 			$('qos-cn-map-box').scrollTop=t;
 		}
 		this.mapValues(rows,dns);
@@ -2360,7 +2375,7 @@ JSEOF
 #qos-cn .qhead .tr.table-titles{background:none}
 #qos-cn-map-box{height:24rem;min-height:6rem;overflow-y:scroll;resize:vertical}
 #qos-cn .qhead .th,#qos-cn .qbox .td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#qos-config-ta,#qos-rules-ta{height:calc(100vh - 240px);min-height:320px;resize:vertical}
+#qos-config-ta,#qos-rules-ta{min-height:160px;resize:vertical}
 #qos-app .qa{margin:0 0 .9em}#qos-app .qa>details.cbi-section{margin:0 0 .3em;padding:0 .6em;border-radius:4px;box-shadow:none}
 #qos-app .qa>details.cbi-section>summary{margin:0 -.6em;padding:.3em .6em;font-size:.95em;line-height:1.5;border-radius:4px 4px 0 0}#qos-app .qa summary>h3{line-height:inherit}
 #qos-app .qa>details[open]{padding-bottom:.5em}#qos-app .qa>details[open]>summary{margin-bottom:.4em}#qos-app .qa>details:not([open])>summary{border-radius:4px}

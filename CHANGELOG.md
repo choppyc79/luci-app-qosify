@@ -2,6 +2,16 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.3-dev — 2026-09-17
+
+- Config and Rules editors sized so the whole tab fits the window by default, refitted when
+  the tab opens, a Quick Add or Reference section folds, or the window resizes; still
+  draggable, 160px minimum
+- Counters: DNS Entries shown only when `get_stats` has a `dns` table (qosify `beeb87e`,
+  snapshots); on 25.12 and 24.10 (`1501e09`) the section stays hidden and `dump` is not
+  called, and it appears by itself on any build that gains the table. The no-traffic-column
+  fallback is gone
+
 ## v3.7.2-dev — 2026-09-17
 
 - Quick settings down from six tabs to four: Basic (enable, interface, bandwidth, queueing
