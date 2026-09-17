@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.8-dev"
+VERSION="3.7.9-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -921,6 +921,7 @@ return view.extend({
 		// flow isolation and nat has no effect at all.
 		var hiCb=chk('host_isolate',numBool(w.host_isolate,true));
 		var natNote=desc(_('Only sent with host isolation on — add nat to common CAKE options to force it'));
+		natNote.classList.add('qs-note');
 		hiCb.addEventListener('change',function(){natNote.style.display=hiCb.checked?'none':'';});
 		natNote.style.display=hiCb.checked?'none':'';
 		// qosify.init only reads overhead and overhead_encap under overhead_type manual.
@@ -932,7 +933,7 @@ return view.extend({
 		syncOvh();
 		var grp=E('div',{},[
 			pane('qs-basic',_('Basic'),[
-				[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge,desc(_('Unticked sets disabled 1 and qosify skips this section.'))]],
+				[_('QoS Enabled'),[E('span',{'class':'qs-ctl'},[chk('enabled',enChecked),' ',enBadge]),desc(_('Unticked sets disabled 1 and qosify skips this section.'))]],
 				[isDev?_('Device'):_('Interface'),[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(isDev?_('Netdev to enable QoS on. Required.'):_('netifd interface to enable QoS on. Required.'))]],
 				[_('Upload bandwidth'),[txt('bw_up',w.bandwidth_up,_('e.g. %s').format('850mbit')),desc(_('Uplink bandwidth, same format as tc. Set just below line speed.'))]],
 				[_('Download bandwidth'),[txt('bw_down',w.bandwidth_down,_('e.g. %s').format('850mbit')),desc(_('Downlink bandwidth, same format as tc. Set just below line speed.'))]],
@@ -2493,13 +2494,28 @@ JSEOF
 #qos-ov .table .td,#qos-ov .table .th{padding-top:.5em;padding-bottom:.5em;vertical-align:middle}
 #qos-ov .cbi-section{margin-bottom:1.25em;padding-bottom:.9em}#qos-ov .cbi-section>h3{margin-bottom:.9em;padding:.6em 1em}
 #qos-ov .cbi-section .cbi-page-actions{margin:.9em -1em -.9em;padding:.45em 1em}#qos-ov>.cbi-page-actions{margin-top:1.25em}
-#qos-app .qs-box{min-width:0;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:1em 1.25em .5em}
+#qos-app .qs-box{min-width:0;min-height:17em;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:1.25em 1.5em 1em}
 #qos-app #qos-cfg-sect{padding:0;overflow:hidden}#qos-ov #qos-cfg-sect .td{padding-top:.6em;padding-bottom:.6em}#qos-app #qos-cfg-sect>.table{margin:0;border:0}#qos-cfg-sect .th,#qos-cfg-sect .td{padding-left:1em;padding-right:1em}
 #qos-cfg-sect .tr.cbi-section-table-titles .th{border-top:0;padding-top:.6em;padding-bottom:.6em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));background:var(--background-color-low,rgba(128,128,128,.06))}
-#qos-qs-sect .cbi-value{margin-bottom:.8em;align-items:flex-start}#qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 14em;padding-top:0;line-height:28px}
-#qos-qs-sect .cbi-value-field{margin-left:1em;min-width:0;line-height:28px}#qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}#qos-qs-sect .cbi-value-field input[type=checkbox]{margin:0;vertical-align:middle}
+#qos-qs-sect .cbi-value{margin-bottom:1.1em;align-items:flex-start}#qos-qs-sect .cbi-value:last-child{margin-bottom:0}
+#qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 16em;padding-top:0;line-height:30px;font-weight:600}
+/* Control then hint on one line, so a short input no longer leaves the row empty
+   and every hint still starts in the same column. */
+#qos-qs-sect .cbi-value-field{display:grid;grid-template-columns:minmax(0,18em) minmax(0,1fr);align-items:center;gap:.3em 1.5em;flex:1 1 auto;margin-left:1.5em;min-width:0;line-height:30px}
+#qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}
+#qos-qs-sect .qs-note,#qos-qs-sect [data-q$=opts],#qos-qs-sect [data-q$=opts]+.cbi-value-description{grid-column:1/-1}
+#qos-qs-sect .cbi-value-field input[type=checkbox]{justify-self:start;margin:0;vertical-align:middle}
 #qos-app .cbi-section>.table,#qos-app .cbi-section>div>.table{margin-bottom:0}
-#qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field input[type=number],#qos-qs-sect .cbi-value-field select{width:100%;max-width:none;box-sizing:border-box}
+#qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field input[type=number],#qos-qs-sect .cbi-value-field select{max-width:100%;box-sizing:border-box}
+/* Sized by what goes in: a byte count gets a byte-sized box, CAKE options get the row. */
+#qos-qs-sect [data-q=ovh_bytes],#qos-qs-sect [data-q=overhead_mpu]{width:7em}
+#qos-qs-sect [data-q=overhead_vlan],#qos-qs-sect [data-q=overhead_encap]{width:9em}
+#qos-qs-sect [data-q=name],#qos-qs-sect [data-q=bw_up],#qos-qs-sect [data-q=bw_down]{width:14em}
+#qos-qs-sect [data-q=mode],#qos-qs-sect [data-q=overhead]{width:18em}
+#qos-qs-sect [data-q$=opts]{width:100%}
+/* Phones: label, then control, then hint, one under the other. */
+@media (max-width:600px){#qos-qs-sect .cbi-value{display:block}#qos-qs-sect .cbi-value label.cbi-value-title{line-height:1.5}
+#qos-qs-sect .cbi-value-field{grid-template-columns:minmax(0,1fr);margin-left:0}#qos-qs-sect .cbi-value-field>*{grid-column:1}}
 #qos-app details:not(.cbi-section){margin:.75em 0 0}#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}
 #qos-app details:not(.cbi-section)>p,#qos-app details:not(.cbi-section)>.table{margin:.5em 0 0}
 #qos-cn .cbi-section{margin-bottom:.6em;padding-bottom:.6em}#qos-cn .cbi-section>h3{margin-bottom:.6em;padding:.45em 1em}
