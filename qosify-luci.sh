@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.6.6-dev"
+VERSION="3.7.0-dev"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -320,7 +320,7 @@ var RULES_PATH='/etc/qosify/00-defaults.conf';
 var DSCP=['CS0','CS1','CS2','CS3','CS4','CS5','CS6','CS7','AF11','AF12','AF13','AF21','AF22','AF23','AF31','AF32','AF33','AF41','AF42','AF43','EF','VA','NQB','LE','DF'];
 var OVH=['none','manual','conservative','ethernet','docsis','pppoe-ptm','bridged-ptm','pppoe-vcmux','pppoe-llcsnap','pppoa-vcmux','pppoa-llc','bridged-vcmux','bridged-llcsnap','ipoa-vcmux','ipoa-llcsnap'];
 var ENCAP=['atm','noatm','ptm'];
-var MODES=['diffserv3','diffserv4','diffserv8','besteffort','precedence'];
+var MODES=['diffserv8','diffserv4','diffserv3','besteffort','precedence'];
 var OPT_DESC={
 	defaults:_('List of files with port/IP/host mappings'),
 	timeout:_('Default timeout for dynamically added entries'),
@@ -867,8 +867,10 @@ return view.extend({
 			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},_('%s (current)').format(val)));
 			return s;
 		}
-		function col(rows){
-			return E('div',{'class':'qs-box cbi-section-node'},rows.map(function(r){return valRow(r[0],r[1]);}));
+		function num(name,val,ph){var e=txt(name,val,ph);e.type='number';return e;}
+		function pane(id,title,rows,top){
+			return E('div',{'data-tab':id,'data-tab-title':title,'data-tab-active':id===self._qsTab?'true':null},
+				E('div',{'class':'qs-box cbi-section-node'},(top||[]).concat(rows.map(function(r){return Array.isArray(r)?valRow(r[0],r[1]):r;}))));
 		}
 
 		var enBadge=E('span',{'id':'q-en-badge'});
@@ -882,34 +884,57 @@ return view.extend({
 		// CAKE is only given nat/nonat when host_isolate is on; otherwise it gets
 		// flow isolation and nat has no effect at all.
 		var hiCb=chk('host_isolate',numBool(w.host_isolate,true));
-		var natNote=desc(_('qosify only passes this to CAKE together with host_isolate — add nat to options to force it'));
+		var natNote=desc(_('qosify only passes this to CAKE together with host isolation — add nat to common CAKE options to force it'));
 		hiCb.addEventListener('change',function(){natNote.style.display=hiCb.checked?'none':'';});
 		natNote.style.display=hiCb.checked?'none':'';
+		// qosify.init only reads overhead and overhead_encap under overhead_type manual.
+		var ovSel=sel('overhead',w.overhead_type,OVH,'none');
+		var manRows=[valRow(_('Manual overhead'),[num('ovh_bytes',w.overhead,'--'),desc(_('Additional packet overhead in bytes.'))]),
+			valRow(_('Encapsulation overhead'),[sel('overhead_encap',w.overhead_encap,ENCAP),desc(_('Link layer added with manual overhead: atm, noatm or ptm.'))])];
+		function syncOvh(){manRows.forEach(function(r){r.style.display=ovSel.value==='manual'?'':'none';});}
+		ovSel.addEventListener('change',syncOvh);
+		syncOvh();
+		var grp=E('div',{},[
+			pane('qs-basic',_('Basic'),[
+				[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge,desc(_("Checked = QoS enabled (disabled '0'), unchecked = QoS disabled (disabled '1')."))]],
+				[isDev?_('Device'):_('Interface'),[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(_('The network %s qosify should operate on. qosify skips configuration sections without a name.').format(isDev?_('device'):_('interface')))]],
+				[_('Upload bandwidth'),[txt('bw_up',w.bandwidth_up,_('e.g. %s').format('850mbit')),desc(_('Set slightly below the maximum achievable upload speed so CAKE remains the bottleneck.'))]],
+				[_('Download bandwidth'),[txt('bw_down',w.bandwidth_down,_('e.g. %s').format('850mbit')),desc(_('Set slightly below the maximum achievable download speed so CAKE remains the bottleneck.'))]]
+			]),
+			pane('qs-traffic',_('Traffic'),[
+				[_('Download shaping'),[chk('ingress',numBool(w.ingress,true)),desc(_('Enables CAKE shaping for incoming/download traffic.'))]],
+				[_('Upload shaping'),[chk('egress',numBool(w.egress,true)),desc(_('Enables CAKE shaping for outgoing/upload traffic.'))]],
+				[_('Automatic download rate'),[chk('autorate',numBool(w.autorate_ingress,false)),desc(_('Automatically adjusts the ingress/download rate. Normally leave disabled for a fixed-rate connection.'))]]
+			]),
+			pane('qs-fairness',_('Fairness'),[
+				[_('NAT awareness'),[chk('nat',numBool(w.nat,!isDev)),desc(_('Enables CAKE NAT awareness and allows traffic from hosts behind NAT to be identified for host-based handling.')),natNote]],
+				[_('Host isolation'),[hiCb,desc(_('Improves fairness between different hosts/devices sharing the connection. Host isolation is most useful together with NAT awareness.'))]]
+			]),
+			pane('qs-diffserv',_('DiffServ'),[
+				[_('Queueing mode'),[sel('mode',w.mode,MODES,'diffserv4'),desc(_('Controls how CAKE divides traffic into priority classes/tins.'))]]
+			]),
+			pane('qs-overhead',_('Overhead'),[
+				[_('Overhead preset'),[ovSel,desc(_('Select the overhead/framing used by your WAN connection. If unsure, use none rather than entering arbitrary values.'))]],
+				[_('VLAN tags'),[sel('overhead_vlan',w.overhead_vlan,['0','1','2'],'0'),desc(_('Number of additional VLAN tags carried by packets. Each VLAN tag adds Ethernet framing overhead.'))]],
+				manRows[0],
+				[_('Minimum packet unit (MPU)'),[num('overhead_mpu',w.overhead_mpu,'--'),desc(_('Minimum packet size, in bytes, used by CAKE when calculating overhead.'))]],
+				manRows[1]
+			]),
+			pane('qs-advanced',_('Advanced'),[
+				[_('Ingress CAKE options'),[txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb')),desc(_('Raw CAKE options applied to the ingress/download qdisc. Separate options with spaces.'))]],
+				[_('Egress CAKE options'),[txt('egr_opts',w.egress_options,_('e.g. %s').format('wash')),desc(_('Raw CAKE options applied to the egress/upload qdisc. Separate options with spaces.'))]],
+				[_('Common CAKE options'),[txt('opts',w.options,_('e.g. %s').format('overhead 46 memlimit 32mb')),desc(_('Raw CAKE options applied to both ingress and egress.'))]]
+			],[E('div',{'class':'cbi-tab-descr'},_('Warning: Incorrect CAKE options may prevent qosify from starting or may produce unexpected traffic-shaping behaviour.'))])
+		]);
+		// Every pane is marked, as the sub tabs share LuCI's stored tab id with the page tabs.
+		if(!grp.querySelector('[data-tab-active="true"]'))grp.firstChild.setAttribute('data-tab-active','true');
+		grp.childNodes.forEach(function(p){p.addEventListener('cbi-tab-active',function(){self._qsTab=p.getAttribute('data-tab');});});
+		// initTabGroup puts the tab menu before grp in its parent, so grp needs one.
+		var wrap=E('div',{},grp);
+		ui.tabs.initTabGroup(grp.childNodes);
 		return [
 			E('h3',{},_('%s quick settings').format(sn?sn.type+(sn.name?' '+sn.name:''):'interface wan')),
-			E('div',{'class':'qs-cols'},[
-				col([
-					[_('QoS Enabled'),[chk('enabled',enChecked),' ',enBadge,desc(_("option disabled — '0' when ticked, '1' when not"))]],
-					['name',[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(_('required — qosify skips sections with no name'))]],
-					['bandwidth_up',txt('bw_up',w.bandwidth_up,_('e.g. %s').format('100mbit'))],
-					['bandwidth_down',txt('bw_down',w.bandwidth_down,_('e.g. %s').format('100mbit'))],
-					['ingress',chk('ingress',numBool(w.ingress,true))],
-					['egress',chk('egress',numBool(w.egress,true))],
-					['autorate_ingress',chk('autorate',numBool(w.autorate_ingress,false))],
-					['nat',[chk('nat',numBool(w.nat,!isDev)),natNote]],
-					['host_isolate',hiCb]
-				]),
-				col([
-					['mode',sel('mode',w.mode,MODES,'diffserv4')],
-					['overhead_type',sel('overhead',w.overhead_type,OVH,'none')],
-					['overhead_encap',[sel('overhead_encap',w.overhead_encap,ENCAP),desc(_('used only when overhead_type is manual'))]],
-					['overhead_mpu',txt('overhead_mpu',w.overhead_mpu,_('e.g. %s').format('84'))],
-					['overhead_vlan',sel('overhead_vlan',w.overhead_vlan,['0','1','2'],'0')],
-					['ingress_options',txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb'))],
-					['egress_options',txt('egr_opts',w.egress_options,_('e.g. %s').format('triple-isolate memlimit 32mb wash'))],
-					['options',txt('opts',w.options,_('e.g. %s').format('overhead 38'))]
-				])
-			]),
+			wrap,
 			E('div',{'class':'cbi-page-actions'},
 				E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveQuick();}},_('Save & Apply')))
 		];
@@ -1729,7 +1754,7 @@ return view.extend({
 		var bw=function(s){return trim(s).replace(/\s+/g,'');};
 		var bwUp=bw(get('bw_up')),bwDn=bw(get('bw_down'));
 		var rate=/^(unlimited|\d+(\.\d+)?((k|m|g|t)?(bit|bps)|(ki|mi|gi)(bit|bps))?)$/i;
-		var ovh=get('overhead'),mode=get('mode'),mpu=trim(get('overhead_mpu')),vlan=get('overhead_vlan');
+		var ovh=get('overhead'),mode=get('mode'),mpu=trim(get('overhead_mpu')),vlan=get('overhead_vlan'),ob=trim(get('ovh_bytes'));
 		var iopts=trim(get('ing_opts')),eopts=trim(get('egr_opts')),gopts=trim(get('opts'));
 		var safe=/^[\w\s.:-]*$/;
 		if(!safe.test(iopts)||!safe.test(eopts)||!safe.test(gopts)){
@@ -1739,6 +1764,7 @@ return view.extend({
 		if(bwUp&&!rate.test(bwUp))notify(_('bandwidth_up does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
 		if(bwDn&&!rate.test(bwDn))notify(_('bandwidth_down does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
 		if(mpu&&!/^\d+$/.test(mpu)){notify(_('Error: overhead_mpu must be a whole number of bytes'),'danger');return;}
+		if(ovh==='manual'&&ob&&!/^-?\d+$/.test(ob)){notify(_('Error: overhead must be a whole number of bytes'),'danger');return;}
 		var en=chk('enabled');
 		if(en&&(!bwUp||!bwDn))notify(_('Note: bandwidth not set — CAKE will run unlimited on that direction.'),'warning');
 
@@ -1760,8 +1786,8 @@ return view.extend({
 			options:gopts||null,
 			option:null
 		};
-		// overhead has no field: kept under manual, dropped otherwise as qosify ignores it.
-		if(ovh!=='manual')kv.overhead=null;
+		// overhead and overhead_encap are dropped unless manual, as qosify ignores them.
+		kv.overhead=(ovh==='manual'&&ob)?ob:null;
 		kv.overhead_encap=(ovh==='manual'&&get('overhead_encap'))?get('overhead_encap'):null;
 		kv.overhead_mpu=mpu||null;
 		kv.overhead_vlan=vlan&&vlan!=='0'?vlan:null;
@@ -2316,14 +2342,13 @@ JSEOF
 #qos-ov .table .td,#qos-ov .table .th{padding-top:.5em;padding-bottom:.5em;vertical-align:middle}
 #qos-ov .cbi-section{margin-bottom:1.25em;padding-bottom:.9em}#qos-ov .cbi-section>h3{margin-bottom:.9em;padding:.6em 1em}
 #qos-ov .cbi-section .cbi-page-actions{margin:.9em -1em -.9em;padding:.45em 1em}#qos-ov>.cbi-page-actions{margin-top:1.25em}
-#qos-app .qs-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,28em),1fr));gap:1.25em}
 #qos-app .qs-box{min-width:0;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:1em 1.25em .5em}
 #qos-app #qos-cfg-sect{padding:0;overflow:hidden}#qos-ov #qos-cfg-sect .td{padding-top:.6em;padding-bottom:.6em}#qos-app #qos-cfg-sect>.table{margin:0;border:0}#qos-cfg-sect .th,#qos-cfg-sect .td{padding-left:1em;padding-right:1em}
 #qos-cfg-sect .tr.cbi-section-table-titles .th{border-top:0;padding-top:.6em;padding-bottom:.6em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));background:var(--background-color-low,rgba(128,128,128,.06))}
-#qos-qs-sect .cbi-value{margin-bottom:.8em;align-items:flex-start}#qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 11em;padding-top:0;line-height:28px}
+#qos-qs-sect .cbi-value{margin-bottom:.8em;align-items:flex-start}#qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 14em;padding-top:0;line-height:28px}
 #qos-qs-sect .cbi-value-field{margin-left:1em;min-width:0;line-height:28px}#qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}#qos-qs-sect .cbi-value-field input[type=checkbox]{margin:0;vertical-align:middle}
 #qos-app .cbi-section>.table,#qos-app .cbi-section>div>.table{margin-bottom:0}
-#qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field select{width:100%;max-width:none;box-sizing:border-box}
+#qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field input[type=number],#qos-qs-sect .cbi-value-field select{width:100%;max-width:none;box-sizing:border-box}
 #qos-app details:not(.cbi-section){margin:.75em 0 0}#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}
 #qos-app details:not(.cbi-section)>p,#qos-app details:not(.cbi-section)>.table{margin:.5em 0 0}
 #qos-cn .cbi-section{margin-bottom:.6em;padding-bottom:.6em}#qos-cn .cbi-section>h3{margin-bottom:.6em;padding:.45em 1em}

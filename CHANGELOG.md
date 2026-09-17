@@ -2,6 +2,22 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.7.0-dev — 2026-09-17
+
+Quick settings back in tabs.
+
+- `interface wan quick settings` holds six tabs, Basic, Traffic, Fairness, DiffServ,
+  Overhead and Advanced, replacing the two side-by-side boxes; one Save & Apply bar under
+  them, and the open tab survives the redraw after a save
+- Plain labels with a description under every field (Upload bandwidth, Download shaping,
+  NAT awareness, Queueing mode, Overhead preset, ...); the UCI keys are unchanged
+- Manual overhead (`overhead`) is back as a field, shown with Encapsulation overhead only
+  when Overhead preset is `manual`; a whole number of bytes, negative allowed
+- Manual overhead and Minimum packet unit are number fields; label column widened to 14em
+- Queueing mode lists diffserv8, diffserv4, diffserv3, besteffort, precedence; the Quick
+  Add `mode` select follows
+- Advanced tab warns that incorrect CAKE options may stop qosify starting
+
 ## v3.6.6-dev — 2026-09-16
 
 - Service control bar (Autostart, Start, Restart, Reload, Stop) moved from LuCI's page
