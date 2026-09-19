@@ -369,7 +369,8 @@ var DSCP_VAL={CS0:0,DF:0,LE:1,CS1:8,AF11:10,AF12:12,AF13:14,CS2:16,AF21:18,AF22:
 // CAKE's Background tin, so they sort below best effort; -1 is anything
 // __qosify_map_dscp_value() would reject and sorts below them.
 var DSCP_BULK={1:1,8:1};
-function dscpRank(v){return v<0?-1000:DSCP_BULK[v]?v-100:v===46?100:v;}
+// Within an AF class the lowest drop precedence leads: AF41, AF42, AF43.
+function dscpRank(v){return v<0?-1000:DSCP_BULK[v]?v-100:v===46?100:v>=10&&v<=38&&!(v&1)&&(v&7)?(v&56)+8-(v&7):v;}
 // Colour by sorted class name, so a class keeps its colour as the bars reorder.
 function qc(n){return 'var(--qos-c-'+n+')';}
 var CN_COLORS=['blue','green','orange','purple','red','cyan','brown','pink'].map(qc);
@@ -701,7 +702,7 @@ function emRow(t){return E('tr',{'class':'tr placeholder'},E('td',{'class':'td'}
 function emP(t){return E('p',{},E('em',{},t));}
 function gridTable(head,rows,empty){
 	return E('table',{'class':'table cbi-section-table'},[E('tr',{'class':'tr cbi-section-table-titles'},head.map(function(h){return E('th',{'class':'th'},h);}))]
-		.concat(rows.length?rows.map(function(r,n){return E('tr',{'class':'tr cbi-section-table-row cbi-rowstyle-'+(n%2+1)},r.map(function(c,i){return E('td',{'class':'td','data-title':head[i]},c);}));}):[emRow(empty)]));
+		.concat(rows.length?rows.map(function(r){return E('tr',{'class':'tr cbi-section-table-row'},r.map(function(c,i){return E('td',{'class':'td','data-title':head[i]},c);}));}):[emRow(empty)]));
 }
 function sect(title,kids,attrs){
 	var a=attrs||{};
@@ -1337,7 +1338,10 @@ return view.extend({
 				E('span',{'id':'qos-bk-mt-'+i},st?fmtMtime(st.mtime):'-'),self.dlBtn(path,fn)];
 		}
 		function reRow(path,id){
-			return [E('code',{},path),E('input',{'type':'file','id':id})];
+			// The native picker ignores the theme, so it stays hidden behind a LuCI button.
+			var nm=E('span',{'class':'qos-up-name'},_('No file selected')),
+				fi=E('input',{'type':'file','id':id,'style':'display:none','change':function(){nm.textContent=fi.files[0]?fi.files[0].name:_('No file selected');}});
+			return [E('code',{},path),E('span',{},[fi,E('button',{'class':'cbi-button','click':function(){fi.click();}},_('Choose file…')),' ',nm])];
 		}
 		return E('div',{'id':'qos-ad'},[
 			sect(_('Backup'),[
@@ -2200,8 +2204,7 @@ return view.extend({
 				if(errs.length)msg+=' '+_('Errors:')+' '+errs.join('; ');
 				notify(msg,errs.length?'warning':'info');
 				warns.forEach(function(t){notify(t,'warning');});
-				if(u1)u1.value='';
-				if(u2)u2.value='';
+				[u1,u2].forEach(function(u){if(u){u.value='';u.dispatchEvent(new Event('change'));}});
 				return self.refreshAll();
 			});
 		}).catch(function(e){
@@ -2550,7 +2553,7 @@ JSEOF
 #qos-cn .qhead .tr.table-titles{background:none}
 #qos-cn-map-box{height:24rem;min-height:6rem;overflow-y:scroll;resize:vertical}
 #qos-cn .qhead .th,#qos-cn .qbox .td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#qos-app .cbi-section-node>.cbi-value:last-child{margin-bottom:0}#qos-app input[type=file]{background:transparent}
+#qos-app .cbi-section-node>.cbi-value:last-child{margin-bottom:0}#qos-app .qos-up-name{margin-left:.5em;opacity:.75}
 /* Status output and both editors are boxed like the rest. */
 #qos-st-pre{margin:0}
 /* Width belongs on the id, not on a class or the style attribute: the theme sizes every
