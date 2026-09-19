@@ -6,7 +6,22 @@ qosify is a daemon that sets up and manages CAKE together with an eBPF classifie
 
 The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids and `.cbi-progressbar` bars — and `qosify.css` draws each section as a box with a title bar using the theme's own colour variables. Option names on screen are the qosify UCI option names, except the Overview quick settings, which use plain labels with a short description under each field in qosify's own wording.
 
-Current version: **3.7.10-dev**
+Current version: **3.0.0**
+
+## What changed since 2.9.x
+
+3.0.0 is the whole 3.x development series folded into one release on top of v2.9.11. The daemon contract is unchanged — same UCI keys, same ubus calls, same file paths — so an upgrade needs no config changes. In short:
+
+- **New Counters tab** — Traffic by Class from `ubus call qosify get_stats`, Traffic by CAKE Tin from `qosify-status` in graph form, and DNS Entries from `ubus call qosify dump` where the running daemon reports them
+- **Rebuilt on stock LuCI markup** — the `qos-*` classes are gone; `qosify.css` draws every section, fold and inner box with one outline, radius, title bar and row line from the theme's own variables, the class and tin colours follow the theme in light and dark, and the tab highlight is left to the theme
+- **Six tabs** — Overview, Config, Rules, Status, Counters, Advanced, with the page title lowercase `qosify`
+- **Overview holds the service picture** — one Service section with status, uptime, autostart, shaping count and the per-interface rows moved over from Status; the control bar sits at the bottom of the tab instead of under every tab
+- **Quick settings in four tabs** — Basic, Shaping, Overhead, Advanced, with plain labels, a short qosify-worded hint beside each field and each field sized for its value
+- **Reload Rules**, `ubus call qosify reload`, re-reads only the mapping files, and **Check Devices**, `ubus call qosify check_devices`, picks up a device that appeared after qosify started
+- **Tri-state service reporting** — a status call rpcd never answered shows amber **Unknown** rather than reading as a stopped, unshaped qosify
+- **Polling follows LuCI** — every tab ticks at `luci.main.pollinterval` and pauses with LuCI's own refresh toggle, only while its tab is open
+
+Full detail is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tabs
 
@@ -16,7 +31,7 @@ The **Service** section shows status (green while shaping, amber while running i
 The **quick settings** write straight to the interface or device section in `/etc/config/qosify`, in one section titled with the section it edits (e.g. `interface wan quick settings`) holding four tabs with one Save & Apply bar under them: **Basic** (QoS Enabled with its state badge, writing `disabled` `0` when ticked and `1` when not; Interface, or Device for a `config device` section, `name`; Upload/Download bandwidth, `bandwidth_up`/`bandwidth_down`; Queueing mode `mode`, defaulting to `diffserv4` as in the shipped qosify config), **Shaping** (Download shaping `ingress`, Upload shaping `egress`, Automatic download rate `autorate_ingress`, NAT awareness `nat`, Host isolation `host_isolate`), **Overhead** (Overhead preset `overhead_type`, VLAN tags `overhead_vlan` 0–2, Manual overhead `overhead`, Minimum packet unit `overhead_mpu`, Encapsulation overhead `overhead_encap`) and **Advanced** (Ingress, Egress and Common CAKE options, `ingress_options`/`egress_options`/`options`, under a warning that bad options can stop qosify starting). The overhead presets are the `overhead_type` values `qosify.init` accepts; Manual overhead and Encapsulation overhead (`atm`, `noatm` or `ptm`) show only under `manual` and are dropped for any other type, since qosify ignores them. Each row puts the field and its hint on one line, hints aligned in a column and rows separated by the same faint line as the Service table, and each field is sized for its value — a byte count gets a small box, the CAKE option strings a long one. The open tab is kept when the section redraws after a save. None of `wash`, `triple-isolate`, `ack-filter`, `split-gso`, `rtt`, `memlimit` or `fwmark` is added for you; they go in the Advanced fields. Values are validated before writing: `overhead_mpu` and `overhead` must be whole numbers of bytes (`overhead` may be negative), option strings are checked for the shell metacharacters that would break the `tc` command qosify builds, and bandwidth is checked against `tc` rate syntax (including `unlimited`) but passed through with a warning rather than blocked, since `tc` is the authority. A failed read of `/etc/config/qosify` aborts the save instead of replacing the file, and a file that changed on disk since the page loaded prompts before being overwritten. The same two checks cover the Config editor: emptying it and saving truncates the file, so a save is refused when the file is non-empty on disk but the editor never loaded it, and the cleanup helper only runs once the daemon is confirmed stopped. It skips sections with `disabled 1`, as `qosify.init` does, and only removes the ifb device qosify derives from each enabled section, so a Stop never touches a device or ifb qosify did not create.
 
 ### Config
-Inline editor for `/etc/config/qosify`, sized so the whole tab fits the window (refitted when the tab opens, a section folds or the window resizes) and draggable, the fit measured on the following animation frame so the tab being left is not counted, with three **Quick Add** sections, one per stanza group, each folding away on its own and laid out as LuCI section grids with the option names across the top (the class and interface forms start with the section type and name), that build `config defaults`, `config class`, `config alias`, `config interface`, and `config device` stanzas from constrained dropdowns — DSCP codepoints, CAKE overhead types, and diffserv modes only. Under each form a collapsible panel lists every option with its description from the qosify README. A folding **Reference** section lists the defined classes, the accepted DSCP values and the defaults qosify applies when a key is absent. Each section remembers whether it was open for the browser session.
+Inline editor for `/etc/config/qosify`, sized so the whole tab fits the window (refitted when the tab opens, a section folds or the window resizes) and draggable in both directions, the fit measured on the following animation frame so the tab being left is not counted, with three **Quick Add** sections, one per stanza group, each folding away on its own and laid out as LuCI section grids with the option names across the top (the class and interface forms start with the section type and name), that build `config defaults`, `config class`, `config alias`, `config interface`, and `config device` stanzas from constrained dropdowns — DSCP codepoints, CAKE overhead types, and diffserv modes only. Under each form a collapsible panel lists every option with its description from the qosify README. A folding **Reference** section lists the defined classes, the accepted DSCP values and the defaults qosify applies when a key is absent. Each section remembers whether it was open for the browser session.
 
 The editor lints as you go and flags keys the daemon will silently drop — an interface section with no `name`, `nat` set without `host_isolate` (qosify only emits `nat`/`nonat` inside the host isolate branch), `overhead`/`overhead_encap` set while `overhead_type` is not `manual`, both directions disabled, missing bandwidth, shell metacharacters in values, and booleans that do not survive the daemon's conversion — `option nat 'true'` reaches qosify through `json_add_boolean`, which uses `!!atoi()`, so it means *off*.
 
@@ -47,7 +62,7 @@ Always on the tab bar, and polled like the other tabs at LuCI's refresh interval
 ## Install
 
 ```
-wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev/qosify-luci.sh
+wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev-align-main/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```
@@ -55,7 +70,7 @@ chmod +x /root/qosify-luci.sh
 Or with curl:
 
 ```
-curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev/qosify-luci.sh
+curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev-align-main/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```

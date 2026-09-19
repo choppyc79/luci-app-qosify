@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.7.10-dev"
+VERSION="3.0.0"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -371,11 +371,12 @@ var DSCP_VAL={CS0:0,DF:0,LE:1,CS1:8,AF11:10,AF12:12,AF13:14,CS2:16,AF21:18,AF22:
 var DSCP_BULK={1:1,8:1};
 function dscpRank(v){return v<0?-1000:DSCP_BULK[v]?v-100:v===46?100:v;}
 // Colour by sorted class name, so a class keeps its colour as the bars reorder.
-var CN_COLORS=['#377eb8','#4daf4a','#ff7f00','#984ea3','#e41a1c','#17becf','#a65628','#f781bf'];
+function qc(n){return 'var(--qos-c-'+n+')';}
+var CN_COLORS=['blue','green','orange','purple','red','cyan','brown','pink'].map(qc);
 // qosify_map_stats() appends these two default slots; they are not config classes.
 var CN_SKIP={tcp_default:1,udp_default:1};
 // A class with no codepoint to place in a tin.
-var CN_NONE='rgba(128,128,128,.45)';
+var CN_NONE=qc('none');
 // CAKE's DSCP to tin tables in sch_cake.c, already put through tin_order, so each
 // digit is the column qosify-status prints that tin in. besteffort is one tin.
 var TIN_MAP={besteffort:'0',
@@ -384,14 +385,16 @@ var TIN_MAP={besteffort:'0',
 	diffserv4:'1011211101111111212121212121212131212121311131313111111131111111',
 	diffserv3:'1011211101111111111111111111111111111111111121212111111121111111'};
 // Colour per tin, same index as TIN_MAP and the qosify-status tin columns, so a
-// class bar takes the colour of the tin its codepoint lands in. One colour per kind of traffic across modes: red
-// bulk, blue best effort, yellow video, green voice; diffserv8 and precedence add
-// their extra tins between them.
-var TIN_COLORS={besteffort:['#377eb8'],
-	precedence:['#377eb8','#e41a1c','#984ea3','#e6b422','#ff7f00','#4daf4a','#1b7837','#0f4d24'],
-	diffserv8:['#5c5c5c','#e41a1c','#377eb8','#e6b422','#17becf','#984ea3','#4daf4a','#1b7837'],
-	diffserv4:['#e41a1c','#377eb8','#e6b422','#4daf4a'],
-	diffserv3:['#e41a1c','#377eb8','#4daf4a']};
+// class bar takes the colour of the tin its codepoint lands in. One colour per kind
+// of traffic across modes: red bulk, blue best effort, yellow video, green voice;
+// diffserv8 and precedence add their extra tins between them. The names are
+// qosify.css tokens, so the theme supplies the colours in light and dark.
+var TIN_COLORS={besteffort:['blue'],
+	precedence:['blue','red','purple','yellow','orange','green','forest','pine'],
+	diffserv8:['grey','red','blue','yellow','cyan','purple','green','forest'],
+	diffserv4:['red','blue','yellow','green'],
+	diffserv3:['red','blue','green']};
+for(var tk in TIN_COLORS)TIN_COLORS[tk]=TIN_COLORS[tk].map(qc);
 
 // luci.setInitAction was dropped from luci-base in 4440b267d; the rc namespace
 // (built into the rpcd core binary, so no extra dependency) replaces it.
@@ -692,12 +695,13 @@ function notify(msg,kind){
 // qosify.css draws each section as a box with the theme's own variables.
 function badge(kind,t){return E('span',{'class':kind?'label '+kind:'label'},t);}
 function desc(t){return E('div',{'class':'cbi-value-description'},t);}
+function sdesc(t){return E('div',{'class':'cbi-section-descr'},t);}
 function kvRow(k,v,id){return E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},k),E('td',{'class':'td left','id':id||null},v)]);}
 function emRow(t){return E('tr',{'class':'tr placeholder'},E('td',{'class':'td'},E('em',{},t)));}
 function emP(t){return E('p',{},E('em',{},t));}
 function gridTable(head,rows,empty){
 	return E('table',{'class':'table cbi-section-table'},[E('tr',{'class':'tr cbi-section-table-titles'},head.map(function(h){return E('th',{'class':'th'},h);}))]
-		.concat(rows.length?rows.map(function(r){return E('tr',{'class':'tr cbi-section-table-row'},r.map(function(c,i){return E('td',{'class':'td','data-title':head[i]},c);}));}):[emRow(empty)]));
+		.concat(rows.length?rows.map(function(r,n){return E('tr',{'class':'tr cbi-section-table-row cbi-rowstyle-'+(n%2+1)},r.map(function(c,i){return E('td',{'class':'td','data-title':head[i]},c);}));}):[emRow(empty)]));
 }
 function sect(title,kids,attrs){
 	var a=attrs||{};
@@ -775,7 +779,7 @@ return view.extend({
 
 		if(d[0]===null)notify(_('The qosify UCI configuration could not be loaded — class and interface lists may be incomplete.'),'warning');
 
-		var root=E('div',{'class':'cbi-map','id':'qos-app'});
+		var root=E('div',{'class':'cbi-map cbi-map-tabbed','id':'qos-app'});
 		root.appendChild(E('link',{'rel':'stylesheet','href':L.resource('view/qosify/qosify.css')+'?v=@VERSION@'}));
 		root.appendChild(E('h2',{},_('qosify')));
 
@@ -1337,14 +1341,14 @@ return view.extend({
 		}
 		return E('div',{'id':'qos-ad'},[
 			sect(_('Backup'),[
-				desc(_('Download the current files from the router.')),
+				sdesc(_('Download the current files from the router.')),
 				gridTable([_('File'),_('Size'),_('Modified'),_('Download')],[
 					bkRow(0,UCI_PATH,'qosify',ctx.cfgStat),
 					bkRow(1,RULES_PATH,'00-defaults.conf',ctx.rulesStat)
 				])
 			]),
 			sect(_('Restore'),[
-				desc(_('The selected files replace the ones on the router and qosify is reloaded.')),
+				sdesc(_('The selected files replace the ones on the router and qosify is reloaded.')),
 				gridTable([_('File'),_('Upload')],[
 					reRow(UCI_PATH,'qos-up-cfg'),
 					reRow(RULES_PATH,'qos-up-rules')
@@ -1408,7 +1412,7 @@ return view.extend({
 		if(st.last_reload_time)rows.push(['last_reload_time',fmtMtime(st.last_reload_time)]);
 		if(st.dns_cache)rows.push(['dns_cache','size %d, hits %d, misses %d'.format(st.dns_cache.size||0,st.dns_cache.hits||0,st.dns_cache.misses||0)]);
 		if(!rows.length)return emP(_('No daemon statistics.'));
-		return E('table',{'class':'table'},rows.map(function(r){return kvRow(E('code',{},r[0]),r[1]);}));
+		return E('div',{'class':'qbox'},E('table',{'class':'table'},rows.map(function(r){return kvRow(E('code',{},r[0]),r[1]);})));
 	},
 
 	// dump lists port, address and DNS entries, but pattern_stats is the only
@@ -2482,23 +2486,39 @@ JSEOF
 	sed -i "s/@VERSION@/$VERSION/" "$VIEW_DIR/main.js"
 	cat > "$VIEW_DIR/qosify.css" << 'CSSEOF'
 /* SPDX-License-Identifier: MIT */
-#qos-app .cbi-section{border:1px solid var(--border-color-medium,rgba(128,128,128,.35));border-radius:6px;padding:0 1em .6em;margin:0 0 .75em;box-shadow:0 1px 2px rgba(0,0,0,.06)}
-#qos-app .cbi-section>h3,#qos-app .cbi-section>summary{margin:0 -1em .6em;padding:.45em 1em;font-size:1em;line-height:1.5;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));border-radius:6px 6px 0 0;background:var(--background-color-low,rgba(128,128,128,.06))}
+/* One set of box, line and title-bar values for every tab; theme variables first,
+   a neutral fallback for themes that do not define them. */
+#qos-app{--qos-bd:var(--border-color-medium,rgba(128,128,128,.35));--qos-ln:var(--border-color-low,rgba(128,128,128,.2));--qos-hd:var(--background-color-low,rgba(128,128,128,.06));--qos-r:4px;--qos-gap:.75em;--qos-pad:.45em 1em;--qos-cell:.45em .75em
+;--qos-f-red:#e41a1c;--qos-f-blue:#377eb8;--qos-f-yellow:#e6b422;--qos-f-green:#4daf4a;--qos-f-purple:#984ea3;--qos-f-orange:#ff7f00;--qos-f-cyan:#17becf;--qos-f-forest:#1b7837;--qos-f-pine:#0f4d24;--qos-f-grey:#5c5c5c;--qos-f-brown:#a65628;--qos-f-pink:#f781bf;--qos-f-none:rgba(128,128,128,.45)}
+/* Dark fallbacks: LuCI's data-darkmode where the theme sets it, the OS preference where it does not. */
+:root[data-darkmode="true"] #qos-app{--qos-f-red:#e57373;--qos-f-blue:#64a0d8;--qos-f-yellow:#d4b44a;--qos-f-green:#66bb6a;--qos-f-purple:#b085c0;--qos-f-orange:#ffa24d;--qos-f-cyan:#4dd0e1;--qos-f-forest:#43a047;--qos-f-pine:#2e7d4f;--qos-f-grey:#9e9e9e;--qos-f-brown:#c08050;--qos-f-pink:#f4a6cf;--qos-f-none:rgba(160,160,160,.45)}
+@media (prefers-color-scheme:dark){:root:not([data-darkmode]) #qos-app{--qos-f-red:#e57373;--qos-f-blue:#64a0d8;--qos-f-yellow:#d4b44a;--qos-f-green:#66bb6a;--qos-f-purple:#b085c0;--qos-f-orange:#ffa24d;--qos-f-cyan:#4dd0e1;--qos-f-forest:#43a047;--qos-f-pine:#2e7d4f;--qos-f-grey:#9e9e9e;--qos-f-brown:#c08050;--qos-f-pink:#f4a6cf;--qos-f-none:rgba(160,160,160,.45)}}
+/* Tin colours: bulk, best effort, video and voice take the theme's error, primary, warn and success colours. */
+#qos-app{--qos-c-red:var(--error-color-high,var(--qos-f-red));--qos-c-blue:var(--primary-color-high,var(--qos-f-blue));--qos-c-yellow:var(--warn-color-high,var(--qos-f-yellow));--qos-c-green:var(--success-color-high,var(--qos-f-green));--qos-c-purple:var(--qos-f-purple);--qos-c-orange:var(--qos-f-orange);--qos-c-cyan:var(--qos-f-cyan);--qos-c-forest:var(--qos-f-forest);--qos-c-pine:var(--qos-f-pine);--qos-c-grey:var(--qos-f-grey);--qos-c-brown:var(--qos-f-brown);--qos-c-pink:var(--qos-f-pink);--qos-c-none:var(--qos-f-none)}
+/* Boxes: every section, fold and inner box shares one outline and radius. */
+#qos-app .cbi-section,#qos-app .qs-box,#qos-app .qbox,#qos-st-pre{border:1px solid var(--qos-bd);border-radius:var(--qos-r)}
+#qos-app .cbi-section{padding:0 1em var(--qos-gap);margin:0 0 var(--qos-gap);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+#qos-app .cbi-section>h3,#qos-app .cbi-section>summary{margin:0 -1em var(--qos-gap);padding:var(--qos-pad);font-size:1em;line-height:1.5;font-weight:600;border-bottom:1px solid var(--qos-ln);border-radius:var(--qos-r) var(--qos-r) 0 0;background:var(--qos-hd)}
 #qos-app .cbi-section>summary{cursor:pointer;list-style:none}#qos-app .cbi-section>summary::-webkit-details-marker{display:none}
 #qos-app .cbi-section>summary::before{content:"\25B8";display:inline-block;width:1.1em;transition:transform .15s}
 #qos-app details.cbi-section[open]>summary::before{transform:rotate(90deg)}
-#qos-app details.cbi-section:not([open]){padding-bottom:0}#qos-app details.cbi-section:not([open])>summary{margin-bottom:0;border-bottom:0;border-radius:6px}
-#qos-app summary>h3{display:inline;margin:0;font-size:inherit;font-weight:inherit}
-#qos-app .cbi-section .cbi-page-actions{margin:.6em -1em -.75em;padding:.35em 1em;border-radius:0 0 6px 6px}
-#qos-app .label.danger{background-color:var(--error-color-high,#c9302c);color:var(--on-error-color,#fff)}
-#qos-ov .table .td,#qos-ov .table .th{padding-top:.5em;padding-bottom:.5em;vertical-align:middle}
-#qos-ov .cbi-section{margin-bottom:1.25em;padding-bottom:.9em}#qos-ov .cbi-section>h3{margin-bottom:.9em;padding:.6em 1em}
-#qos-ov .cbi-section .cbi-page-actions{margin:.9em -1em -.9em;padding:.45em 1em}#qos-ov>.cbi-page-actions{margin-top:1.25em}
-#qos-app .qs-box{min-width:0;min-height:17em;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;padding:.7em 1.5em}
-#qos-app #qos-cfg-sect{padding:0;overflow:hidden}#qos-ov #qos-cfg-sect .td{padding-top:.6em;padding-bottom:.6em}#qos-app #qos-cfg-sect>.table{margin:0;border:0}#qos-cfg-sect .th,#qos-cfg-sect .td{padding-left:1em;padding-right:1em}
-#qos-cfg-sect .tr.cbi-section-table-titles .th{border-top:0;padding-top:.6em;padding-bottom:.6em;font-weight:600;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.2));background:var(--background-color-low,rgba(128,128,128,.06))}
+#qos-app details.cbi-section:not([open]){padding-bottom:0}#qos-app details.cbi-section:not([open])>summary{margin-bottom:0;border-bottom:0;border-radius:var(--qos-r)}
+#qos-app summary>h3{display:inline;margin:0;font-size:inherit;font-weight:inherit;line-height:inherit}
+#qos-app .cbi-section-descr{margin:0 0 var(--qos-gap);padding:0}
+#qos-app .cbi-section .cbi-page-actions{margin:var(--qos-gap) -1em calc(-1*var(--qos-gap));padding:var(--qos-pad);border-top:1px solid var(--qos-ln);border-radius:0 0 var(--qos-r) var(--qos-r)}
+#qos-ov>.cbi-page-actions{margin-top:var(--qos-gap)}
+#qos-app .label.danger{background-color:var(--qos-c-red);color:var(--on-error-color,#fff)}
+/* Tables: one cell padding and one row line; LuCI draws the column-title rows. */
+#qos-app .table{margin:0}#qos-app .table .th,#qos-app .table .td{padding:var(--qos-cell);vertical-align:middle}
+#qos-app .table .td{border-top-color:var(--qos-ln)}
+#qos-app .table .tr.table-titles .th,#qos-app .table .tr.cbi-section-table-titles .th{font-weight:600;white-space:nowrap}
+/* Files: its column titles are the box title bar. */
+#qos-app #qos-cfg-sect{padding:0;overflow:hidden}#qos-cfg-sect .th,#qos-cfg-sect .td{padding-left:1em;padding-right:1em}
+#qos-cfg-sect .tr.cbi-section-table-titles .th{padding-top:.45em;padding-bottom:.45em;border-bottom:1px solid var(--qos-ln);background:var(--qos-hd)}
+/* Quick settings: one inner box per tab, rows split by the same line as the tables. */
+#qos-app .qs-box{min-width:0;min-height:17em;padding:.7em 1.5em}
 #qos-qs-sect .cbi-value{align-items:flex-start;padding:.55em 0}
-#qos-qs-sect .cbi-value+.cbi-value{border-top:1px solid var(--border-color-low,rgba(128,128,128,.2))}
+#qos-qs-sect .cbi-value+.cbi-value{border-top:1px solid var(--qos-ln)}
 #qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 16em;padding-top:0;line-height:30px;font-weight:600}
 /* Control then hint on one line, so a short input no longer leaves the row empty
    and every hint still starts in the same column. */
@@ -2506,7 +2526,6 @@ JSEOF
 #qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}
 #qos-qs-sect .qs-note{grid-column:1/-1}
 #qos-qs-sect .cbi-value-field input[type=checkbox]{justify-self:start;margin:0;vertical-align:middle}
-#qos-app .cbi-section>.table,#qos-app .cbi-section>div>.table{margin-bottom:0}
 #qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field input[type=number],#qos-qs-sect .cbi-value-field select{max-width:100%;box-sizing:border-box}
 /* Sized by what goes in: a byte count gets a byte-sized box, CAKE options get the row. */
 #qos-qs-sect [data-q=ovh_bytes],#qos-qs-sect [data-q=overhead_mpu]{width:7em}
@@ -2518,30 +2537,34 @@ JSEOF
 /* Phones: label, then control, then hint, one under the other. */
 @media (max-width:600px){#qos-qs-sect .cbi-value{display:block}#qos-qs-sect .cbi-value label.cbi-value-title{line-height:1.5}
 #qos-qs-sect .cbi-value-field{grid-template-columns:minmax(0,1fr);margin-left:0}#qos-qs-sect .cbi-value-field>*{grid-column:1}}
-#qos-app details:not(.cbi-section){margin:.75em 0 0}#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}
+/* Reference panels inside a section. */
+#qos-app details:not(.cbi-section){margin:var(--qos-gap) 0 0}#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}
 #qos-app details:not(.cbi-section)>p,#qos-app details:not(.cbi-section)>.table{margin:.5em 0 0}
-#qos-cn .cbi-section{margin-bottom:.6em;padding-bottom:.6em}#qos-cn .cbi-section>h3{margin-bottom:.6em;padding:.45em 1em}
-#qos-cn .qbox{border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:4px;overflow:hidden}
-#qos-cn .qbox+.qbox{margin-top:.5em}
-#qos-cn .table{margin:0}#qos-cn .table .th,#qos-cn .table .td{padding:.35em .6em;vertical-align:middle}
-#qos-cn .table .tr.table-titles .th{font-weight:600;font-size:.9em;white-space:nowrap}
-#qos-cn .qbox .table .tr:not(.table-titles):hover .td{background:var(--background-color-low,rgba(128,128,128,.06))}
-#qos-cn .cbi-progressbar{height:.75em;margin:0;min-width:0;border-radius:3px}
+/* Counters: header table above a boxed body; bars and figures updated in place. */
+#qos-cn .qbox{overflow:hidden}#qos-cn .qbox+.qbox{margin-top:var(--qos-gap)}
+#qos-cn .qbox .table .tr:not(.table-titles):hover .td{background:var(--qos-hd)}
+#qos-cn .cbi-progressbar{height:.75em;margin:0;min-width:0;border-radius:var(--qos-r)}
 #qos-cn .qn{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;width:1%}
-#qos-cn .qt .td{font-weight:600;border-top:1px solid var(--border-color-medium,rgba(128,128,128,.35))}
-#qos-cn .qhead{background:var(--background-color-medium,rgba(128,128,128,.08));border-bottom:1px solid var(--border-color-medium,rgba(128,128,128,.35))}
+#qos-cn .qt .td{font-weight:600}
+#qos-cn .qhead{background:var(--background-color-medium,rgba(128,128,128,.08));border-bottom:1px solid var(--qos-ln)}
 #qos-cn .qhead .tr.table-titles{background:none}
 #qos-cn-map-box{height:24rem;min-height:6rem;overflow-y:scroll;resize:vertical}
 #qos-cn .qhead .th,#qos-cn .qbox .td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#qos-config-ta,#qos-rules-ta{min-height:160px;resize:vertical}
-#qos-app .qa{margin:0 0 .9em}#qos-app .qa>details.cbi-section{margin:0 0 .3em;padding:0 .6em;border-radius:4px;box-shadow:none}
-#qos-app .qa>details.cbi-section>summary{margin:0 -.6em;padding:.3em .6em;font-size:.95em;line-height:1.5;border-radius:4px 4px 0 0}#qos-app .qa summary>h3{line-height:inherit}
-#qos-app .qa>details[open]{padding-bottom:.5em}#qos-app .qa>details[open]>summary{margin-bottom:.4em}#qos-app .qa>details:not([open])>summary{border-radius:4px}
-#qos-app .qa .table{table-layout:fixed;margin:0 0 .3em}#qos-app .qa .th,#qos-app .qa .td{padding:.15em .3em;vertical-align:middle}
-#qos-app .qa .th{font-size:.85em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#qos-app .cbi-section-node>.cbi-value:last-child{margin-bottom:0}#qos-app input[type=file]{background:transparent}
+/* Status output and both editors are boxed like the rest. */
+#qos-st-pre{margin:0}
+/* Width belongs on the id, not on a class or the style attribute: the theme sizes every
+   textarea at 210px, so a sheet that does not carry this rule leaves both editors that
+   wide with their rows intact -- narrow, full length, and not draggable wider under
+   resize:vertical. resize:both keeps a wrong width correctable. */
+#qos-config-ta,#qos-rules-ta{width:100%;box-sizing:border-box;min-height:160px;resize:both}
+/* Quick Add: forms, so the grids stay tight; the folds themselves are ordinary sections. */
+#qos-app .qa .table{table-layout:fixed;margin:0 0 .3em}#qos-app .qa .th,#qos-app .qa .td{padding:.15em .3em}
+#qos-app .qa .th{font-size:.85em;overflow:hidden;text-overflow:ellipsis}
 #qos-app .qa .td input:not([type=checkbox]),#qos-app .qa .td select{width:100%;min-width:0;box-sizing:border-box}#qos-app .qa .td input[type=checkbox]{margin:0;vertical-align:middle}
 #qos-app .qa-foot{display:flex;align-items:flex-start;gap:.3em 1em}#qos-app .qa-foot>details{flex:1 1 0;min-width:0;margin:.15em 0 0}
 #qos-app .qa details:not(.cbi-section)>summary{font-size:.9em}#qos-app .qa details:not(.cbi-section)>p,#qos-app .qa details:not(.cbi-section)>.table{margin:.3em 0 0}
+#qos-app .qa details:not(.cbi-section) .td{padding:.2em .5em;border-top:1px solid var(--qos-ln)}
 CSSEOF
 	[ -s "$VIEW_DIR/qosify.css" ] || { echo "[ERROR] Failed writing $VIEW_DIR/qosify.css"; exit 1; }
 }
