@@ -7,8 +7,6 @@ PKG_RELEASE:=1
 PKG_MAINTAINER:=Ash Clarke <clarkeaj@hotmail.co.uk>
 PKG_LICENSE:=MIT
 
-PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
-
 include $(INCLUDE_DIR)/package.mk
 
 define Package/luci-app-qosify
@@ -21,8 +19,8 @@ define Package/luci-app-qosify
 endef
 
 define Package/luci-app-qosify/description
-  Modern JavaScript LuCI web interface for the qosify CAKE/eBPF
-  traffic shaping daemon. Config files are owned by the qosify package.
+  Web UI for the qosify CAKE/eBPF traffic shaping daemon.
+  Config files are owned by the qosify package.
 endef
 
 define Build/Prepare
@@ -64,9 +62,9 @@ endef
 define Package/luci-app-qosify/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
-	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null
-	rm -rf /tmp/luci-modulecache 2>/dev/null
-	killall -HUP rpcd 2>/dev/null
+	rm -f /tmp/luci-indexcache.*
+	rm -rf /tmp/luci-modulecache/
+	/etc/init.d/rpcd reload 2>/dev/null
 }
 exit 0
 endef
@@ -74,9 +72,9 @@ endef
 define Package/luci-app-qosify/postrm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
-	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null
-	rm -rf /tmp/luci-modulecache 2>/dev/null
-	killall -HUP rpcd 2>/dev/null
+	rm -f /tmp/luci-indexcache.*
+	rm -rf /tmp/luci-modulecache/
+	/etc/init.d/rpcd reload 2>/dev/null
 }
 exit 0
 endef

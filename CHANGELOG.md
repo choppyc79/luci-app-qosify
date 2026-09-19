@@ -2,7 +2,7 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
-## v3.0.0 — 2026-09-18
+## v3.0.0 — 2026-09-19
 
 First release of the 3.x line. It consolidates the whole 3.x development series
 (v3.5.0-dev through v3.7.10-dev) into one release on top of v2.9.11. The daemon contract
@@ -189,6 +189,18 @@ nothing here modifies qosify, its init script or its defaults.
   the page did not render: `ui.tabs.initTabGroup()` inserts the tab menu before the
   panes' parent in its own parent, and the quick settings sub-tab group was initialised
   before it was wrapped. It is wrapped first now
+
+### Repository
+
+- `main` moves to 3.0.0: `dev-align-main` merged over v2.9.11, whose review fixes it
+  already carried. The installer URLs in the README point at `main` again
+- README: `migrate` is back in the command table, and a new OpenWrt package section says
+  where the in-tree package stands (snapshots ship the 2.9.x code until the 3.0.0 series
+  lands in openwrt/luci) and how to build this `Makefile` in the SDK or buildroot
+- Feed `Makefile`: postinst and postrm clear the LuCI caches and reload rpcd the way
+  `luci.mk` does (`/etc/init.d/rpcd reload` rather than `killall -HUP rpcd`), the
+  description uses the in-tree `LUCI_DESCRIPTION` wording, and `PKG_BUILD_DIR` is dropped
+  since `package.mk` sets the same path
 
 ## v2.9.11 — 2026-09-15
 
