@@ -2,264 +2,187 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
-## v3.7.10-dev — 2026-09-17
+## v3.0.0 — 2026-09-18
 
-- Quick settings rows are separated by the same faint hairline the Service table uses
-  (`--border-color-low`), on all four tabs. The line is a `border-top` between rows, so a
-  hidden Overhead row never leaves a stray line and the last row has none. Row spacing moved
-  from a bottom margin to `.55em` padding top and bottom, and the pane box padding dropped
-  to `.7em 1.5em` to suit
-- Advanced tab now matches the others: the hint sits beside the field rather than under it,
-  and the three CAKE option boxes are a 28em column — about half their old full-row length,
-  still long enough for an option string
+First release of the 3.x line. It consolidates the whole 3.x development series
+(v3.5.0-dev through v3.7.10-dev) into one release on top of v2.9.11. The daemon contract
+is unchanged: every option, ubus call and reply field still maps to qosify itself, and
+nothing here modifies qosify, its init script or its defaults.
 
-## v3.7.9-dev — 2026-09-17
+### Layout
 
-- Overview quick settings fill the width instead of leaving the right half of each tab
-  empty: every row is a two column grid, control then its hint on the same line, with the
-  hints aligned in one column. Rows are spaced 1.1em apart, the label column is 16em, the
-  pane box has 1.25em/1.5em padding and a 17em floor so the four tabs stay the same height
-  and the page does not jump between them
-- Fields are sized by what goes in them rather than all stretched to full width: Manual
-  overhead and MPU are 7em, VLAN tags and Encapsulation overhead 9em, Interface and the two
-  bandwidths 14em, Queueing mode and Overhead preset 18em. The three Advanced CAKE option
-  fields keep the full row, since option strings are long
-- The host isolation note under NAT awareness spans the row, and the enable checkbox and
-  its state badge are wrapped together so the grid keeps one control per cell
-- Below 600px the label, control and hint stack, and the control column shrinks rather than
-  overflowing on tablet widths
-
-## v3.7.8-dev — 2026-09-17
-
-- Service state is tri-state: a status call that rpcd never answered no longer reads as a
-  stopped, unshaped, uninstalled qosify. `rc.list`, `service.list` and `qosify.status` are
-  declared with `reject:true` — without it a ubus status code (6 once the session's ACL no
-  longer covers the object, 4 when the object is gone) stays in `result[0]` and
-  `expect{'':{}}` rewrites it to the same `{}` a working call with nothing to report
-  returns, so `L.resolveDefault()` could not tell the two apart. `gatherCtx()` now catches
-  each rejection to `null`, and `running`, `enabled`, `hasInit`, `active` and `shaped` go
-  `null` rather than `false`
-- One condition covers the lot: `rc` and `service` answer whenever rpcd does and the ACL
-  still covers this app, so either failing sets `ctx.rpcOk` false. The qosify object goes
-  with the daemon, so a stopped qosify explains an unanswered `status` by itself and
-  shaping only reads unknown while qosify is running
-- Overview shows amber **Unknown** badges for Status, Autostart, Shaping and
-  `/etc/init.d/qosify`, with the cause named once on the Status row instead of repeated per
-  row; the enabled badge beside Quick Settings reads **Status Unknown**. Unknown is not
-  Missing, so the service buttons stay clickable and report the call's own error — only
-  Autostart, whose label is the state, is disabled
-- Saving a config or rules edit no longer warns "not shaping" when the check could not run:
-  `waitForShaping()` returns `null` for an unanswered `status` call (still retried like an
-  idle reply) and the save says shaping could not be checked. On a box with a stale ACL
-  that warning was a false negative while qosify was shaping fine
-- Status and Counters tabs say rpcd is not answering instead of "qosify is not running",
-  and skip the `qosify-status` fork while the state is unknown
-
-## v3.7.7-dev — 2026-09-17
-
-- Config and Rules editors no longer collapse after a visit to Advanced.
-  `ui.tabs.switchTab()` walks the panes in document order and fires `cbi-tab-active`
-  from inside that loop, so panes after the new one are still `data-tab-active` when the
-  handler runs; the fit counted the tab being left as well and, coming back from
-  Advanced (the last tab), dropped the editor to its 160px floor. The measurement now
-  happens on the next animation frame, once the switch has finished, and repeat calls
-  coalesce so a resize drag measures once per frame
-
-## v3.7.6-dev — 2026-09-17
-
-- Advanced: **Mapping Files** removed — the `defaults` list stays in the Config tab's Quick
-  Add. The `setList()` and `fileEnt()` helpers it needed go with it
-- Check Devices waits for the pass before refreshing: `check_devices` only arms a 10 ms
-  uloop timer and returns an empty reply, so the refresh was reading the state from before
-  the check. Its description now says what the pass does and where the result shows
-
-## v3.7.5-dev — 2026-09-17
-
-- Counters gated on the daemon the way Status is: with qosify stopped the charts are
-  cleared and the tin, `get_stats` and DNS Entries boxes are dropped, leaving one notice,
-  so a stopped daemon cannot leave the last poll's figures on screen looking live. Running
-  with an empty reply now says `get_stats returned no output.` instead of `No counters.`
-- Overview: **Reload Rules**, `ubus call qosify reload` — re-reads only the files in the
-  `defaults` list (`qosify_map_reload()`), leaving qdiscs and interface config alone. The
-  existing Reload is unchanged and still does the full init-script config push
-- Advanced: **Mapping Files** edits the `defaults` list in `config defaults` (the ubus
-  config `files` array). Written as `list defaults` lines in place via a new `setList()`,
-  the rest of the file untouched; entries validated as absolute paths with no whitespace
-  or shell metacharacters, since `qosify.init` word-splits and globs them in a `for` loop
-- Advanced: **Maintenance** with Check Devices, `ubus call qosify check_devices`
-  (`qosify_iface_check()`), for a device that appeared after qosify started
-- ACL: `reload` and `check_devices` added to the qosify ubus object in the **write** group
-
-## v3.7.4-dev — 2026-09-17
-
-- Advanced: the single Backup & Restore table split back into two boxes — **Backup** (file,
-  size, modified, Download) and **Restore** (file, upload picker, Upload & Apply). Same
-  paths, same validation, same size/mtime refresh
-
-## v3.7.3-dev — 2026-09-17
-
-- Config and Rules editors sized so the whole tab fits the window by default, refitted when
-  the tab opens, a Quick Add or Reference section folds, or the window resizes; still
-  draggable, 160px minimum
-- Counters: DNS Entries shown only when `get_stats` has a `dns` table (qosify `beeb87e`,
-  snapshots); on 25.12 and 24.10 (`1501e09`) the section stays hidden and `dump` is not
-  called, and it appears by itself on any build that gains the table. The no-traffic-column
-  fallback is gone
-
-## v3.7.2-dev — 2026-09-17
-
-- Quick settings down from six tabs to four: Basic (enable, interface, bandwidth, queueing
-  mode), Shaping (ingress, egress, autorate, NAT awareness, host isolation), Overhead and
-  Advanced; fields, descriptions and UCI keys unchanged
-
-## v3.7.1-dev — 2026-09-17
-
-- Quick settings descriptions shortened to qosify's own wording (Enable ingress shaping,
-  CAKE diffserv mode, Uplink bandwidth, same format as tc, ...); overhead fields say what
-  is sent to CAKE (overhead, mpu, ether-vlan, atm/noatm/ptm)
-
-## v3.7.0-dev — 2026-09-17
-
-Quick settings back in tabs.
-
-- `interface wan quick settings` holds six tabs, Basic, Traffic, Fairness, DiffServ,
-  Overhead and Advanced, replacing the two side-by-side boxes; one Save & Apply bar under
-  them, and the open tab survives the redraw after a save
-- Plain labels with a description under every field (Upload bandwidth, Download shaping,
-  NAT awareness, Queueing mode, Overhead preset, ...); the UCI keys are unchanged
-- Manual overhead (`overhead`) is back as a field, shown with Encapsulation overhead only
-  when Overhead preset is `manual`; a whole number of bytes, negative allowed
-- Manual overhead and Minimum packet unit are number fields; label column widened to 14em
-- Queueing mode lists diffserv8, diffserv4, diffserv3, besteffort, precedence; the Quick
-  Add `mode` select follows
-- Advanced tab warns that incorrect CAKE options may stop qosify starting
-
-## v3.6.6-dev — 2026-09-16
-
-- Service control bar (Autostart, Start, Restart, Reload, Stop) moved from LuCI's page
-  footer to the bottom of the Overview tab, so it no longer shows under the other tabs;
-  Status and Counters ticks stop updating it
-- Overview spacing is roomier: more space between boxes, taller title bars and table rows,
-  wider gap between and inside the quick settings boxes
-
-## v3.6.5-dev — 2026-09-16
-
-- Quick settings boxes lose their General Settings and Advanced Settings headers and fill
-  the page width: inputs are no longer capped, with wider titles and a little more room
-  between rows
-- Files drops its `Files` title; the table's column header is the box title bar, so the
-  box has one header
-
-## v3.6.4-dev — 2026-09-16
-
-- Quick settings `mode` moved to the top of Advanced Settings
-
-## v3.6.3-dev — 2026-09-16
-
-Tidier Overview.
-
-- Quick settings back under one `interface wan quick settings` section, with General
-  Settings and Advanced Settings as two boxes inside it, side by side
-- `nat` and `host_isolate` moved to General Settings
-- The `overhead_type` `manual` note (put the overhead in `options`) is removed
-- Section title bars no longer take the theme's 36px heading line height, so they are
-  shorter on every tab; boxes and gaps between them are tighter
-- Quick settings rows are compact: narrower titles, less space between rows, inputs
-  capped in width, checkboxes aligned with their titles. Service and Files tables have
-  shorter rows and no trailing gap
-
-## v3.6.1-dev — 2026-09-16
-
-Quick settings in two boxes.
-
-- General and advanced settings are two boxes side by side, `interface wan general
-  settings` and `interface wan advanced settings`, stacking below 60em, with one slim
-  Save & Apply bar under both
-- The stylesheet link carries `?v=<VERSION>`, set by the installer, so an update is not
+- The page is rebuilt on stock LuCI markup — `div.cbi-section` sections with `h3` titles,
+  `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids and
+  `.cbi-progressbar` bars. The `qos-*` classes are gone; `qosify.css` now only draws each
+  section as a box using the theme's own colour variables, so the app follows the theme
+  rather than overriding it. The active tab is left to the theme, which fixes the
+  unreadable filled tab on themes that colour it with the primary colour
+- Tabs are Overview, Config, Rules, Status, Counters and Advanced. The page title is
+  lowercase `qosify` and the page description is dropped
+- The stylesheet link carries `?v=<VERSION>`, set by the installer, so an update is never
   served from the browser cache
+- One box and line standard on every tab. Sections, Quick Add folds, the quick settings
+  box, the Counters boxes and the `qosify-status` output share one outline
+  (`--border-color-medium`), one 4px radius, one title bar (`.45em 1em` on
+  `--background-color-low`, underlined in `--border-color-low`) and one `.75em` gap.
+  Every table row line is `--border-color-low` with one `.45em .75em` cell padding; only
+  the Quick Add form grids stay tighter. The per-tab overrides (roomier Overview, compact
+  Counters, smaller Quick Add bars) are gone
+- Class and tin colours come from `qosify.css` tokens instead of hex values in `main.js`:
+  bulk, best effort, video and voice use the theme's `--error-color-high`,
+  `--primary-color-high`, `--warn-color-high` and `--success-color-high`; the extra
+  diffserv8 and precedence tins and the per-name fallback use qosify fallbacks with light
+  and dark values, switched by LuCI's `data-darkmode` or, on a theme that does not set it,
+  `prefers-color-scheme`. The red `danger` badge uses the same token
+- LuCI structure: the page is `cbi-map cbi-map-tabbed`, Backup and Restore descriptions
+  are `cbi-section-descr`, section-table rows carry `cbi-rowstyle-1`/`-2`, and the
+  `get_stats` table on Counters is boxed like the other three views
 
-## v3.6.0-dev — 2026-09-16
+### Overview
 
-Overview layout.
+- Service Status and Service Controls merge into one **Service** section: status badge
+  (green while shaping, amber while running idle, red when stopped), uptime, autostart,
+  a shaping count, `/etc/init.d/qosify`, and one row per interface or device with its
+  active state, resolved device, ingress and egress — all moved here from the Status tab
+- Uptime is the qosify process's `starttime` from `/proc/<pid>/stat` set against
+  `/proc/uptime`, read once per pid, so a reload keeps counting and a restart starts
+  again. The ACL read group grants `/proc/uptime` and `/proc/[0-9]*/stat` `read`
+- Autostart, Start, Restart, Reload, Reload Rules and Stop sit in a bar at the bottom of
+  the Overview tab, so they no longer show under the other tabs; buttons that do not
+  apply to the current state are disabled, and Status and Counters ticks no longer touch
+  them
+- **Reload Rules** is new: `ubus call qosify reload` re-reads only the files in the
+  `defaults` list (`qosify_map_reload()`) and leaves the qdiscs and interface config
+  alone — what a rules edit needs, without the full config push that Reload does
+- **Files** is a single table whose column header is the box title bar, listing both
+  config files with validity, section or rule count, size and modification time
+- **Quick settings** write straight to the interface or device section of
+  `/etc/config/qosify`, in one section titled with the section it edits (e.g. `interface
+  wan quick settings`) holding four tabs with one Save & Apply bar under them: Basic
+  (`disabled`, `name`, `bandwidth_up`, `bandwidth_down`, `mode`), Shaping (`ingress`,
+  `egress`, `autorate_ingress`, `nat`, `host_isolate`), Overhead (`overhead_type`,
+  `overhead_vlan`, `overhead`, `overhead_mpu`, `overhead_encap`) and Advanced
+  (`ingress_options`, `egress_options`, `options`). The open tab survives the redraw
+  after a save
+- Quick settings use plain labels with a short description per field in qosify's own
+  wording, rather than the raw UCI key. Manual overhead and Encapsulation overhead are
+  shown only under `overhead_type manual` and dropped for any other type, since qosify
+  ignores them there. `mode` no longer offers an empty choice: unset selects `diffserv4`,
+  the value the shipped qosify config carries and `qosify.init` falls back to
+- Each quick settings row puts the field and its hint on one line, hints aligned in a
+  column, rows separated by the same faint `--border-color-low` hairline the Service
+  table uses, and each field sized for its value — 7em for a byte count, 14em for an
+  interface name or bandwidth, 18em for a select, 28em for the CAKE option strings.
+  Below 600px label, control and hint stack
+- Values are validated before writing: `overhead_mpu` and `overhead` must be whole
+  numbers of bytes (`overhead` may be negative), option strings are checked for the shell
+  metacharacters that would break the `tc` command qosify builds, and bandwidth is
+  checked against `tc` rate syntax (including `unlimited`) but passed through with a
+  warning rather than blocked, since `tc` is the authority
 
-- Active tab no longer set to the theme's primary colour: themes that fill the active tab
-  with that colour showed an unreadable block. The theme draws the tab highlight
-- Enable/Disable Autostart, Start, Restart, Reload and Stop moved to LuCI's page footer
-  (`addFooter`), below every tab. Status and Counters ticks keep their disabled state in
-  step with the running state
-- Service section: uptime, a Shaping count, and the per-interface rows (active, device,
-  ingress, egress) moved here from the Status tab, which now shows only `qosify-status`.
-  Stopped, disabled, missing and inactive badges are red (`.label.danger`, with a fallback
-  colour for themes that do not define it); running without shaping stays amber
-- Uptime reads `starttime` from `/proc/<pid>/stat` against `/proc/uptime`, once per pid. The
-  ACL read group grants `/proc/uptime` and `/proc/[0-9]*/stat` `read`
-- Quick settings sub-tabs replaced by one section with General Settings and Advanced
-  Settings side by side, stacking on narrow screens. `name` is always shown, QoS Enabled
-  notes the `option disabled` values, and `overhead_encap`, `overhead_mpu` and
-  `overhead_vlan` are added. The `overhead` field is gone: `manual` shows a note to put it
-  in `options` (e.g. `overhead 38`); an existing `option overhead` is kept under `manual`
-- Save bars inside sections are slimmer
+### Counters (new tab)
 
-## v3.5.3-dev — 2026-09-16
+- **Traffic by Class** — the per-class packet totals from `ubus call qosify get_stats`:
+  class, its `dscp`, a progress bar, then `packets`, `bytes` and share in right-aligned
+  columns with grouped digits, and a total row. Bar length is the cube root of each row
+  against the largest, so a bulk download does not flatten every other row while the
+  share column stays exact. Cells and bars update in place, so nothing below them moves.
+  Classes are grouped and coloured by the CAKE tin their egress codepoint lands in —
+  red bulk, blue best effort, yellow video, green voice, with the extra diffserv8 and
+  precedence tins in their own colours — falling back to a colour per name when the
+  shaped sections do not share one mode
+- **Traffic by CAKE Tin** — the `qosify-status` output in graph form, egress and ingress
+  summed tin by tin from the `pkts` and `bytes` rows `tc` prints, in the same tin
+  colours and the same boxed layout, with `tc`'s own `pkts`, `bytes` and `drops` columns
+  and `marks` on hover. Qdiscs running a different CAKE mode get a table of their own
+- **DNS Entries** — the `dns` entries from `ubus call qosify dump` with `hits`, `packets`
+  and `bytes` from the `get_stats` `dns` table, in a box that drags taller or shorter
+  like the editors, its header above the box so no row scrolls under it, header padded
+  by the scrollbar width so the columns line up. While the entries are unchanged only
+  the figures are rewritten, so the list does not move and a text selection holds
+- DNS Entries is shown only when `get_stats` carries a `dns` table (qosify `beeb87e`,
+  snapshots). On the 24.10 and 25.12 build (`1501e09`) it stays hidden and `dump` is
+  never called; it appears by itself on any build that gains the table
+- Nothing on the tab outlives the daemon: `get_stats` counts since the last reload and
+  the tin figures come from qdiscs a stop removes, so while qosify is stopped the charts
+  are cleared and every box but the notice is dropped rather than leaving the last poll's
+  numbers on screen looking live. Running with an empty reply says
+  `get_stats returned no output.`
+- ACL read group grants `qosify` `get_stats` and `dump`
 
-Polling left to LuCI.
+### Config and Rules
 
-- `refreshStatus()` and `refreshCounters()` drop their own in-flight guards (`_st`,
-  `_cn`). `Poll.step()` already skips a poller whose last promise has not settled, so the
-  guards only duplicated it. Ticks still only run while their tab is open and not during
-  a save
-
-## v3.5.2-dev — 2026-09-16
-
-Polling and Quick Settings `mode` default.
-
-- Overview, Status and Counters tick at LuCI's poll interval (`luci.main.pollinterval`,
-  5 s unless set) instead of a fixed 10 s, and pause with LuCI's header refresh toggle,
-  each only while its tab is open. Overlapping ticks are still dropped
-- Quick Settings `mode` no longer offers `-- (diffserv4)`: an unset mode selects
-  `diffserv4`, the value the shipped qosify config carries and `qosify.init` falls back
-  to, and a save writes it. An unknown value in the file is still shown as `(current)`
-
-## v3.5.1-dev — 2026-09-16
-
-Counters tab back, and a fix for the Overview tab failing to load.
-
-- Overview threw `TypeError: Cannot read properties of null (reading 'insertBefore')`
-  and the page did not render. `ui.tabs.initTabGroup()` inserts the tab menu before the
-  panes' parent in its own parent, and the quick settings sub-tab group was initialised
-  before it was wrapped, so it had none. It is now wrapped first, as on v3.4.7-dev
-- Counters tab restored from v3.4.7-dev, between Status and Advanced: Traffic by Class
-  from `ubus call qosify get_stats`, Traffic by CAKE Tin from `qosify-status`, the
-  `get_stats` daemon fields, and DNS Entries from `ubus call qosify dump`. The ACL read
-  group grants `qosify` `get_stats` and `dump` again, and `qosify.css` carries the
-  Counters rules. Polled every 10 seconds while the tab is open, like Overview and Status
-- The rest of v3.4.7-dev stays out (uptime and its `/proc` grants, the `check` helper,
-  rule key validation, the extra Quick Settings options, LuCI-interval polling)
-
-## v3.5.0-dev — 2026-09-16
-
-Dev realigned on main v2.9.11. The only difference from main is the LuCI styling and
-layout; behaviour, ubus calls, ACL, file writes, validation and polling are main's.
-The 3.x dev history up to v3.4.7-dev (Counters tab, `check` helper, extra Quick
-Settings options) is kept on the `dev-3.4.7` branch for later PRs.
-
-- Stock LuCI markup: `div.cbi-section` with `h3` titles, `.table` rows, `.label`
-  badges, `.cbi-value` rows and `.cbi-section-table` grids. `qosify.css` is rewritten to
-  draw each section as a box with the theme's colour variables; the `qos-*` classes are gone
-- Tabs are Overview, Config, Rules, Status, Advanced; the page description is dropped
-- Overview: Service Status and Service Controls merge into one **Service** section with
-  the buttons underneath, disabled where they do not apply; Quick Settings is titled with
-  the section it edits and split into General Settings, Overhead and Advanced Settings
-  sub-tabs, rows titled with the qosify option names; Configuration Files becomes a
-  **Files** grid
-- Config: Quick Add is three folding sections (defaults, class/alias, interface/device)
-  laid out as section grids, each with an option reference, plus a folding Reference
-  section; fold state is kept for the browser session. `qacSwitch()` goes, as each form
+- Config Quick Add is three folding sections — defaults, class/alias, interface/device —
+  laid out as LuCI section grids with the option names across the top, each with a
+  collapsible panel listing every option and its description from the qosify README, plus
+  a folding Reference section carrying the defined classes, the accepted DSCP values and
+  the defaults qosify applies when a key is absent. `qacSwitch()` is gone, as each form
   now has its own type select and Add button
-- Rules: Quick Add is one folding row with the mapping file syntax and classes in
-  collapsible panels; both editors sit in their own section and fill the page height
-- Status: the summary and `qosify-status` output sit in one `qosify-status` section
-- Advanced: backup and upload are one Backup & Restore table; Reset has its own section
+- Rules Quick Add is one folding row (`match`, value, `dscp`, `+`, Add) with the mapping
+  file syntax and the defined classes in collapsible panels, each class listed alongside
+  its DSCP value
+- Fold state is kept for the browser session
+- Both editors sit in their own section, sized so the whole tab fits the window by
+  default and refitted when the tab opens, a section folds or the window resizes. The fit
+  is measured on the following animation frame: `ui.tabs.switchTab()` walks the panes in
+  document order and fires `cbi-tab-active` from inside that loop, so panes after the new
+  one are still `data-tab-active` when the handler runs, and measuring in the handler
+  counted the tab being left — coming back from Advanced that dropped the editor to its
+  160px floor. Repeat calls coalesce, so a resize drag measures once per frame
+
+### Status
+
+- The tab shows only the `qosify-status` output; the per-interface summary moved to the
+  Overview Service section. It fetches as soon as it is opened and the scroll position
+  survives a refresh
+
+### Advanced
+
+- **Backup** (file, size, modified, Download) and **Restore** (file picker per file,
+  Upload & Apply, validated, 64 KB cap, binary rejected) are two boxes
+- **Maintenance** adds Check Devices, `ubus call qosify check_devices`, which re-runs the
+  daemon's own `qosify_iface_check()` so a device that appeared after qosify started is
+  picked up without rebuilding the qdiscs a restart would. The method arms a 10 ms uloop
+  timer and returns an empty reply, so the page waits for the pass before refreshing and
+  the result shows in the Overview Service table
+- **Defaults** resets both files back to qosify defaults after a confirmation
+- ACL write group grants `reload` and `check_devices` on the qosify ubus object
+
+### Service state and polling
+
+- Service state is tri-state: a status call rpcd never answered no longer reads as a
+  stopped, unshaped, uninstalled qosify. `rc.list`, `service.list` and `qosify.status`
+  are declared with `reject:true` — without it a ubus status code (6 once the session's
+  ACL no longer covers the object, 4 when the object is gone) stays in `result[0]` and
+  `expect{'':{}}` rewrites it to the same `{}` a working call with nothing to report
+  returns, so `L.resolveDefault()` could not tell the two apart. `gatherCtx()` catches
+  each rejection to `null`, and `running`, `enabled`, `hasInit`, `active` and `shaped`
+  go `null` rather than `false`
+- Overview shows amber **Unknown** badges for Status, Autostart, Shaping and
+  `/etc/init.d/qosify`, with the cause named once on the Status row. Unknown is not
+  Missing, so the service buttons stay clickable and report the call's own error
+- Saving a config or rules edit no longer warns "not shaping" when the check could not
+  run; the save says shaping could not be checked instead. Status and Counters say rpcd
+  is not answering rather than "qosify is not running", and skip the `qosify-status` fork
+  while the state is unknown
+- Overview, Status and Counters tick at LuCI's poll interval
+  (`luci.main.pollinterval`, 5 s unless set) instead of a fixed 10 s, and pause with
+  LuCI's own header refresh toggle, each only while its tab is open. The in-flight guards
+  are gone — `Poll.step()` already holds the next tick until the last promise settles
+
+### Fixed
+
+- Config and Rules editors no longer shrink to the theme's 210px textarea width with no
+  way to widen them. Width was carried by a class (`.qos-edit` in the in-tree package,
+  the inline `style` attribute here) while height and `resize` were keyed on the ids, so
+  a `qosify.css` from the other tree at the same path kept the ids matching and lost the
+  width, leaving the theme's `textarea{width:210px}` to win under `resize:vertical`.
+  Width now sits on the id selector with `box-sizing:border-box`, and the editors are
+  `resize:both` so a wrong width is correctable
+- Overview threw `TypeError: Cannot read properties of null (reading 'insertBefore')` and
+  the page did not render: `ui.tabs.initTabGroup()` inserts the tab menu before the
+  panes' parent in its own parent, and the quick settings sub-tab group was initialised
+  before it was wrapped. It is wrapped first now
 
 ## v2.9.11 — 2026-09-15
 
