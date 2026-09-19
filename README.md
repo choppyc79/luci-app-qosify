@@ -62,7 +62,7 @@ Always on the tab bar, and polled like the other tabs at LuCI's refresh interval
 ## Install
 
 ```
-wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev-align-main/qosify-luci.sh
+wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```
@@ -70,7 +70,7 @@ chmod +x /root/qosify-luci.sh
 Or with curl:
 
 ```
-curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev-align-main/qosify-luci.sh
+curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
 chmod +x /root/qosify-luci.sh
 /root/qosify-luci.sh install
 ```
@@ -85,6 +85,13 @@ The installer installs `qosify` via apk or opkg if missing, writes the menu entr
 | `files` | App files only, no package operations and no service restarts |
 | `reset` | Restore both config files to qosify defaults and restart |
 | `uninstall` | Remove the app, qosify, configs, and qosify's own leftover qdiscs |
+| `migrate` | Swap the script install for the `luci-app-qosify` package, keeping both config files; falls back to the script install if the package is not in the feeds |
+
+## OpenWrt package
+
+`luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master (#8833, #9019) and ships in snapshots, currently the 2.9.x code. 3.0.0 is going upstream as a series of PRs; until they land, the package is behind this installer, and `migrate` moves you to the package version.
+
+The `Makefile` here builds the same package from `qosify-luci.sh` in the SDK or buildroot: put this repo at `package/luci-app-qosify/` and run `make package/luci-app-qosify/compile`. The version is read from `VERSION=` in the installer.
 
 ## ImageBuilder / custom firmware builds
 
@@ -112,7 +119,7 @@ The shipped config has QoS **disabled** for a safe first run. Set your WAN bandw
 
 ## Translations
 
-All user-visible strings go through LuCI's i18n system, so the app translates like any official LuCI app. The template is `po/templates/qosify.pot`, generated with the upstream `i18n-scan.pl`.
+All user-visible strings go through LuCI's i18n system, so the app translates like any official LuCI app. The template is `po/templates/qosify.pot` in openwrt/luci, generated with `build/i18n-scan.pl`; translations are done on Weblate and ship as `luci-i18n-qosify-*` packages from the in-tree build. The installer carries no translations of its own.
 
 ## Files
 
