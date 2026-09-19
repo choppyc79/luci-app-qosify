@@ -35,8 +35,14 @@ nothing here modifies qosify, its init script or its defaults.
   and dark values, switched by LuCI's `data-darkmode` or, on a theme that does not set it,
   `prefers-color-scheme`. The red `danger` badge uses the same token
 - LuCI structure: the page is `cbi-map cbi-map-tabbed`, Backup and Restore descriptions
-  are `cbi-section-descr`, section-table rows carry `cbi-rowstyle-1`/`-2`, and the
-  `get_stats` table on Counters is boxed like the other three views
+  are `cbi-section-descr`, and the `get_stats` table on Counters is boxed like the other
+  three views. Table rows are not striped; every row sits on the same background
+- Restore: each file gets a LuCI `cbi-button` (Choose file…) over the hidden native picker,
+  which ignores the theme, with the chosen file name beside it; the name clears after an
+  upload
+- Counters and DNS Entries order AF codepoints by drop precedence within their class:
+  AF41, AF42, AF43 top to bottom, and the same for AF3x, AF2x and AF1x. Other codepoints
+  keep their order
 
 ### Overview
 
