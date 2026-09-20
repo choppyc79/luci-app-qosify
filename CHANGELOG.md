@@ -2,6 +2,14 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.3 — 2026-09-20
+
+### Fixed
+
+A class with only `ingress` or only `egress` set was labelled `foo (CS1/)` or `foo (CS1)` in
+the `dscp_*` and Quick Add Rule selects, the second reading as if both directions carried the
+value. Both sides are now printed with `-` for the unset one whenever they differ.
+
 ## v3.0.2 — 2026-09-20
 
 `qosify.css` is now the in-tree sheet byte for byte, in its expanded form, instead of the
