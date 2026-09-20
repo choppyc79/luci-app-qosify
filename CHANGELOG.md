@@ -2,6 +2,13 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.2 — 2026-09-20
+
+`qosify.css` is now the in-tree sheet byte for byte, in its expanded form, instead of the
+same rules in compact form. The files the installer writes now match the openwrt/luci
+series (#9046–#9054) exactly, apart from the installer's `?v=<VERSION>` stylesheet suffix
+in `main.js`. No rule, selector or comment changed.
+
 ## v3.0.1 — 2026-09-20
 
 Resyncs the installer with the 3.0.0 series as it stands on openwrt/luci (#9046, #9047,
