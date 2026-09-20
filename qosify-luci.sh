@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.0"
+VERSION="3.0.1"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -321,42 +321,7 @@ var RULES_PATH='/etc/qosify/00-defaults.conf';
 var DSCP=['CS0','CS1','CS2','CS3','CS4','CS5','CS6','CS7','AF11','AF12','AF13','AF21','AF22','AF23','AF31','AF32','AF33','AF41','AF42','AF43','EF','VA','NQB','LE','DF'];
 var OVH=['none','manual','conservative','ethernet','docsis','pppoe-ptm','bridged-ptm','pppoe-vcmux','pppoe-llcsnap','pppoa-vcmux','pppoa-llc','bridged-vcmux','bridged-llcsnap','ipoa-vcmux','ipoa-llcsnap'];
 var ENCAP=['atm','noatm','ptm'];
-var MODES=['diffserv8','diffserv4','diffserv3','besteffort','precedence'];
-var OPT_DESC={
-	defaults:_('List of files with port/IP/host mappings'),
-	timeout:_('Default timeout for dynamically added entries'),
-	dscp_default_tcp:_('Default DSCP value for TCP packets'),
-	dscp_default_udp:_('Default DSCP value for UDP packets'),
-	dscp_icmp:_('DSCP value for ICMP packets'),
-	dscp_prio:_('DSCP value for priority-marked packets'),
-	dscp_bulk:_('DSCP value for bulk-marked packets'),
-	prio_max_avg_pkt_len:_('Maximum average packet length for marking a flow as priority'),
-	bulk_trigger_pps:_('Number of packets per second to trigger bulk flow detection'),
-	bulk_trigger_timeout:_('Time below bulk_trigger_pps threshold until a bulk flow mark is removed'),
-	value:_('DSCP value for ingress and egress, where they are not set'),
-	ingress:_('DSCP value for ingress'),
-	egress:_('DSCP value for egress'),
-	name:_('netifd interface (config interface) or netdev (config device) to enable QoS on'),
-	disabled:_('Skip this section'),
-	bandwidth_up:_('Uplink bandwidth (same format as tc)'),
-	bandwidth_down:_('Downlink bandwidth (same format as tc)'),
-	'if.ingress':_('Enable ingress shaping'),
-	'if.egress':_('Enable egress shaping'),
-	mode:_('CAKE diffserv mode'),
-	nat:_('Enable CAKE NAT host detection via conntrack'),
-	host_isolate:_('Enable CAKE host isolation'),
-	autorate_ingress:_('Enable CAKE automatic rate estimation for ingress'),
-	overhead_type:_('CAKE overhead keyword added to options; manual uses overhead and overhead_encap'),
-	overhead:_('Adds overhead <bytes> when overhead_type is manual'),
-	overhead_encap:_('Adds atm, noatm or ptm when overhead_type is manual'),
-	overhead_mpu:_('Adds mpu <bytes>'),
-	overhead_vlan:_('Adds ether-vlan once per level (1 or 2)'),
-	ingress_options:_('CAKE ingress options'),
-	egress_options:_('CAKE egress options'),
-	options:_('CAKE options for ingress + egress')
-};
-// Quick Add grids hold at most this many options per table.
-var QA_COLS=7;
+var MODES=['diffserv3','diffserv4','diffserv8','besteffort','precedence'];
 var MAP_ROWS=200;
 // Bar length is (row/largest row)^BAR_EXP: the largest row fills the track and a
 // 0.1% row still shows at a tenth of it, so a bulk download does not hide the rest.
@@ -396,6 +361,44 @@ var TIN_COLORS={besteffort:['blue'],
 	diffserv4:['red','blue','yellow','green'],
 	diffserv3:['red','blue','green']};
 for(var tk in TIN_COLORS)TIN_COLORS[tk]=TIN_COLORS[tk].map(qc);
+// qosify.init handles 'alias' with add_class and 'device' with add_interface,
+// so those section types share the option set of class / interface.
+var OPT_DESC={
+	defaults:_('List of files with port/IP/host mappings'),
+	timeout:_('Default timeout for dynamically added entries'),
+	dscp_default_tcp:_('Default DSCP value for TCP packets'),
+	dscp_default_udp:_('Default DSCP value for UDP packets'),
+	dscp_icmp:_('DSCP value for ICMP packets'),
+	dscp_prio:_('DSCP value for priority-marked packets'),
+	dscp_bulk:_('DSCP value for bulk-marked packets'),
+	prio_max_avg_pkt_len:_('Maximum average packet length for marking a flow as priority'),
+	bulk_trigger_pps:_('Number of packets per second to trigger bulk flow detection'),
+	bulk_trigger_timeout:_('Time below bulk_trigger_pps threshold until a bulk flow mark is removed'),
+	value:_('DSCP value for ingress and egress, where they are not set'),
+	ingress:_('DSCP value for ingress'),
+	egress:_('DSCP value for egress'),
+	name:_('netifd interface (config interface) or netdev (config device) to enable QoS on'),
+	disabled:_('Skip this section'),
+	bandwidth_up:_('Uplink bandwidth (same format as tc)'),
+	bandwidth_down:_('Downlink bandwidth (same format as tc)'),
+	bandwidth:_('Bandwidth for both directions, where bandwidth_up or bandwidth_down is not set'),
+	'if.ingress':_('Enable ingress shaping'),
+	'if.egress':_('Enable egress shaping'),
+	mode:_('CAKE diffserv mode'),
+	nat:_('Enable CAKE NAT host detection via conntrack'),
+	host_isolate:_('Enable CAKE host isolation'),
+	autorate_ingress:_('Enable CAKE automatic rate estimation for ingress'),
+	overhead_type:_('CAKE overhead keyword added to options; manual uses overhead and overhead_encap'),
+	overhead:_('Adds overhead <bytes> when overhead_type is manual'),
+	overhead_encap:_('Adds atm, noatm or ptm when overhead_type is manual'),
+	overhead_mpu:_('Adds mpu <bytes>'),
+	overhead_vlan:_('Adds ether-vlan once per level (1 or 2)'),
+	ingress_options:_('CAKE ingress options'),
+	egress_options:_('CAKE egress options'),
+	options:_('CAKE options for ingress + egress')
+};
+// Quick Add grids hold at most this many options per table.
+var QA_COLS=7;
 
 // luci.setInitAction was dropped from luci-base in 4440b267d; the rc namespace
 // (built into the rpcd core binary, so no extra dependency) replaces it.
@@ -425,30 +428,32 @@ var callQosifyStatus=rpc.declare({
 	expect:{'':{}},
 	reject:true
 });
-// get_stats and dump are both in the qosify OpenWrt pins for 24.10 and master;
-// the get_stats reply shape differs by build and is rendered as found.
-var callQosifyStats=rpc.declare({
-	object:'qosify',
-	method:'get_stats',
-	expect:{'':{}}
-});
-var callQosifyDump=rpc.declare({
-	object:'qosify',
-	method:'dump',
-	expect:{'':{}}
-});
-// reload re-reads the files in the defaults list (qosify_map_reload) and nothing
-// else; check_devices re-runs qosify_iface_check(). Both take no arguments and
-// return an empty reply, so success is the call not throwing.
+// reload re-reads the files in the defaults list (qosify_map_reload()) and
+// nothing else; check_devices re-runs qosify_iface_check(). Both return an
+// empty reply, so without reject:true a failure would read as success.
 var callQosifyReload=rpc.declare({
 	object:'qosify',
 	method:'reload',
-	expect:{'':{}}
+	reject:true
 });
 var callQosifyCheckDevices=rpc.declare({
 	object:'qosify',
 	method:'check_devices',
-	expect:{'':{}}
+	reject:true
+});
+// get_stats and dump are in qosify 1501e09 (24.10, 25.12) and master; the
+// get_stats reply shape differs by build and is rendered as found.
+var callQosifyStats=rpc.declare({
+	object:'qosify',
+	method:'get_stats',
+	expect:{'':{}},
+	reject:true
+});
+var callQosifyDump=rpc.declare({
+	object:'qosify',
+	method:'dump',
+	expect:{'':{}},
+	reject:true
 });
 var callServiceList=rpc.declare({
 	object:'service',
@@ -535,14 +540,12 @@ function validateRules(d){
 	return null;
 }
 function fmtSize(n){return n<1024?n+'B':(n/1024).toFixed(1)+'K';}
-// Non-zero under a tenth of a percent says so rather than reading as 0.0%.
-// The bare % strings are not wrapped in _(): msgfmt -c would reject a moved %.
+function fmtMtime(t){if(!t)return '';return new Date(t*1000).toLocaleString();}
 function fmtShare(p){
 	if(!p)return '0%';
 	if(p<0.1)return '<0.1%';
-	return _('%s%%').format(p<10?p.toFixed(1):Math.round(p));
+	return '%s%%'.format(p<10?p.toFixed(1):Math.round(p));
 }
-function fmtMtime(t){if(!t)return '';return new Date(t*1000).toLocaleString();}
 
 // The shaping section Quick Settings edits, or null. Prefers the first enabled
 // section, and accepts `config device` since qosify.init feeds both section
@@ -691,30 +694,35 @@ function notify(msg,kind){
 	return n;
 }
 
-// Stock LuCI markup, so the page follows the active theme: .table rows as on
-// Status > Overview, .label badges, .cbi-value form rows and plain pre/textarea.
-// qosify.css draws each section as a box with the theme's own variables.
+// Stock LuCI markup: themes style .cbi-section, .table, .label and
+// .cbi-value already, so qosify.css only draws the section boxes.
 function badge(kind,t){return E('span',{'class':kind?'label '+kind:'label'},t);}
 function desc(t){return E('div',{'class':'cbi-value-description'},t);}
 function sdesc(t){return E('div',{'class':'cbi-section-descr'},t);}
 function kvRow(k,v,id){return E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},k),E('td',{'class':'td left','id':id||null},v)]);}
+function kvTable(rows,id){return E('table',{'class':'table','id':id||null},rows);}
 function emRow(t){return E('tr',{'class':'tr placeholder'},E('td',{'class':'td'},E('em',{},t)));}
 function emP(t){return E('p',{},E('em',{},t));}
 function gridTable(head,rows,empty){
 	return E('table',{'class':'table cbi-section-table'},[E('tr',{'class':'tr cbi-section-table-titles'},head.map(function(h){return E('th',{'class':'th'},h);}))]
 		.concat(rows.length?rows.map(function(r){return E('tr',{'class':'tr cbi-section-table-row'},r.map(function(c,i){return E('td',{'class':'td','data-title':head[i]},c);}));}):[emRow(empty)]));
 }
-function sect(title,kids,attrs){
-	var a=attrs||{};
-	a['class']='cbi-section';
-	return E('div',a,[E('h3',{'id':a.id?a.id+'-title':null},title)].concat(kids));
-}
+// A section that folds, its open state kept for the browser session.
 function fold(id,title,kids,open){
 	var k='qosify.fold.'+id,st=null,d;
 	try{st=sessionStorage.getItem(k);}catch(e){}
 	d=E('details',{'class':'cbi-section','id':id,'open':(st==null?open:st==='1')?'':null},[E('summary',{},E('h3',{},title))].concat(kids));
 	d.addEventListener('toggle',function(){try{sessionStorage.setItem(k,d.open?'1':'0');}catch(e){}});
 	return d;
+}
+function refBox(title,note,rows){
+	return E('details',{},[E('summary',{},title),note?E('p',{},note):'',
+		rows.length?E('table',{'class':'table'},rows.map(function(r){return kvRow(E('code',{},r[0]),r[1]);})):'']);
+}
+function sect(title,kids,attrs){
+	var a=attrs||{};
+	a['class']='cbi-section';
+	return E('div',a,[E('h3',{'id':a.id?a.id+'-title':null},title)].concat(kids||[]));
 }
 function colTable(cols,kids){
 	var sum=cols.reduce(function(t,c){return t+c[1];},0);
@@ -725,13 +733,10 @@ function colHead(cols,id){
 	return E('div',{'class':'qhead','id':id||null},colTable(cols,E('tr',{'class':'tr table-titles'},
 		cols.map(function(c){return E('th',{'class':c[2]?'th qn':'th left'},c[0]);}))));
 }
-function refBox(title,note,rows){
-	return E('details',{},[E('summary',{},title),note?E('p',{},note):'',
-		rows.length?E('table',{'class':'table'},rows.map(function(r){return kvRow(E('code',{},r[0]),r[1]);})):'']);
-}
 function valRow(lbl,el){
 	var n=Array.isArray(el)?el[0]:el;
-	return E('div',{'class':'cbi-value'},[E('label',{'class':'cbi-value-title','for':n.id||null},lbl),E('div',{'class':'cbi-value-field'},el)]);
+	if(n&&!n.id&&n.querySelector)n=n.querySelector('[id]');
+	return E('div',{'class':'cbi-value'},[E('label',{'class':'cbi-value-title','for':(n&&n.id)||null},lbl),E('div',{'class':'cbi-value-field'},el)]);
 }
 
 // Remember the size/mtime an editor was loaded from, so a save can tell the
@@ -780,11 +785,12 @@ return view.extend({
 
 		if(d[0]===null)notify(_('The qosify UCI configuration could not be loaded — class and interface lists may be incomplete.'),'warning');
 
-		var root=E('div',{'class':'cbi-map cbi-map-tabbed','id':'qos-app'});
+		var root=E('div',{'class':'cbi-map','id':'qos-app'});
 		root.appendChild(E('link',{'rel':'stylesheet','href':L.resource('view/qosify/qosify.css')+'?v=@VERSION@'}));
 		root.appendChild(E('h2',{},_('qosify')));
+		root.appendChild(E('div',{'class':'cbi-map-descr'},_('Traffic shaping and DSCP classification via qosify')));
 
-		var names={ov:'overview',cf:'config',ru:'rules',st:'status',cn:'counters',ad:'advanced'};
+		var names={ov:'overview',cf:'config',ru:'rules',ad:'advanced',st:'status',cn:'counters'};
 		var hash=(location.hash||'').slice(1),want='ov',k;
 		for(k in names)if(names[k]===hash)want=k;
 
@@ -826,13 +832,12 @@ return view.extend({
 		return root;
 	},
 
-	// All three tabs tick at LuCI's poll interval (luci.main.pollinterval, 5 s unless
-	// set) and pause with its header toggle, each only while its tab is open:
-	// Overview is six ubus calls and no forks, Status forks qosify-status, which runs
-	// tc twice per active interface, and Counters is two ubus calls (service.list,
-	// get_stats), dump where get_stats has a dns table, plus that fork while qosify runs.
-	// Poll.step() holds the next tick until the promise this returns settles, so a
-	// fork slower than the interval skips ticks instead of stacking up.
+	// Each tab ticks at luci.main.pollinterval, only while it is open. Overview
+	// is six ubus calls and no forks; Status and Counters fork qosify-status,
+	// which runs tc twice per active interface, so a slow box raises that interval.
+	// Poll.step() holds the next tick until the promise this returns settles, and
+	// refreshStatus()/refreshCounters() drop a call overlapping the one fired on
+	// tab open, so a fork slower than the interval skips ticks instead of stacking up.
 	installPollers:function(){
 		var self=this;
 		poll.add(function(){if(self.currentTab!=='ov'||self._n)return;return self.refreshOverview();});
@@ -853,44 +858,8 @@ return view.extend({
 		return [E('h3',{},_('Service')),this.renderSvcTable(ctx)];
 	},
 
-	buildSvcActs:function(ctx){
-		var self=this,acts=E('div',{'class':'cbi-page-actions'},
-			E('button',{'class':'cbi-button','id':'qos-btn-auto','click':function(){return self.svcAction(self._auto?'disable':'enable');}}));
-		// Reload is the init script's reload_service(): a full ubus config push, so it
-		// picks up /etc/config/qosify as well as the mapping files. Reload Rules is the
-		// qosify reload method, which re-reads the mapping files alone and leaves the
-		// qdiscs and interface config untouched -- what a rules edit actually needs.
-		[['start','cbi-button-apply',_('Start')],['restart','cbi-button-action',_('Restart')],
-		 ['reload','cbi-button-reload',_('Reload')],['maps','cbi-button-reload',_('Reload Rules'),1],
-		 ['stop','cbi-button-negative',_('Stop')]].forEach(function(b){
-			acts.appendChild(document.createTextNode(' '));
-			acts.appendChild(E('button',{'class':'cbi-button '+b[1],'id':'qos-btn-'+b[0],'title':b[3]?_('Re-read the mapping files only'):null,
-				'click':function(){return b[3]?self.mapReload():self.svcAction(b[0]);}},b[2]));
-		});
-		this.svcButtons(ctx,acts);
-		return acts;
-	},
-
-	// Unknown is not Missing: with the state unknown the actions stay clickable, so
-	// a box whose ACL has gone stale answers with the call's own error instead of a
-	// page of dead buttons. Autostart is the exception -- its label is the state.
-	svcButtons:function(ctx,root){
-		this._auto=ctx.enabled;
-		var ro=this.readonly||ctx.hasInit===false,un=ctx.running==null,b,g=function(id){return root?root.querySelector('#'+id):$(id);};
-		if((b=g('qos-btn-auto'))){
-			b.className='cbi-button '+(this._auto?'cbi-button-negative':'cbi-button-positive');
-			dom.content(b,this._auto?_('Disable Autostart'):_('Enable Autostart'));
-			b.disabled=ro||ctx.enabled==null;
-		}
-		[['start',!ctx.running],['restart',ctx.running],['reload',ctx.running],['stop',ctx.running]].forEach(function(x){
-			if((b=g('qos-btn-'+x[0])))b.disabled=ro||!(un||x[1]);
-		});
-		// Reload Rules is a ubus call, so it needs the daemon up but not the init script.
-		if((b=g('qos-btn-maps')))b.disabled=this.readonly||ctx.running===false;
-	},
-
 	buildCfgSect:function(ctx){
-		return [this.renderCfgFiles(ctx)];
+		return [E('h3',{},_('Files')),this.renderCfgFiles(ctx)];
 	},
 
 	buildQsSect:function(ctx){
@@ -953,10 +922,10 @@ return view.extend({
 			]),
 			pane('qs-overhead',_('Overhead'),[
 				[_('Overhead preset'),[ovSel,desc(_('CAKE overhead keyword. Use none if unsure.'))]],
-				[_('VLAN tags'),[sel('overhead_vlan',w.overhead_vlan,['0','1','2'],'0'),desc(_('Sent to CAKE as ether-vlan, once per tag.'))]],
 				manRows[0],
+				manRows[1],
 				[_('Minimum packet unit (MPU)'),[num('overhead_mpu',w.overhead_mpu,'--'),desc(_('Sent to CAKE as mpu, in bytes.'))]],
-				manRows[1]
+				[_('VLAN tags'),[sel('overhead_vlan',w.overhead_vlan,['0','1','2'],'0'),desc(_('Sent to CAKE as ether-vlan, once per tag.'))]]
 			]),
 			pane('qs-advanced',_('Advanced'),[
 				[_('Ingress CAKE options'),[txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb')),desc(_('CAKE ingress options, space separated.'))]],
@@ -978,6 +947,38 @@ return view.extend({
 		];
 	},
 
+	// The controls sit once, at the bottom of Overview, rather than under every tab.
+	buildSvcActs:function(ctx){
+		var self=this,acts=E('div',{'class':'cbi-page-actions','id':'qos-svc-btns'},
+			E('button',{'id':'qos-btn-auto','click':function(){return self.svcAction(self._auto?'disable':'enable');}}));
+		// Reload is the init script's reload_service(), a full ubus config push.
+		// Reload Rules re-reads the mapping files alone and leaves the qdiscs and
+		// interface config untouched -- what a rules edit actually needs.
+		[['start','cbi-button-apply',_('Start')],['restart','cbi-button-action',_('Restart')],
+		 ['reload','cbi-button-reload',_('Reload')],['maps','cbi-button-reload',_('Reload Rules'),1],
+		 ['stop','cbi-button-negative',_('Stop')]].forEach(function(b){
+			acts.appendChild(document.createTextNode(' '));
+			acts.appendChild(E('button',{'class':'cbi-button '+b[1],'id':'qos-btn-'+b[0],'title':b[3]?_('Re-read the mapping files only'):null,
+				'click':function(){return b[3]?self.mapReload():self.svcAction(b[0]);}},b[2]));
+		});
+		this.svcButtons(ctx,acts);
+		return acts;
+	},
+
+	// Buttons that do not apply to the current state are disabled. Unknown is not
+	// Missing: with the state unknown the actions stay clickable, so a stale ACL
+	// answers with the call's own error instead of a bar of dead buttons.
+	svcButtons:function(ctx,root){
+		var ro=this.readonly||ctx.hasInit===false,un=ctx.running==null,b,
+			g=function(id){return root?root.querySelector('#'+id):$(id);};
+		if((b=g('qos-btn-auto')))this.autoButton(ctx,b);
+		[['start',!ctx.running],['restart',ctx.running],['reload',ctx.running],['stop',ctx.running]].forEach(function(x){
+			if((b=g('qos-btn-'+x[0])))b.disabled=ro||!(un||x[1]);
+		});
+		// Reload Rules is a ubus call, so it needs the daemon up but not the init script.
+		if((b=g('qos-btn-maps')))b.disabled=this.readonly||ctx.running===false;
+	},
+
 	fillSect:function(id,nodes){
 		var el=$(id);
 		if(!el)return;
@@ -993,72 +994,71 @@ return view.extend({
 		});
 	},
 
-	waitForRunning:function(timeoutMs){
+	// true reached, false timed out, null the last service.list went unanswered:
+	// an unanswered call says nothing about qosify, so it never counts as stopped.
+	waitForState:function(want,timeoutMs){
 		var deadline=Date.now()+(timeoutMs||3000);
 		function tick(){
-			return L.resolveDefault(callServiceList('qosify'),{}).then(function(r){
-				if(isRunning(r))return true;
-				if(Date.now()>=deadline)return false;
+			return callServiceList('qosify').then(isRunning,function(){return null;}).then(function(up){
+				if(up===want)return true;
+				if(Date.now()>=deadline)return up===null?null:false;
 				return new Promise(function(res){setTimeout(res,400);}).then(tick);
 			});
 		}
 		return tick();
 	},
 
-	waitForStopped:function(timeoutMs){
-		var deadline=Date.now()+(timeoutMs||3000);
-		function tick(){
-			return L.resolveDefault(callServiceList('qosify'),{}).then(function(r){
-				if(!isRunning(r))return true;
-				if(Date.now()>=deadline)return false;
-				return new Promise(function(res){setTimeout(res,400);}).then(tick);
-			});
-		}
-		return tick();
-	},
+	waitForRunning:function(timeoutMs){return this.waitForState(true,timeoutMs);},
+	waitForStopped:function(timeoutMs){return this.waitForState(false,timeoutMs);},
 
 	applyService:function(){
 		var self=this;
-		return L.resolveDefault(callServiceList('qosify'),{}).then(function(r){
+		return callServiceList('qosify').catch(function(){throw new Error(_('rpcd is not answering for qosify, so the service state is unknown.'));}).then(function(r){
 			if(isRunning(r))return callRcInit('qosify','reload');
 			return callRcInit('qosify','start').then(function(){
 				return self.waitForRunning(4000);
 			}).then(function(up){
+				if(up==null)throw new Error(_('rpcd is not answering for qosify, so the service state is unknown.'));
 				if(!up)throw new Error(_('qosify did not come up — check the system log'));
 			});
 		});
 	},
 
 	updateEnBadge:function(el,ctx,enChecked){
-		if(ctx.active==null){el.className='label warning';dom.content(el,_('Status Unknown'));}
+		if(ctx.active==null&&enChecked){el.className='label warning';dom.content(el,_('Status Unknown'));}
 		else if(ctx.active){el.className='label success';dom.content(el,_('Active'));}
 		else if(ctx.running&&enChecked){el.className='label warning';dom.content(el,_('Enabled — Not Shaping (check config)'));}
 		else if(enChecked){el.className='label warning';dom.content(el,_('Enabled — Not Running'));}
 		else{el.className='label danger';dom.content(el,_('Disabled'));}
 	},
 
-	// Status is green while shaping, amber while running idle, red when stopped,
-	// and amber Unknown for whatever rpcd did not answer for; the per-interface
-	// rows are ubus call qosify status, so they cost no forks.
 	svcNodes:function(ctx){
+		// Unknown is not Missing: a call rpcd did not answer says nothing about qosify.
 		function tri(v,f){return v==null?badge('warning',_('Unknown')):f(v);}
+		var run;
+		if(ctx.running==null)run=badge('warning',_('Unknown'));
+		else if(ctx.running&&ctx.active==null)run=badge('warning',_('Running — Shaping Unknown'));
+		else if(ctx.running&&ctx.active)run=badge('success',_('Running & Shaping'));
+		else if(ctx.running)run=badge('warning',_('Running — Not Shaping'));
+		else run=badge('danger',_('Not Running'));
+		// One line for the condition behind every Unknown in the table, rather than
+		// the same note repeated on each row it reaches.
+		if(ctx.rpcOk===false)run=[run,' ',E('em',{},
+			_('rpcd is not answering for qosify — check the ACL in /usr/share/rpcd/acl.d and restart rpcd'))];
 		return {
-			run:ctx.running==null?badge('warning',_('Unknown')):
-				(ctx.running?(ctx.active==null?badge('warning',_('Running — Shaping Unknown')):
-					badge(ctx.active?'success':'warning',ctx.active?_('Running'):_('Running — Not Shaping'))):badge('danger',_('Not Running'))),
 			up:ctx.uptime!=null?'%t'.format(Math.floor(ctx.uptime)):'-',
+			init:tri(ctx.hasInit,function(v){return badge(v?'success':'danger',v?_('Available'):_('Missing'));}),
 			auto:tri(ctx.enabled,function(v){return badge(v?'success':'danger',v?_('Enabled'):_('Disabled'));}),
-			shaped:tri(ctx.shaped,function(v){return v?badge('success',N_(v,'%d interface','%d interfaces').format(v)):badge('danger',_('none'));}),
-			init:tri(ctx.hasInit,function(v){return badge(v?'success':'danger',v?_('Installed'):_('Missing'));})
+			run:run,
+			shaped:tri(ctx.shaped,function(v){return v?N_(v,'%d interface','%d interfaces').format(v):E('em',{},_('none'));})
 		};
 	},
 
+	// Status, then the per-interface rows from ubus call qosify status, which cost
+	// no forks, then the init script.
 	renderSvcTable:function(ctx){
 		var n=this.svcNodes(ctx),rows=[
-			// One line for the condition behind every Unknown in the table, rather than
-			// the same note repeated on each row it reaches.
-			kvRow(_('Status'),ctx.rpcOk===false?[n.run,' ',
-				_('rpcd is not answering for qosify — check the ACL in /usr/share/rpcd/acl.d and restart rpcd')]:n.run),
+			kvRow(_('Status'),n.run),
 			kvRow(_('Uptime'),n.up),
 			kvRow(_('Autostart'),n.auto),
 			kvRow(_('Shaping'),n.shaped)
@@ -1067,14 +1067,13 @@ return view.extend({
 			var t=ctx.status&&ctx.status[g],k,e;
 			for(k in t){
 				e=t[k]||{};
-				rows.push(kvRow((g==='devices'?'device %s':'interface %s').format(k),[
+				rows.push(kvRow((g==='devices'?_('device %s'):_('interface %s')).format(k),[
 					badge(e.active?'success':'danger',e.active?_('active'):_('inactive')),' ',
-					_('device: %s, ingress: %s, egress: %s').format(e.ifname||'-',e.ingress?_('yes'):_('no'),e.egress?_('yes'):_('no'))
-				]));
+					_('device: %s, ingress: %s, egress: %s').format(e.ifname||'-',e.ingress?_('yes'):_('no'),e.egress?_('yes'):_('no'))]));
 			}
 		});
 		rows.push(kvRow(E('code',{},'/etc/init.d/qosify'),n.init));
-		return E('table',{'class':'table','id':'qos-svc-tbl'},rows);
+		return kvTable(rows,'qos-svc-tbl');
 	},
 
 	// Rows follow the configured interfaces, so the table is swapped whole; it
@@ -1085,12 +1084,28 @@ return view.extend({
 		this.svcButtons(ctx);
 	},
 
+	// The label is the state, so with the state unknown there is nothing to toggle.
+	// The click reads _auto, so a tick that changes the state changes the action.
+	autoButton:function(ctx,el){
+		this._auto=ctx.enabled;
+		el.disabled=this.readonly||ctx.enabled==null;
+		if(ctx.enabled==null){
+			el.className='cbi-button';
+			el.title=_('Autostart state unknown — rpcd did not answer');
+			dom.content(el,_('Unknown'));
+			return;
+		}
+		el.className='cbi-button '+(ctx.enabled?'cbi-button-positive':'cbi-button-negative');
+		el.title=ctx.enabled?_('Click to disable autostart'):_('Click to enable autostart');
+		dom.content(el,ctx.enabled?_('Enabled'):_('Disabled'));
+	},
+
 	renderCfgFiles:function(ctx){
 		var rulesN=(ctx.rulesN!=null)?ctx.rulesN:countRules(ctx.rulesText);
 		var cfgOk=(ctx.cfgOk!=null)?ctx.cfgOk:((ctx.cfgRaw||'').length>10&&/(^|\n)config /.test(ctx.cfgRaw||''));
 		var secN=uci.sections('qosify').length;
 		function row(path,st,ok,n){
-			return [E('code',{},path),st?(ok?badge('success',_('Valid')):badge('warning',_('Empty or invalid'))):badge('warning',_('Missing')),
+			return [E('code',{},path),st?(ok?badge('success',_('Valid')):badge('warning',_('Found (empty or invalid)'))):badge('danger',_('Missing')),
 				st?n:'-',st?fmtSize(st.size):'-',st?fmtMtime(st.mtime):'-'];
 		}
 		return gridTable([_('File'),_('Status'),_('Entries'),_('Size'),_('Modified')],[
@@ -1144,6 +1159,7 @@ return view.extend({
 		this.qaSelect(qadIf,'disabled',['0','1']);
 		this.qaInput(qadIf,'bandwidth_up','option','100mbit');
 		this.qaInput(qadIf,'bandwidth_down','option','100mbit');
+		this.qaInput(qadIf,'bandwidth','option','100mbit');
 		this.qaSelect(qadIf,'mode',MODES);
 		this.qaSelect(qadIf,'ingress',['0','1']);
 		this.qaSelect(qadIf,'egress',['0','1']);
@@ -1181,6 +1197,8 @@ return view.extend({
 		return section;
 	},
 
+
+
 	qaId:function(parent,opt){return (parent.id||'qac')+'-'+opt;},
 	qaGrid:function(parent,cells){
 		var n=Math.ceil(cells.length/QA_COLS),cols=Math.ceil(cells.length/n),w='width:'+(100/cols).toFixed(2)+'%',i,c;
@@ -1212,6 +1230,7 @@ return view.extend({
 
 	lock:function(){this._n=(this._n||0)+1;},
 	unlock:function(){this._n=Math.max(0,(this._n||0)-1);},
+
 
 	// qosify.init runs add_class() over both `class` and `alias`, so alias names
 	// are equally valid rule targets and dscp_* values. ingress/egress fall back
@@ -1257,7 +1276,7 @@ return view.extend({
 	classRows:function(classes){
 		if(!classes.length)return emRow(_('No classes defined in %s').format(UCI_PATH));
 		return classes.map(function(c){
-			return kvRow(E('code',{},c.name),'ingress %s, egress %s'.format(c.ingress||'-',c.egress||'-')+(c.alias?' (alias)':''));
+			return kvRow(E('code',{},c.name),_('ingress %s, egress %s').format(c.ingress||'-',c.egress||'-')+(c.alias?' '+_('(alias)'):''));
 		});
 	},
 
@@ -1398,10 +1417,18 @@ return view.extend({
 		}},_('Download'));
 	},
 
+
 	tabStatus:function(ctx){
-		var body=E('div',{'id':'qos-st-body'},[E('div',{'id':'qos-st-msg'}),E('pre',{'id':'qos-st-pre','style':'display:none'})]);
+		var section=E('div',{'id':'qos-st'});
+		var fs1=sect(_('qosify-status'));
+		var body=E('div',{'id':'qos-st-body'},[
+			E('pre',{'id':'qos-st-pre','style':'display:none'}),
+			E('div',{'id':'qos-st-msg'})
+		]);
 		this.fillStatus(body,ctx);
-		return E('div',{'id':'qos-st'},sect('qosify-status',body));
+		fs1.appendChild(body);
+		section.appendChild(fs1);
+		return section;
 	},
 
 	// ubus call qosify get_stats. Master adds ebpf_map_entries, last_reload_time,
@@ -1410,12 +1437,13 @@ return view.extend({
 	// Only what the reply contains is rendered.
 	isCounter:function(v){return !!v&&typeof v==='object'&&(v.packets!=null||v.bytes!=null);},
 	// qosify_map_get_ebpf_entry_count() sums the IPv4 and IPv6 address maps only.
+	// 1501e09 sends none of these, so there the section stays hidden.
 	infoNodes:function(st){
 		var rows=[];
 		if(st.ebpf_map_entries!=null)rows.push(['ebpf_map_entries',String(st.ebpf_map_entries)]);
 		if(st.last_reload_time)rows.push(['last_reload_time',fmtMtime(st.last_reload_time)]);
 		if(st.dns_cache)rows.push(['dns_cache','size %d, hits %d, misses %d'.format(st.dns_cache.size||0,st.dns_cache.hits||0,st.dns_cache.misses||0)]);
-		if(!rows.length)return emP(_('No daemon statistics.'));
+		if(!rows.length)return null;
 		return E('div',{'class':'qbox'},E('table',{'class':'table'},rows.map(function(r){return kvRow(E('code',{},r[0]),r[1]);})));
 	},
 
@@ -1498,7 +1526,7 @@ return view.extend({
 		var lg=$('qos-cn-map-sect-title'),t;
 		(this._mapCells||[]).forEach(function(c,i){
 			var r=rows[i],e=(dns&&dns[r.addr])||{},t,w;
-			t=!dns?'-':[Number(e.hits||0).toLocaleString(),Number(e.packets||0).toLocaleString()].concat(e.bytes==null?[]:['%1024.2mB'.format(e.bytes)]).join(' / ');
+			t=!dns?'-':[Number(e.hits||0).toLocaleString(),Number(e.packets||0).toLocaleString(),'%1024.2mB'.format(e.bytes||0)].join(' / ');
 			w=r.timeout!=null?'%t'.format(r.timeout):'-';
 			if(c.t.textContent!==t)c.t.textContent=t;
 			if(c.w&&c.w.textContent!==w)c.w.textContent=w;
@@ -1519,21 +1547,22 @@ return view.extend({
 	// unchanged, so the one-entry-per-port dump costs a compare, not a redraw.
 	refreshCounters:function(){
 		var self=this;
-		if(self.currentTab!=='cn')return Promise.resolve();
+		if(self.currentTab!=='cn'||self._cn)return Promise.resolve();
+		self._cn=true;
 		return Promise.all([
 			callServiceList('qosify').catch(function(){return null;}),
-			L.resolveDefault(callQosifyStats(),null)
+			callQosifyStats().catch(function(){return null;})
 		]).then(function(d){
 			var ctx={running:d[0]?isRunning(d[0]):null,stats:d[1]};
 			self._cnStats=ctx.running?ctx.stats:null;
 			if(ctx.stats)self._cnDns=ctx.stats.dns!=null;
 			self.fillCounters(ctx);
-			return Promise.all([self._cnDns?L.resolveDefault(callQosifyDump(),null):null,ctx.running,
+			return Promise.all([self._cnDns?callQosifyDump().catch(function(){return null;}):null,ctx.running,
 				ctx.running&&!self.readonly?L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),null):null]);
 		}).then(function(r){
 			self.fillTins(r[1],r[2]);
 			self.fillMap(r[0],self._cnStats&&self._cnStats.dns);
-		});
+		}).finally(function(){self._cn=false;});
 	},
 
 	tabCounters:function(){
@@ -1679,7 +1708,7 @@ return view.extend({
 			});
 			c.tot={pkt:td(1,pk),bytes:bcol?td(1,'bytes'):null,drops:xcol?td(1,'drops'):null};
 			trs.push(E('tr',{'class':'tr qt'},[E('td',{'class':'td left'},_('total')),dcol?E('td',{'class':'td'}):'',E('td',{'class':'td'}),
-				c.tot.pkt,c.tot.bytes||'',c.tot.drops||'',E('td',{'class':'td qn'},_('%s%%').format(100))]));
+				c.tot.pkt,c.tot.bytes||'',c.tot.drops||'',E('td',{'class':'td qn'},'100%')]));
 			dom.content(box,E('div',{'class':'qbox'},[colHead(cols),colTable(cols,trs)]));
 		}
 		rows.forEach(function(r,i){
@@ -1738,8 +1767,9 @@ return view.extend({
 	// than leaving the last poll's numbers on screen looking live. _cnDns is reset
 	// with it, or DNS Entries would keep a stale listing until stats return.
 	fillCounters:function(ctx){
-		var msg=$('qos-cn-msg'),info=$('qos-cn-info'),is=$('qos-cn-info-sect');
-		if(is)is.style.display=ctx.running&&ctx.stats?'':'none';
+		var msg=$('qos-cn-msg'),info=$('qos-cn-info'),is=$('qos-cn-info-sect'),
+			nodes=ctx.running&&ctx.stats?this.infoNodes(ctx.stats):null;
+		if(is)is.style.display=nodes?'':'none';
 		if(!ctx.running){
 			this._cnDns=false;
 			if(info)dom.content(info,'');
@@ -1749,9 +1779,9 @@ return view.extend({
 				_('qosify is not running. Start from the Overview tab.')));
 			return;
 		}
-		if(msg)dom.content(msg,ctx.stats?'':emP(_('get_stats returned no output.')));
+		if(msg)dom.content(msg,ctx.stats?'':emP(_('get_stats did not answer.')));
 		this.drawBars();
-		if(info)dom.content(info,ctx.stats?this.infoNodes(ctx.stats):'');
+		if(info)dom.content(info,nodes||'');
 	},
 
 	// Rebuilt only when the listing's shape changes; otherwise only the figures
@@ -1778,6 +1808,7 @@ return view.extend({
 		}
 		this.mapValues(rows,dns);
 	},
+
 
 	lintAll:function(){
 		var out=[];
@@ -1819,37 +1850,6 @@ return view.extend({
 
 	// === Actions ===
 
-	svcAction:function(action){
-		var self=this;
-		self.lock();
-		ui.showModal(_('Working'),[E('p',{},_('Sending %s to qosify...').format(action))]);
-		var p=callRcInit('qosify',action);
-		if(action==='start'||action==='restart')
-			p=p.then(function(){return self.waitForRunning(4000);}).then(function(up){
-				if(!up)throw new Error(_('qosify did not come up — check the system log'));
-			});
-		if(action==='stop')
-			p=p.then(function(){return self.waitForStopped(4000);}).then(function(down){
-				if(!down)throw new Error(_('qosify is still running — leaving the qdiscs alone'));
-				return fs.exec('/usr/share/qosify-luci/cleanup',[]).then(function(r){
-					if(r&&r.code)notify(_('Cleanup exited with code %d').format(r.code),'warning');
-				});
-			});
-		return p.then(function(){
-			return new Promise(function(r){setTimeout(r,800);});
-		}).then(function(){
-			return self.refreshOverview();
-		}).catch(function(e){
-			notify(_('Service action failed: %s').format(e),'danger');
-		}).finally(function(){
-			ui.hideModal();
-			self.unlock();
-		});
-	},
-
-	// ubus call qosify reload. The reply is empty either way, so the only failure
-	// this can report is the call itself; last_reload_time on Counters moves when
-	// it worked.
 	mapReload:function(){
 		var self=this;
 		self.lock();
@@ -1865,13 +1865,8 @@ return view.extend({
 		});
 	},
 
-	// ubus call qosify check_devices -- qosify_iface_check(), the same pass the
-	// daemon runs at the end of a config push. Every shaped section is looked up
-	// again (if_nametoindex for a device, netifd for an interface) and started or
-	// stopped to match, so a device that appeared after qosify started is picked up
-	// without bouncing the qdiscs a restart would rebuild. The method only arms a
-	// 10ms uloop timer and returns an empty reply, so the work happens after the
-	// call resolves: settle first, or the refresh reads the old state.
+	// check_devices arms a 10 ms uloop timer and returns before the pass runs, so
+	// wait for it before reading the state back.
 	checkDevices:function(){
 		var self=this;
 		self.lock();
@@ -1879,10 +1874,40 @@ return view.extend({
 		return callQosifyCheckDevices().then(function(){
 			return new Promise(function(r){setTimeout(r,800);});
 		}).then(function(){
-			notify(_('Device check done — see the Service table for what changed.'),'info');
+			notify(_('Device check done.'),'info');
 			return self.refreshOverview();
 		}).catch(function(e){
 			notify(_('Device check failed: %s').format(e),'danger');
+		}).finally(function(){
+			ui.hideModal();
+			self.unlock();
+		});
+	},
+
+	svcAction:function(action){
+		var self=this;
+		self.lock();
+		ui.showModal(_('Working'),[E('p',{},_('Sending %s to qosify...').format(action))]);
+		var p=callRcInit('qosify',action);
+		if(action==='start'||action==='restart')
+			p=p.then(function(){return self.waitForRunning(4000);}).then(function(up){
+				if(up==null)throw new Error(_('rpcd is not answering for qosify, so the service state is unknown.'));
+				if(!up)throw new Error(_('qosify did not come up — check the system log'));
+			});
+		if(action==='stop')
+			p=p.then(function(){return self.waitForStopped(4000);}).then(function(down){
+				if(down==null)throw new Error(_('rpcd is not answering for qosify, so the service state is unknown.'));
+				if(!down)throw new Error(_('qosify is still running — leaving the qdiscs alone'));
+				return fs.exec('/usr/share/qosify-luci/cleanup',[]).then(function(r){
+					if(r&&r.code)notify(_('Cleanup exited with code %d').format(r.code),'warning');
+				});
+			});
+		return p.then(function(){
+			return new Promise(function(r){setTimeout(r,800);});
+		}).then(function(){
+			return self.refreshOverview();
+		}).catch(function(e){
+			notify(_('Service action failed: %s').format(e),'danger');
 		}).finally(function(){
 			ui.hideModal();
 			self.unlock();
@@ -2022,6 +2047,7 @@ return view.extend({
 					// it only runs once the daemon is confirmed down -- the same guard
 					// svcAction() applies to a plain stop.
 					stopped=down;
+					if(down==null){notify(_('rpcd is not answering for qosify, so the service state is unknown.'),'warning');return null;}
 					if(!down){notify(_('qosify is still running — leaving the qdiscs alone'),'warning');return null;}
 					return L.resolveDefault(fs.exec('/usr/share/qosify-luci/cleanup',[]),null);
 				}).then(function(){
@@ -2063,12 +2089,15 @@ return view.extend({
 		}).finally(function(){self.unlock();});
 	},
 
-	// true shaping, false running without a shaped interface, null the status call
-	// did not answer. A retry costs one ubus call, so an unanswered one is retried
-	// like an idle reply rather than settled early.
+	// true shaping, false not shaping, null the status call did not answer. The
+	// qosify object goes with the daemon, so an unanswered call is only unknown
+	// while qosify runs; a stopped qosify is plainly not shaping. A retry costs one
+	// ubus call, so an unanswered one is retried like an idle reply.
 	waitForShaping:function(tries){
 		var self=this;
-		return callQosifyStatus().catch(function(){return null;}).then(function(st){
+		return callQosifyStatus().catch(function(){
+			return callServiceList('qosify').then(function(r){return isRunning(r)?null:{};},function(){return null;});
+		}).then(function(st){
 			var a=st?statusActive(st):null;
 			if(a||tries<=1)return a;
 			return new Promise(function(res){setTimeout(res,700);}).then(function(){return self.waitForShaping(tries-1);});
@@ -2307,6 +2336,7 @@ return view.extend({
 		ta.scrollTop=ta.scrollHeight;
 	},
 
+
 	qacAdd:function(p){
 		var tsel=$('qac-'+p+'-type'),nmEl=$('qac-'+p+'-name'),ty=tsel?tsel.value:p;
 		var ta=$('qos-config-ta');if(!ta)return;
@@ -2341,9 +2371,9 @@ return view.extend({
 	// === Refreshers ===
 
 	// rc and service answer whenever rpcd does and the session's ACL still covers
-	// this app, so either of them failing is the single condition behind every
-	// unknown here -- rpcd is not answering for qosify -- and running/enabled/
-	// hasInit go null instead of false, which would read as a stopped, unshaped,
+	// this app, so either failing means rpcd is not answering for qosify. Each fact
+	// goes null only with the call it comes from (running with service, enabled/
+	// hasInit with rc) instead of false, which would read as a stopped, unshaped,
 	// uninstalled qosify on a box that is shaping fine.
 	gatherCtx:function(withFiles){
 		var self=this;
@@ -2358,16 +2388,16 @@ return view.extend({
 			withFiles?fs.read(RULES_PATH).catch(nul):null
 		]).then(function(d){
 			var rpcOk=d[0]!==null&&d[1]!==null,rc=d[1]&&d[1].qosify;
-			var running=rpcOk?isRunning(d[0]):null;
+			var running=d[0]!==null?isRunning(d[0]):null;
 			// The qosify object goes with the daemon, so a stopped qosify explains an
 			// unanswered status call by itself: shaping only reads unknown while it runs.
 			var st=d[2]||(running===false?{}:null);
 			var ctx={
 				rpcOk:rpcOk,
 				running:running,
-				enabled:rpcOk?!!(rc&&rc.enabled):null,
-				hasInit:rpcOk?!!rc:null,
-				status:st||{},
+				enabled:d[1]!==null?!!(rc&&rc.enabled):null,
+				hasInit:d[1]!==null?!!rc:null,
+				status:st,
 				active:st?statusActive(st):null,
 				shaped:st?statusCount(st):null,
 				cfgStat:d[3],
@@ -2389,17 +2419,18 @@ return view.extend({
 
 	// Seconds since the running qosify started, or null. procd's service list
 	// carries the pid but no start time, so starttime (field 22 of /proc/<pid>/stat,
-	// USER_HZ ticks since boot) is set against /proc/uptime: both run on the boot
-	// clock, so an NTP step does not skew it. A reload keeps the pid; the start is
-	// cached per pid, so ticks read nothing until qosify is restarted.
+	// USER_HZ ticks since boot) is set against /proc/uptime, both on the boot
+	// clock. A reload keeps the pid, so the result is cached per pid and later
+	// ticks advance it from performance.now(), which is monotonic: an NTP step or
+	// a date change does not skew it, and nothing is read until qosify restarts.
 	uptime:function(r){
 		var self=this,pid=runPid(r);
 		if(!pid){self._up=null;return Promise.resolve(null);}
-		if(self._up&&self._up.pid===pid)return Promise.resolve(Date.now()/1000-self._up.t);
+		if(self._up&&self._up.pid===pid)return Promise.resolve(self._up.up+(performance.now()-self._up.t)/1000);
 		return Promise.all([fs.read('/proc/'+pid+'/stat'),fs.read('/proc/uptime')]).then(function(d){
 			var st=String(d[0]),f=st.slice(st.lastIndexOf(')')+2).split(' '),up=parseFloat(d[1])-f[19]/100;
 			if(!(up>=0))return null;
-			self._up={pid:pid,t:Date.now()/1000-up};
+			self._up={pid:pid,up:up,t:performance.now()};
 			return up;
 		}).catch(function(){return null;});
 	},
@@ -2437,7 +2468,8 @@ return view.extend({
 
 	refreshStatus:function(){
 		var self=this;
-		if(self.currentTab!=='st')return Promise.resolve();
+		if(self.currentTab!=='st'||self._st)return Promise.resolve();
+		self._st=true;
 		var ex=self.readonly?Promise.resolve(null):L.resolveDefault(fs.exec('/usr/sbin/qosify-status',[]),null);
 		return callServiceList('qosify').catch(function(){return null;}).then(function(d){
 			var ctx={running:d?isRunning(d):null,qstatus:self.readonly?'':null};
@@ -2447,7 +2479,7 @@ return view.extend({
 				ctx.qstatus=self.readonly?'':((r&&r.stdout)||'');
 				if(stb)self.fillStatus(stb,ctx);
 			});
-		});
+		}).finally(function(){self._st=false;});
 	},
 
 	// which = 'cfg' | 'rules' | undefined: the editor for the file just written is
@@ -2489,46 +2521,85 @@ JSEOF
 	sed -i "s/@VERSION@/$VERSION/" "$VIEW_DIR/main.js"
 	cat > "$VIEW_DIR/qosify.css" << 'CSSEOF'
 /* SPDX-License-Identifier: MIT */
-/* One set of box, line and title-bar values for every tab; theme variables first,
-   a neutral fallback for themes that do not define them. */
-#qos-app{--qos-bd:var(--border-color-medium,rgba(128,128,128,.35));--qos-ln:var(--border-color-low,rgba(128,128,128,.2));--qos-hd:var(--background-color-low,rgba(128,128,128,.06));--qos-r:4px;--qos-gap:.75em;--qos-pad:.45em 1em;--qos-cell:.45em .75em
-;--qos-f-red:#e41a1c;--qos-f-blue:#377eb8;--qos-f-yellow:#e6b422;--qos-f-green:#4daf4a;--qos-f-purple:#984ea3;--qos-f-orange:#ff7f00;--qos-f-cyan:#17becf;--qos-f-forest:#1b7837;--qos-f-pine:#0f4d24;--qos-f-grey:#5c5c5c;--qos-f-brown:#a65628;--qos-f-pink:#f781bf;--qos-f-none:rgba(128,128,128,.45)}
-/* Dark fallbacks: LuCI's data-darkmode where the theme sets it, the OS preference where it does not. */
-:root[data-darkmode="true"] #qos-app{--qos-f-red:#e57373;--qos-f-blue:#64a0d8;--qos-f-yellow:#d4b44a;--qos-f-green:#66bb6a;--qos-f-purple:#b085c0;--qos-f-orange:#ffa24d;--qos-f-cyan:#4dd0e1;--qos-f-forest:#43a047;--qos-f-pine:#2e7d4f;--qos-f-grey:#9e9e9e;--qos-f-brown:#c08050;--qos-f-pink:#f4a6cf;--qos-f-none:rgba(160,160,160,.45)}
-@media (prefers-color-scheme:dark){:root:not([data-darkmode]) #qos-app{--qos-f-red:#e57373;--qos-f-blue:#64a0d8;--qos-f-yellow:#d4b44a;--qos-f-green:#66bb6a;--qos-f-purple:#b085c0;--qos-f-orange:#ffa24d;--qos-f-cyan:#4dd0e1;--qos-f-forest:#43a047;--qos-f-pine:#2e7d4f;--qos-f-grey:#9e9e9e;--qos-f-brown:#c08050;--qos-f-pink:#f4a6cf;--qos-f-none:rgba(160,160,160,.45)}}
-/* Tin colours: bulk, best effort, video and voice take the theme's error, primary, warn and success colours. */
-#qos-app{--qos-c-red:var(--error-color-high,var(--qos-f-red));--qos-c-blue:var(--primary-color-high,var(--qos-f-blue));--qos-c-yellow:var(--warn-color-high,var(--qos-f-yellow));--qos-c-green:var(--success-color-high,var(--qos-f-green));--qos-c-purple:var(--qos-f-purple);--qos-c-orange:var(--qos-f-orange);--qos-c-cyan:var(--qos-f-cyan);--qos-c-forest:var(--qos-f-forest);--qos-c-pine:var(--qos-f-pine);--qos-c-grey:var(--qos-f-grey);--qos-c-brown:var(--qos-f-brown);--qos-c-pink:var(--qos-f-pink);--qos-c-none:var(--qos-f-none)}
-/* Boxes: every section, fold and inner box shares one outline and radius. */
-#qos-app .cbi-section,#qos-app .qs-box,#qos-app .qbox,#qos-st-pre{border:1px solid var(--qos-bd);border-radius:var(--qos-r)}
-#qos-app .cbi-section{padding:0 1em var(--qos-gap);margin:0 0 var(--qos-gap);box-shadow:0 1px 2px rgba(0,0,0,.06)}
-#qos-app .cbi-section>h3,#qos-app .cbi-section>summary{margin:0 -1em var(--qos-gap);padding:var(--qos-pad);font-size:1em;line-height:1.5;font-weight:600;border-bottom:1px solid var(--qos-ln);border-radius:var(--qos-r) var(--qos-r) 0 0;background:var(--qos-hd)}
-#qos-app .cbi-section>summary{cursor:pointer;list-style:none}#qos-app .cbi-section>summary::-webkit-details-marker{display:none}
+/* The page is stock LuCI markup; this sheet only draws each section as a box,
+   with theme variables first and a neutral fallback for themes without them. */
+#qos-app{--qos-bd:var(--border-color-medium,rgba(128,128,128,.35));--qos-ln:var(--border-color-low,rgba(128,128,128,.2));--qos-hd:var(--background-color-low,rgba(128,128,128,.06));--qos-r:4px;--qos-gap:.75em;--qos-pad:.45em 1em}
+#qos-app .cbi-section{margin:0 0 var(--qos-gap);padding:0 1em var(--qos-gap);border:1px solid var(--qos-bd);border-radius:var(--qos-r)}
+#qos-app .cbi-section>h3{margin:0 -1em var(--qos-gap);padding:var(--qos-pad);font-size:1em;line-height:1.5;font-weight:600;border-bottom:1px solid var(--qos-ln);border-radius:var(--qos-r) var(--qos-r) 0 0;background:var(--qos-hd)}
+#qos-app .cbi-section-descr{margin:0 0 var(--qos-gap);padding:0}
+#qos-app .cbi-section .cbi-page-actions{margin:var(--qos-gap) -1em calc(-1 * var(--qos-gap));padding:var(--qos-pad);border-top:1px solid var(--qos-ln);border-radius:0 0 var(--qos-r) var(--qos-r)}
+/* The service bar sits outside any section, so it gets its own box. Flex
+   items ignore float, so the theme's page-actions floats cannot reorder the
+   buttons and they stay in declared order whatever their colour class. */
+#qos-svc-btns{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.4em;margin:0 0 var(--qos-gap);padding:var(--qos-pad);border:1px solid var(--qos-bd);border-radius:var(--qos-r)}
+#qos-svc-btns::after{content:none}
+#qos-svc-btns>*{margin:0}
+/* Bootstrap and OpenWrt 2020 define .label.warning and .label.success but no
+   .label.danger. */
+#qos-app .label.danger{background-color:var(--error-color-high,#e8210d);color:var(--on-error-color,#fff)}
+#qos-app .table{margin:0}
+#qos-app .table .td{padding:.45em .75em;vertical-align:middle;border-top-color:var(--qos-ln)}
+/* A folding section is a details.cbi-section whose summary is the title bar. */
+#qos-app .cbi-section>summary{margin:0 -1em var(--qos-gap);padding:var(--qos-pad);font-weight:600;line-height:1.5;cursor:pointer;list-style:none;border-bottom:1px solid var(--qos-ln);border-radius:var(--qos-r) var(--qos-r) 0 0;background:var(--qos-hd)}
+#qos-app .cbi-section>summary::-webkit-details-marker{display:none}
 #qos-app .cbi-section>summary::before{content:"\25B8";display:inline-block;width:1.1em;transition:transform .15s}
 #qos-app details.cbi-section[open]>summary::before{transform:rotate(90deg)}
-#qos-app details.cbi-section:not([open]){padding-bottom:0}#qos-app details.cbi-section:not([open])>summary{margin-bottom:0;border-bottom:0;border-radius:var(--qos-r)}
+#qos-app details.cbi-section:not([open]){padding-bottom:0}
+#qos-app details.cbi-section:not([open])>summary{margin-bottom:0;border-bottom:0;border-radius:var(--qos-r)}
 #qos-app summary>h3{display:inline;margin:0;font-size:inherit;font-weight:inherit;line-height:inherit}
-#qos-app .cbi-section-descr{margin:0 0 var(--qos-gap);padding:0}
-#qos-app .cbi-section .cbi-page-actions{margin:var(--qos-gap) -1em calc(-1*var(--qos-gap));padding:var(--qos-pad);border-top:1px solid var(--qos-ln);border-radius:0 0 var(--qos-r) var(--qos-r)}
-#qos-ov>.cbi-page-actions{margin-top:var(--qos-gap)}
-#qos-app .label.danger{background-color:var(--qos-c-red);color:var(--on-error-color,#fff)}
-/* Tables: one cell padding and one row line; LuCI draws the column-title rows. */
-#qos-app .table{margin:0}#qos-app .table .th,#qos-app .table .td{padding:var(--qos-cell);vertical-align:middle}
-#qos-app .table .td{border-top-color:var(--qos-ln)}
-#qos-app .table .tr.table-titles .th,#qos-app .table .tr.cbi-section-table-titles .th{font-weight:600;white-space:nowrap}
-/* Files: its column titles are the box title bar. */
-#qos-app #qos-cfg-sect{padding:0;overflow:hidden}#qos-cfg-sect .th,#qos-cfg-sect .td{padding-left:1em;padding-right:1em}
-#qos-cfg-sect .tr.cbi-section-table-titles .th{padding-top:.45em;padding-bottom:.45em;border-bottom:1px solid var(--qos-ln);background:var(--qos-hd)}
-/* Quick settings: one inner box per tab, rows split by the same line as the tables. */
-#qos-app .qs-box{min-width:0;min-height:17em;padding:.7em 1.5em}
+/* Reference panels inside a section. */
+#qos-app details:not(.cbi-section){margin:var(--qos-gap) 0 0}
+#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}
+#qos-app details:not(.cbi-section)>p,#qos-app details:not(.cbi-section)>.table{margin:.5em 0 0}
+/* Quick Add: forms, so the grids stay tight; the folds are ordinary sections. */
+#qos-app .qa .table{table-layout:fixed;margin:0 0 .3em}
+#qos-app .qa .th,#qos-app .qa .td{padding:.15em .3em}
+#qos-app .qa .th{font-size:.85em;overflow:hidden;text-overflow:ellipsis}
+#qos-app .qa .td input:not([type=checkbox]),#qos-app .qa .td select{width:100%;min-width:0;box-sizing:border-box}
+#qos-app .qa .td input[type=checkbox]{margin:0;vertical-align:middle}
+#qos-app .qa-foot{display:flex;align-items:flex-start;gap:.3em 1em}
+#qos-app .qa-foot>details{flex:1 1 0;min-width:0;margin:.15em 0 0}
+#qos-app .qa details:not(.cbi-section)>summary{font-size:.9em}
+#qos-app .qa details:not(.cbi-section) .td{padding:.2em .5em;border-top:1px solid var(--qos-ln)}
+#qos-app .cbi-section-node>.cbi-value:last-child{margin-bottom:0}
+#qos-app .qos-up-name{margin-left:.5em;opacity:.75}
+/* The tc output takes the rest of the window: the viewport less the LuCI
+   header and the tab bar, caught by min-height on a short screen. The editors
+   are fitted to the window by fitEditor(); the calc() height only holds until
+   the first fit. Width is on the id so the theme's textarea width cannot win,
+   and resize: both keeps a wrong width correctable. */
+#qos-st-pre{margin:0;padding:.75em;overflow:auto;white-space:pre;height:calc(100vh - 310px);min-height:320px;resize:vertical;font-family:var(--font-mono,monospace);font-size:12px;border:1px solid var(--qos-bd);border-radius:var(--qos-r)}
+#qos-config-ta,#qos-rules-ta{width:100%;box-sizing:border-box;height:calc(100vh - 300px);min-height:160px;resize:both;padding:6px;line-height:1.4;tab-size:4;font-family:var(--font-mono,monospace);font-size:12px}
+/* Counters. Tin colours: bulk, best effort, video and voice take the theme's
+   error, primary, warn and success colours; the extra diffserv8 and precedence
+   tins use fallbacks with light and dark values, switched by LuCI's
+   data-darkmode or, on a theme that does not set it, prefers-color-scheme. */
+#qos-app{--qos-f-red:#e41a1c;--qos-f-blue:#377eb8;--qos-f-yellow:#e6b422;--qos-f-green:#4daf4a;--qos-f-purple:#984ea3;--qos-f-orange:#ff7f00;--qos-f-cyan:#17becf;--qos-f-forest:#1b7837;--qos-f-pine:#0f4d24;--qos-f-grey:#5c5c5c;--qos-f-brown:#a65628;--qos-f-pink:#f781bf;--qos-f-none:rgba(128,128,128,.45)}
+:root[data-darkmode="true"] #qos-app{--qos-f-red:#e57373;--qos-f-blue:#64a0d8;--qos-f-yellow:#d4b44a;--qos-f-green:#66bb6a;--qos-f-purple:#b085c0;--qos-f-orange:#ffa24d;--qos-f-cyan:#4dd0e1;--qos-f-forest:#43a047;--qos-f-pine:#2e7d4f;--qos-f-grey:#9e9e9e;--qos-f-brown:#c08050;--qos-f-pink:#f4a6cf;--qos-f-none:rgba(160,160,160,.45)}
+@media (prefers-color-scheme: dark){:root:not([data-darkmode]) #qos-app{--qos-f-red:#e57373;--qos-f-blue:#64a0d8;--qos-f-yellow:#d4b44a;--qos-f-green:#66bb6a;--qos-f-purple:#b085c0;--qos-f-orange:#ffa24d;--qos-f-cyan:#4dd0e1;--qos-f-forest:#43a047;--qos-f-pine:#2e7d4f;--qos-f-grey:#9e9e9e;--qos-f-brown:#c08050;--qos-f-pink:#f4a6cf;--qos-f-none:rgba(160,160,160,.45)}}
+#qos-app{--qos-c-red:var(--error-color-high,var(--qos-f-red));--qos-c-blue:var(--primary-color-high,var(--qos-f-blue));--qos-c-yellow:var(--warn-color-high,var(--qos-f-yellow));--qos-c-green:var(--success-color-high,var(--qos-f-green));--qos-c-purple:var(--qos-f-purple);--qos-c-orange:var(--qos-f-orange);--qos-c-cyan:var(--qos-f-cyan);--qos-c-forest:var(--qos-f-forest);--qos-c-pine:var(--qos-f-pine);--qos-c-grey:var(--qos-f-grey);--qos-c-brown:var(--qos-f-brown);--qos-c-pink:var(--qos-f-pink);--qos-c-none:var(--qos-f-none)}
+/* A header table above a boxed body; bars and figures are updated in place. */
+#qos-cn .qbox{overflow:hidden;border:1px solid var(--qos-bd);border-radius:var(--qos-r)}
+#qos-cn .qbox + .qbox{margin-top:var(--qos-gap)}
+#qos-cn .qhead{background:var(--qos-hd);border-bottom:1px solid var(--qos-ln)}
+#qos-cn .qhead .th,#qos-cn .qbox .td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#qos-cn .qbox .tr:not(.table-titles):hover .td{background:var(--qos-hd)}
+#qos-cn .cbi-progressbar{height:.75em;margin:0;min-width:0;border-radius:var(--qos-r)}
+#qos-cn .qn{width:1%;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+#qos-cn .qt .td{font-weight:600}
+#qos-cn-map-box{height:24rem;min-height:6rem;overflow-y:scroll;resize:vertical}
+/* Quick settings: one inner box per tab, rows split by the same line as the
+   tables, and the control then its hint on one line so every hint starts in
+   the same column. */
+#qos-app .qs-box{min-width:0;min-height:17em;padding:.7em 1.5em;border:1px solid var(--qos-bd);border-radius:var(--qos-r)}
 #qos-qs-sect .cbi-value{align-items:flex-start;padding:.55em 0}
-#qos-qs-sect .cbi-value+.cbi-value{border-top:1px solid var(--qos-ln)}
+#qos-qs-sect .cbi-value + .cbi-value{border-top:1px solid var(--qos-ln)}
 #qos-qs-sect .cbi-value label.cbi-value-title{flex:0 0 16em;padding-top:0;line-height:30px;font-weight:600}
-/* Control then hint on one line, so a short input no longer leaves the row empty
-   and every hint still starts in the same column. */
 #qos-qs-sect .cbi-value-field{display:grid;grid-template-columns:minmax(0,18em) minmax(0,1fr);align-items:center;gap:.3em 1.5em;flex:1 1 auto;margin-left:1.5em;min-width:0;line-height:30px}
 #qos-qs-sect .cbi-value-description{margin-top:0;line-height:1.4}
-#qos-qs-sect .qs-note{grid-column:1/-1}
+#qos-qs-sect .qs-note{grid-column:1 / -1}
 #qos-qs-sect .cbi-value-field input[type=checkbox]{justify-self:start;margin:0;vertical-align:middle}
+#qos-qs-sect .qs-ctl{justify-self:start}
 #qos-qs-sect .cbi-value-field input[type=text],#qos-qs-sect .cbi-value-field input[type=number],#qos-qs-sect .cbi-value-field select{max-width:100%;box-sizing:border-box}
 /* Sized by what goes in: a byte count gets a byte-sized box, CAKE options get the row. */
 #qos-qs-sect [data-q=ovh_bytes],#qos-qs-sect [data-q=overhead_mpu]{width:7em}
@@ -2538,36 +2609,7 @@ JSEOF
 #qos-qs-sect .qs-wide .cbi-value-field{grid-template-columns:minmax(0,28em) minmax(0,1fr)}
 #qos-qs-sect [data-q$=opts]{width:100%}
 /* Phones: label, then control, then hint, one under the other. */
-@media (max-width:600px){#qos-qs-sect .cbi-value{display:block}#qos-qs-sect .cbi-value label.cbi-value-title{line-height:1.5}
-#qos-qs-sect .cbi-value-field{grid-template-columns:minmax(0,1fr);margin-left:0}#qos-qs-sect .cbi-value-field>*{grid-column:1}}
-/* Reference panels inside a section. */
-#qos-app details:not(.cbi-section){margin:var(--qos-gap) 0 0}#qos-app details:not(.cbi-section)>summary{cursor:pointer;font-weight:600}
-#qos-app details:not(.cbi-section)>p,#qos-app details:not(.cbi-section)>.table{margin:.5em 0 0}
-/* Counters: header table above a boxed body; bars and figures updated in place. */
-#qos-cn .qbox{overflow:hidden}#qos-cn .qbox+.qbox{margin-top:var(--qos-gap)}
-#qos-cn .qbox .table .tr:not(.table-titles):hover .td{background:var(--qos-hd)}
-#qos-cn .cbi-progressbar{height:.75em;margin:0;min-width:0;border-radius:var(--qos-r)}
-#qos-cn .qn{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;width:1%}
-#qos-cn .qt .td{font-weight:600}
-#qos-cn .qhead{background:var(--background-color-medium,rgba(128,128,128,.08));border-bottom:1px solid var(--qos-ln)}
-#qos-cn .qhead .tr.table-titles{background:none}
-#qos-cn-map-box{height:24rem;min-height:6rem;overflow-y:scroll;resize:vertical}
-#qos-cn .qhead .th,#qos-cn .qbox .td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#qos-app .cbi-section-node>.cbi-value:last-child{margin-bottom:0}#qos-app .qos-up-name{margin-left:.5em;opacity:.75}
-/* Status output and both editors are boxed like the rest. */
-#qos-st-pre{margin:0}
-/* Width belongs on the id, not on a class or the style attribute: the theme sizes every
-   textarea at 210px, so a sheet that does not carry this rule leaves both editors that
-   wide with their rows intact -- narrow, full length, and not draggable wider under
-   resize:vertical. resize:both keeps a wrong width correctable. */
-#qos-config-ta,#qos-rules-ta{width:100%;box-sizing:border-box;min-height:160px;resize:both}
-/* Quick Add: forms, so the grids stay tight; the folds themselves are ordinary sections. */
-#qos-app .qa .table{table-layout:fixed;margin:0 0 .3em}#qos-app .qa .th,#qos-app .qa .td{padding:.15em .3em}
-#qos-app .qa .th{font-size:.85em;overflow:hidden;text-overflow:ellipsis}
-#qos-app .qa .td input:not([type=checkbox]),#qos-app .qa .td select{width:100%;min-width:0;box-sizing:border-box}#qos-app .qa .td input[type=checkbox]{margin:0;vertical-align:middle}
-#qos-app .qa-foot{display:flex;align-items:flex-start;gap:.3em 1em}#qos-app .qa-foot>details{flex:1 1 0;min-width:0;margin:.15em 0 0}
-#qos-app .qa details:not(.cbi-section)>summary{font-size:.9em}#qos-app .qa details:not(.cbi-section)>p,#qos-app .qa details:not(.cbi-section)>.table{margin:.3em 0 0}
-#qos-app .qa details:not(.cbi-section) .td{padding:.2em .5em;border-top:1px solid var(--qos-ln)}
+@media (max-width: 600px){#qos-qs-sect .cbi-value{display:block}#qos-qs-sect .cbi-value label.cbi-value-title{line-height:1.5}#qos-qs-sect .cbi-value-field{grid-template-columns:minmax(0,1fr);margin-left:0}#qos-qs-sect .cbi-value-field>*{grid-column:1}}
 CSSEOF
 	[ -s "$VIEW_DIR/qosify.css" ] || { echo "[ERROR] Failed writing $VIEW_DIR/qosify.css"; exit 1; }
 }

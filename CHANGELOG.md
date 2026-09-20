@@ -2,6 +2,60 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.1 — 2026-09-20
+
+Resyncs the installer with the 3.0.0 series as it stands on openwrt/luci (#9046, #9047,
+#9048, #9050, #9051, #9052, #9053, #9054), review fixes included. `main.js` is the
+in-tree file with only the installer's `?v=<VERSION>` stylesheet suffix added;
+`qosify.css` is the in-tree sheet in compact form. ACL, menu, cleanup and templates were
+already identical and are unchanged.
+
+### Fixed
+
+- An unanswered `service.list` no longer reads as "stopped". Start, Restart and Save
+  report that rpcd is not answering instead of "qosify did not come up", and Stop and
+  Config Clear no longer run the cleanup helper, which deletes the root qdisc, on a qosify that
+  may still be running
+- Each Overview fact goes Unknown only with the call it comes from: a lost `service`
+  grant blanks Status, a lost `rc` grant blanks Autostart and `/etc/init.d/qosify`,
+  rather than one failure blanking all three
+- QoS Enabled shows Disabled for a disabled section even while the state is unknown,
+  since that comes from UCI
+- Saving with qosify stopped says it is not shaping, not "could not be checked": the
+  qosify ubus object goes with the daemon, so `service.list` settles the question
+- `reload`, `check_devices`, `get_stats` and `dump` are declared with `reject: true`, so a
+  failed call (stale ACL) is reported instead of "Mapping files reloaded." or an empty
+  table
+- Counters: the get_stats box is hidden when the reply has none of its fields (always
+  the case on 24.10/25.12), and a failed call says "get_stats did not answer."
+- Counters drops a tick that overlaps the one fired on tab open, as Status already did,
+  so `qosify-status` is not forked twice. The in-flight guard on Status is back
+- DNS Entries always prints hits / packets / bytes; an idle pattern showed two values
+- Uptime is advanced from `performance.now()`, so an NTP step or a date change no longer
+  skews it
+- Service bar buttons keep their declared order on Bootstrap, whose `.cbi-page-actions`
+  floats reordered them by colour class
+- Autostart is labelled with the state (Enabled, Disabled, Unknown) and its click acts on
+  the last refresh, not on the state at page build
+- The QoS Enabled label toggles its checkbox again
+- `ingress %s, egress %s` and `(alias)` in the class lists are translatable again, and
+  the bare `%s%%` format is no longer in the pot
+
+### Changed
+
+- Overhead tab order: preset, Manual overhead, Encapsulation overhead, MPU, VLAN tags, so
+  the two manual-only rows sit together
+- The page keeps its description and plain `cbi-map`; the Files table keeps an `h3`
+  Files title
+
+### Docs
+
+- `diffserv4` is the daemon's default (`cfg->mode` in `interface.c`); `qosify.init`
+  passes `mode` through and has no fallback of its own
+- The 3.0.0 notes that the `qosify-status` fork is skipped while the state is unknown,
+  and that tabs poll only while open and pause with LuCI's refresh toggle, were wrong or
+  described what 2.9.11 already did. The change in 3.0.0 is the interval
+
 ## v3.0.0 — 2026-09-19
 
 First release of the 3.x line. It consolidates the whole 3.x development series
