@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.2"
+VERSION="3.0.3"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -477,7 +477,7 @@ function runPid(r){
 	return 0;
 }
 
-function clsOpt(c){var d=c.ingress&&c.ingress!==c.egress?c.ingress+'/'+c.egress:c.egress;return c.name+(d?' ('+d+')':'');}
+function clsOpt(c){var d=c.ingress===c.egress?c.egress:(c.ingress||'-')+'/'+(c.egress||'-');return c.name+(d?' ('+d+')':'');}
 function trim(s){return (s||'').replace(/^\s+|\s+$/g,'');}
 function $(id){return document.getElementById(id);}
 
