@@ -89,7 +89,7 @@ The installer installs `qosify` via apk or opkg if missing, writes the menu entr
 
 ## OpenWrt package
 
-`luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master (#8833, #9019) and ships in snapshots, currently the 2.9.x code. 3.0.x is going upstream as a series of PRs (#9046–#9054); until they land, the package is behind this installer, and `migrate` moves you to the package version.
+`luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master (#8833, #9019, #9054) and ships in snapshots. Since #9054 merged on 21 September 2026 the package carries the 3.0.x code, file for file the same as this installer's apart from the installer's `?v=<VERSION>` stylesheet suffix, so `migrate` moves you to the package without losing anything.
 
 The `Makefile` here builds the same package from `qosify-luci.sh` in the SDK or buildroot: put this repo at `package/luci-app-qosify/` and run `make package/luci-app-qosify/compile`. The version is read from `VERSION=` in the installer.
 
