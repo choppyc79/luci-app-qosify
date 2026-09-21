@@ -2,6 +2,17 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.7 — 2026-09-21
+
+### Fixed
+
+- Rules Quick Add `match` list: the IPv4 and IPv6 entries were blank. They now read
+  "IPv4 address, e.g. 1.1.1.1" and "IPv6 address, e.g. ff01::1", as in qosify's README.
+  `tcp:<port>[-<endport>]` and the other syntax labels were cut short for the same reason
+  (LuCI's `E()` parses a string child as HTML, so `<ipaddr>` became a tag)
+- The same fix for the Reference tables: Mapping file syntax (`<ipaddr>`, `<ipv6addr>`,
+  `<port>`) and the Quick Settings `overhead`/`overhead_mpu` descriptions (`<bytes>`)
+
 ## v3.0.6 — 2026-09-21
 
 Fixes from the 2026-09-21 audit. `dev` only for now.
