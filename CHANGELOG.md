@@ -2,6 +2,17 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.5 — 2026-09-21
+
+### Fixed
+
+- Sections look like the rest of LuCI on every theme. `qosify.css` no longer redraws
+  `.cbi-section` as its own 4px box with a grey title strip and no top padding, which on
+  Footstrap replaced the theme's card and pushed the title to the top edge instead of
+  inside the card. The theme now draws each section, its `h3` and its `cbi-page-actions`;
+  folding sections keep only their marker and cursor, and their `summary > h3` keeps the
+  theme's heading size
+
 ## v3.0.4 — 2026-09-21
 
 Carries the three review fixes that went into openwrt/luci#9046 after v3.0.3, so `main.js`
