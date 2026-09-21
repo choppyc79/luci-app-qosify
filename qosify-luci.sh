@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.3"
+VERSION="3.0.4"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -1011,10 +1011,14 @@ return view.extend({
 	waitForRunning:function(timeoutMs){return this.waitForState(true,timeoutMs);},
 	waitForStopped:function(timeoutMs){return this.waitForState(false,timeoutMs);},
 
+	// The config is already written and uci reloaded by the time this runs, so an
+	// unanswered service.list must not abort the apply and leave qosify on the old
+	// config: rc init is a write ACL entry and answers when the read half does not.
 	applyService:function(){
 		var self=this;
-		return callServiceList('qosify').catch(function(){throw new Error(_('rpcd is not answering for qosify, so the service state is unknown.'));}).then(function(r){
-			if(isRunning(r))return callRcInit('qosify','reload');
+		return callServiceList('qosify').then(isRunning,function(){return null;}).then(function(run){
+			if(run==null)return callRcInit('qosify','restart');
+			if(run)return callRcInit('qosify','reload');
 			return callRcInit('qosify','start').then(function(){
 				return self.waitForRunning(4000);
 			}).then(function(up){
@@ -1041,16 +1045,19 @@ return view.extend({
 		else if(ctx.running&&ctx.active)run=badge('success',_('Running & Shaping'));
 		else if(ctx.running)run=badge('warning',_('Running — Not Shaping'));
 		else run=badge('danger',_('Not Running'));
-		// One line for the condition behind every Unknown in the table, rather than
-		// the same note repeated on each row it reaches.
-		if(ctx.rpcOk===false)run=[run,' ',E('em',{},
-			_('rpcd is not answering for qosify — check the ACL in /usr/share/rpcd/acl.d and restart rpcd'))];
+		// One line for the condition behind the Unknowns in the table: it goes on the
+		// first row that reads Unknown, rather than on a row that is known or on
+		// every row it reaches.
+		var note=ctx.rpcOk===false?E('em',{},
+			_('rpcd is not answering for qosify — check the ACL in /usr/share/rpcd/acl.d and restart rpcd')):null;
+		function mark(n,unk){if(!note||!unk)return n;var w=[n,' ',note];note=null;return w;}
 		return {
+			// Keyed in display order, so the note lands on the first Unknown shown.
+			run:mark(run,ctx.running==null),
 			up:ctx.uptime!=null?'%t'.format(Math.floor(ctx.uptime)):'-',
-			init:tri(ctx.hasInit,function(v){return badge(v?'success':'danger',v?_('Available'):_('Missing'));}),
-			auto:tri(ctx.enabled,function(v){return badge(v?'success':'danger',v?_('Enabled'):_('Disabled'));}),
-			run:run,
-			shaped:tri(ctx.shaped,function(v){return v?N_(v,'%d interface','%d interfaces').format(v):E('em',{},_('none'));})
+			auto:mark(tri(ctx.enabled,function(v){return badge(v?'success':'danger',v?_('Enabled'):_('Disabled'));}),ctx.enabled==null),
+			shaped:mark(tri(ctx.shaped,function(v){return v?N_(v,'%d interface','%d interfaces').format(v):E('em',{},_('none'));}),ctx.shaped==null),
+			init:mark(tri(ctx.hasInit,function(v){return badge(v?'success':'danger',v?_('Available'):_('Missing'));}),ctx.hasInit==null)
 		};
 	},
 
@@ -2387,13 +2394,14 @@ return view.extend({
 			withFiles?fs.read(UCI_PATH).catch(nul):null,
 			withFiles?fs.read(RULES_PATH).catch(nul):null
 		]).then(function(d){
-			var rpcOk=d[0]!==null&&d[1]!==null,rc=d[1]&&d[1].qosify;
+			var rc=d[1]&&d[1].qosify;
 			var running=d[0]!==null?isRunning(d[0]):null;
 			// The qosify object goes with the daemon, so a stopped qosify explains an
 			// unanswered status call by itself: shaping only reads unknown while it runs.
 			var st=d[2]||(running===false?{}:null);
 			var ctx={
-				rpcOk:rpcOk,
+				// False whenever a displayed fact is unknown, whichever call left it so.
+				rpcOk:d[0]!==null&&d[1]!==null&&st!==null,
 				running:running,
 				enabled:d[1]!==null?!!(rc&&rc.enabled):null,
 				hasInit:d[1]!==null?!!rc:null,
