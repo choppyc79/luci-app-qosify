@@ -6,7 +6,7 @@ qosify is a daemon that sets up and manages CAKE together with an eBPF classifie
 
 The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids and `.cbi-progressbar` bars — and `qosify.css` draws each section as a box with a title bar using the theme's own colour variables. Option names on screen are the qosify UCI option names, except the Overview quick settings, which use plain labels with a short description under each field in qosify's own wording.
 
-Current version: **3.0.3**
+Current version: **3.0.4**
 
 ## What changed since 2.9.x
 
@@ -111,7 +111,7 @@ The app registers every file it owns, including the stylesheet, in `/lib/upgrade
 
 A session with only *read* access to the `luci-app-qosify` ACL group gets a read-only page: the editors, Quick Add forms and service controls are disabled rather than offered and failing with a permission error. Backup downloads and the Counters tab stay available, apart from Traffic by CAKE Tin, which needs the `qosify-status` exec grant.
 
-If rpcd does not answer the app's status calls — an ACL left behind by an older install, a session that predates it, or rpcd itself not running — the page reports **Unknown** instead of guessing. Each of Status, Autostart, Shaping and `/etc/init.d/qosify` shows an amber Unknown badge only when the call it comes from went unanswered, with one line naming the cause; the service buttons stay clickable so the failing call reports its own error, a Stop never runs the qdisc cleanup on an unanswered call, and a save says shaping could not be checked rather than warning that qosify is not shaping. Restarting rpcd after an upgrade (`/etc/init.d/rpcd restart`) is what the installer does at the end of an install.
+If rpcd does not answer the app's status calls — an ACL left behind by an older install, a session that predates it, or rpcd itself not running — the page reports **Unknown** instead of guessing. Each of Status, Autostart, Shaping and `/etc/init.d/qosify` shows an amber Unknown badge only when the call it comes from went unanswered, with one line naming the cause on the first row that reads Unknown; the service buttons stay clickable so the failing call reports its own error, a Stop never runs the qdisc cleanup on an unanswered call, a save whose `service.list` goes unanswered restarts qosify on the new config rather than failing, and a save says shaping could not be checked rather than warning that qosify is not shaping. Restarting rpcd after an upgrade (`/etc/init.d/rpcd restart`) is what the installer does at the end of an install.
 
 ## Configuration
 

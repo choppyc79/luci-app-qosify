@@ -2,6 +2,25 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.4 — 2026-09-21
+
+Carries the three review fixes that went into openwrt/luci#9046 after v3.0.3, so `main.js`
+is again the in-tree file of the #9046–#9054 series with only the installer's
+`?v=<VERSION>` stylesheet suffix added. `qosify.css`, ACL, menu, cleanup and templates were
+already identical and are unchanged.
+
+### Fixed
+
+- A save no longer fails when `service.list` goes unanswered. The config is already written
+  by then, so `applyService()` restarts qosify through `rc init` (a write grant that answers
+  when the read half is stale) instead of reporting `Save failed` and leaving qosify on the
+  old config. Only the start branch still fails, and it tells an unanswered poll from a
+  real timeout
+- The "rpcd is not answering" note now also shows when only `qosify status` goes
+  unanswered, so an Unknown Shaping row no longer appears without it
+- The note sits on the first Overview row that reads Unknown rather than always on Status,
+  so a failed `rc.list` no longer puts it next to a known green Running badge
+
 ## v3.0.3 — 2026-09-20
 
 ### Fixed
