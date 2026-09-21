@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.4"
+VERSION="3.0.5"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2530,8 +2530,9 @@ JSEOF
 	cat > "$VIEW_DIR/qosify.css" << 'CSSEOF'
 /* SPDX-License-Identifier: MIT */
 
-/* The page is stock LuCI markup; this sheet only draws each section as a box,
-   with theme variables first and a neutral fallback for themes without them. */
+/* The page is stock LuCI markup and each theme draws .cbi-section its own way,
+   so sections are left alone. Theme variables come first here, with a neutral
+   fallback for themes without them. */
 #qos-app {
 	--qos-bd: var(--border-color-medium, rgba(128, 128, 128, .35));
 	--qos-ln: var(--border-color-low, rgba(128, 128, 128, .2));
@@ -2539,36 +2540,6 @@ JSEOF
 	--qos-r: 4px;
 	--qos-gap: .75em;
 	--qos-pad: .45em 1em;
-}
-
-#qos-app .cbi-section {
-	margin: 0 0 var(--qos-gap);
-	padding: 0 1em var(--qos-gap);
-	border: 1px solid var(--qos-bd);
-	border-radius: var(--qos-r);
-}
-
-#qos-app .cbi-section > h3 {
-	margin: 0 -1em var(--qos-gap);
-	padding: var(--qos-pad);
-	font-size: 1em;
-	line-height: 1.5;
-	font-weight: 600;
-	border-bottom: 1px solid var(--qos-ln);
-	border-radius: var(--qos-r) var(--qos-r) 0 0;
-	background: var(--qos-hd);
-}
-
-#qos-app .cbi-section-descr {
-	margin: 0 0 var(--qos-gap);
-	padding: 0;
-}
-
-#qos-app .cbi-section .cbi-page-actions {
-	margin: var(--qos-gap) -1em calc(-1 * var(--qos-gap));
-	padding: var(--qos-pad);
-	border-top: 1px solid var(--qos-ln);
-	border-radius: 0 0 var(--qos-r) var(--qos-r);
 }
 
 /* The service bar sits outside any section, so it gets its own box. Flex
@@ -2610,17 +2581,11 @@ JSEOF
 	border-top-color: var(--qos-ln);
 }
 
-/* A folding section is a details.cbi-section whose summary is the title bar. */
+/* A folding section is a details.cbi-section whose summary holds the theme's h3. */
 #qos-app .cbi-section > summary {
-	margin: 0 -1em var(--qos-gap);
-	padding: var(--qos-pad);
-	font-weight: 600;
-	line-height: 1.5;
+	margin: 0 0 var(--qos-gap);
 	cursor: pointer;
 	list-style: none;
-	border-bottom: 1px solid var(--qos-ln);
-	border-radius: var(--qos-r) var(--qos-r) 0 0;
-	background: var(--qos-hd);
 }
 
 #qos-app .cbi-section > summary::-webkit-details-marker {
@@ -2638,22 +2603,13 @@ JSEOF
 	transform: rotate(90deg);
 }
 
-#qos-app details.cbi-section:not([open]) {
-	padding-bottom: 0;
-}
-
 #qos-app details.cbi-section:not([open]) > summary {
 	margin-bottom: 0;
-	border-bottom: 0;
-	border-radius: var(--qos-r);
 }
 
 #qos-app summary > h3 {
 	display: inline;
 	margin: 0;
-	font-size: inherit;
-	font-weight: inherit;
-	line-height: inherit;
 }
 
 /* Reference panels inside a section. */

@@ -4,16 +4,16 @@ LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / 
 
 qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Rules, Status, Counters, and Advanced — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
 
-The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids and `.cbi-progressbar` bars — and `qosify.css` draws each section as a box with a title bar using the theme's own colour variables. Option names on screen are the qosify UCI option names, except the Overview quick settings, which use plain labels with a short description under each field in qosify's own wording.
+The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids and `.cbi-progressbar` bars — and each theme draws the sections its own way — a card on Footstrap, a plain titled block on Bootstrap — as on every other LuCI page; `qosify.css` only styles what the theme has no rule for, using the theme's own colour variables. Option names on screen are the qosify UCI option names, except the Overview quick settings, which use plain labels with a short description under each field in qosify's own wording.
 
-Current version: **3.0.4**
+Current version: **3.0.5**
 
 ## What changed since 2.9.x
 
 3.0.0 is the whole 3.x development series folded into one release on top of v2.9.11. The daemon contract is unchanged — same UCI keys, same ubus calls, same file paths — so an upgrade needs no config changes. In short:
 
 - **New Counters tab** — Traffic by Class from `ubus call qosify get_stats`, Traffic by CAKE Tin from `qosify-status` in graph form, and DNS Entries from `ubus call qosify dump` where the running daemon reports them
-- **Rebuilt on stock LuCI markup** — the `qos-*` classes are gone; `qosify.css` draws every section, fold and inner box with one outline, radius, title bar and row line from the theme's own variables, the class and tin colours follow the theme in light and dark, and the tab highlight is left to the theme
+- **Rebuilt on stock LuCI markup** — the `qos-*` classes are gone; sections are left to the theme, and `qosify.css` draws the folds' markers and the inner boxes with one outline, radius and row line from the theme's own variables, the class and tin colours follow the theme in light and dark, and the tab highlight is left to the theme
 - **Six tabs** — Overview, Config, Rules, Status, Counters, Advanced, with the page title lowercase `qosify`
 - **Overview holds the service picture** — one Service section with status, uptime, autostart, shaping count and the per-interface rows moved over from Status; the control bar sits at the bottom of the tab instead of under every tab
 - **Quick settings in four tabs** — Basic, Shaping, Overhead, Advanced, with plain labels, a short qosify-worded hint beside each field and each field sized for its value
@@ -130,7 +130,7 @@ All user-visible strings go through LuCI's i18n system, so the app translates li
 | `/usr/share/luci/menu.d/luci-app-qosify.json` | LuCI menu entry |
 | `/usr/share/rpcd/acl.d/luci-app-qosify.json` | rpcd ACL grants |
 | `/www/luci-static/resources/view/qosify/main.js` | LuCI JS view (single page) |
-| `/www/luci-static/resources/view/qosify/qosify.css` | View stylesheet (section boxes, theme variables) |
+| `/www/luci-static/resources/view/qosify/qosify.css` | View stylesheet (inner boxes, fold markers, theme variables) |
 | `/usr/share/qosify-luci/` | Default config templates, cleanup helper |
 | `/lib/upgrade/keep.d/luci-app-qosify` | Sysupgrade keep list |
 
