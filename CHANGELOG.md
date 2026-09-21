@@ -2,6 +2,41 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.6 — 2026-09-21
+
+Fixes from the 2026-09-21 audit. `dev` only for now.
+
+### Fixed
+
+- A bad `dscp_prio`, `dscp_bulk` or `dscp_icmp` in `config defaults` blocks the Config save and
+  Restore upload. qosify rejects the whole `config` call on one of these, so interface changes
+  never applied. Bad class `value`/`ingress`/`egress` (qosify drops the class) and bad
+  `dscp_default_*` or class `dscp_prio`/`dscp_bulk` (ignored) are warned after save
+- Rules save and Restore warn about lines qosify skips without saying so: ports outside
+  1-65534 or reversed ranges, CIDR, `%zone`, malformed addresses and lines with a third field
+  (qosify reads the rest of the line as the DSCP value). Quick Add uses the same checks
+- NQB is only offered and accepted when the running qosify has it. 24.10 and 25.12 run
+  `1501e09`, which does not; the Reference says so
+- Restore turns CRLF into LF like the editors do, and Quick Settings reads a CRLF config
+  correctly. Before, it added duplicate options and could not remove one
+- A warning shows when `/etc/qosify/00-defaults.conf` is not matched by `list defaults`,
+  because then qosify does not load it and the Rules tab has no effect
+- Quick Settings shows an inherited `option bandwidth` as the placeholder, and no longer warns
+  "bandwidth not set" when `bandwidth` covers it
+- The 1023-byte line check counts the raw line, comment included, as qosify's `fgets` does
+- The cleanup helper also deletes `ifb-dns` once qosify has exited. A stop leaves it up
+  under the kernel's default `fq_codel`, so Stop and uninstall now remove it too. Only
+  devices qosify creates are touched
+
+### Changed
+
+- Quick Add `timeout` placeholder is qosify's default, 3600
+- Quick Settings reuses the option descriptions, so translators get 7 fewer near-duplicate strings
+- Quick Add controls have `aria-label`s
+- The `qosify` template matches openwrt's `qosify.conf` byte for byte (final blank line)
+- A stray `option:null` key is gone from Quick Settings
+- `install` no longer reloads qosify straight after restarting it
+
 ## v3.0.5 — 2026-09-21
 
 ### Fixed
