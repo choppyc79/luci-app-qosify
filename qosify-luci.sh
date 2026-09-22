@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.7"
+VERSION="3.0.8"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -123,14 +123,18 @@ EOF
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 #
-# Remove qosify qdiscs and ifb devices left behind by an unclean exit.
+# Remove qosify qdiscs and ifb devices left behind after qosify exits.
 #
-# A clean stop already does this itself: procd sends SIGTERM, qosify's main()
-# calls qosify_iface_stop() and interface_clear_qdisc() removes the root qdisc,
-# the bpf filters and the ifb device. This script only matters after a crash, a
-# SIGKILL or a respawn loop, so it deliberately only touches the devices of
+# A clean stop only does part of this: interface_clear_qdisc() removes the root
+# qdisc, the bpf filters and the ifb device but not clsact, and main() never
+# calls qosify_dns_stop(), so ifb-dns stays up. A crash, a SIGKILL or a respawn
+# loop leaves the rest too. This script deliberately only touches the devices of
 # enabled qosify sections, the ifb names qosify derives from them and qosify's
 # own ifb-dns -- never a qdisc or ifb qosify did not create.
+#
+# `cleanup wait` is for a package removal: qosify is stopped by its own prerm,
+# which may run after ours, so the device names are read now and the sweep waits
+# up to 30 s for qosify to exit. If it is still running, nothing is touched.
 
 . /lib/functions.sh
 . /lib/functions/network.sh
@@ -192,7 +196,7 @@ section_enabled() {
 # name to derive the ifb from here. qosify clears that one itself: on the next
 # up, interface_start() runs interface_clear_qdisc(), which deletes ifb-<dev>
 # before cmd_add_ingress() creates it again.
-clear_interface() {
+collect_interface() {
 	local cfg="$1"
 	local name dev
 
@@ -200,23 +204,34 @@ clear_interface() {
 	config_get name "$cfg" name
 	[ -n "$name" ] || return 0
 
-	network_get_device dev "$name" || dev=""
-	clear_dev "$dev"
+	network_get_device dev "$name" && DEVS="$DEVS $dev"
 }
 
 # `config device` names a netdev directly.
-clear_device() {
+collect_device() {
 	local cfg="$1"
 	local name
 
 	section_enabled "$cfg" || return 0
 	config_get name "$cfg" name
-	clear_dev "$name"
+	[ -n "$name" ] && DEVS="$DEVS $name"
 }
 
+DEVS=""
 config_load qosify
-config_foreach clear_interface interface
-config_foreach clear_device device
+config_foreach collect_interface interface
+config_foreach collect_device device
+
+if [ "$1" = wait ]; then
+	n=30
+	while pidof qosify >/dev/null; do
+		[ "$n" -gt 0 ] || exit 0
+		n=$((n - 1))
+		sleep 1
+	done
+fi
+
+for dev in $DEVS; do clear_dev "$dev"; done
 
 # ifb-dns is qosify's fixed DNS ifb, not derived from any section, and a stop
 # leaves it up under the kernel's default fq_codel. Deleting its root qdisc only
@@ -3094,10 +3109,8 @@ uninstall_all() {
 	echo "===== qosify LuCI Uninstaller ====="
 	/etc/init.d/qosify stop 2>/dev/null
 	/etc/init.d/qosify disable 2>/dev/null
-	sleep 1
-	# A clean stop already clears qosify's qdiscs and ifbs; cleanup only mops up
-	# after an unclean exit. Without it there is no safe name list to sweep.
-	[ -x "$TPL_DIR/cleanup" ] && "$TPL_DIR/cleanup"
+	# A stop leaves clsact and ifb-dns behind; wait for qosify to exit, then sweep.
+	[ -x "$TPL_DIR/cleanup" ] && "$TPL_DIR/cleanup" wait
 	if command -v apk >/dev/null 2>&1; then apk del qosify 2>/dev/null
 	elif command -v opkg >/dev/null 2>&1; then opkg remove qosify 2>/dev/null; fi
 	rm -f "$UCI_CONFIG" "$DEFAULTS_FILE"

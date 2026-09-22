@@ -84,7 +84,7 @@ The installer installs `qosify` via apk or opkg if missing, writes the menu entr
 | `install` | Full install — package, files, configs, service restart |
 | `files` | App files only, no package operations and no service restarts |
 | `reset` | Restore both config files to qosify defaults and restart |
-| `uninstall` | Remove the app, qosify, configs, and qosify's own leftover qdiscs |
+| `uninstall` | Remove the app, qosify, configs, and qosify's own leftover `clsact` and `ifb-dns` |
 | `migrate` | Swap the script install for the `luci-app-qosify` package, keeping both config files; falls back to the script install if the package is not in the feeds |
 
 ## OpenWrt package
