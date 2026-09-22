@@ -2,6 +2,20 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.8 — 2026-09-22
+
+### Fixed
+
+- Removing the package left `clsact` on the shaped device and `ifb-dns` up under `fq_codel`.
+  qosify's own stop never deletes either (`interface_clear_qdisc()` skips `clsact`, and
+  `main()` never calls `qosify_dns_stop()`). A new `prerm` starts a copy of the cleanup
+  helper in the background. It waits up to 30 s for qosify to exit, so it still works when
+  qosify's prerm runs after this one. If qosify stays installed and running, nothing is touched
+- `uninstall` waits for qosify to exit before the sweep instead of `sleep 1`, so `ifb-dns`
+  is no longer skipped on a slow stop
+- The cleanup helper reads the device names before it waits (`cleanup wait`). With no
+  argument, as LuCI calls it, it behaves as before
+
 ## v3.0.7 — 2026-09-21
 
 ### Fixed
