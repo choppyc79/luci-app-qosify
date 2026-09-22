@@ -6,7 +6,7 @@ qosify is a daemon that sets up and manages CAKE together with an eBPF classifie
 
 The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids and `.cbi-progressbar` bars — and each theme draws the sections its own way — a card on Footstrap, a plain titled block on Bootstrap — as on every other LuCI page; `qosify.css` only styles what the theme has no rule for, using the theme's own colour variables. Option names on screen are the qosify UCI option names, except the Overview quick settings, which use plain labels with a short description under each field in qosify's own wording.
 
-Current version: **3.0.7**
+Current version: **3.0.8**
 
 ## What changed since 2.9.x
 
