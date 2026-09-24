@@ -4,7 +4,9 @@ All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant i
 
 ## v3.0.9 — 2026-09-24
 
-Fixes from the 2026-09-24 audit. `dev` only for now.
+Bug fixes. `dev` (3.0.6 to 3.0.9) is merged into `main`, and the package changes go to
+openwrt/luci master as one PR of four commits: 3.0.6, 3.0.7, 3.0.8 (with its `prerm` in the
+in-tree `Makefile`) and 3.0.9. The 3.0.8 README update has no package change.
 
 ### Fixed
 
@@ -52,7 +54,7 @@ Fixes from the 2026-09-24 audit. `dev` only for now.
 
 ## v3.0.6 — 2026-09-21
 
-Fixes from the 2026-09-21 audit. `dev` only for now.
+Bug fixes.
 
 ### Fixed
 
