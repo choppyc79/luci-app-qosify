@@ -2,6 +2,29 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.9 — 2026-09-24
+
+Fixes from the 2026-09-24 audit. `dev` only for now.
+
+### Fixed
+
+- Start, Restart and a save or Restore that starts qosify left it running with no config
+  on 25.12 and master. There `qosify.init` pushes the config from `service_running()`,
+  which `rc.common` only calls for `running`, not from `start`. The app now waits for the
+  qosify ubus object and sends `reload`; on 24.10 (`service_started()`) that changes nothing.
+  The installer's `install` and `reset` do the same (3.0.6 had dropped the extra `reload`)
+- The cleanup helper deleted the root qdisc and `clsact` on every enabled section's device,
+  whoever owned them. Removing the package with qosify stopped and SQM on the same device
+  took SQM's root qdisc with it. The root qdisc and qosify's filters (prefs 272-277) are now
+  only deleted when qosify's bpf classifier is still attached, and `clsact` only once no
+  filters are left on it
+- Shell metacharacters in `bandwidth*`, `mode` and the CAKE `*options` block the Config save
+  and Restore upload, and Quick Settings checks the bandwidth fields too. qosify pastes these
+  unquoted into a `tc` command it runs with `sh -c` as root. Before, they were only warned
+  after the file was written
+- `install`, `files`, `uninstall` and `reset` stop when `luci-app-qosify` is installed as an
+  apk/opkg package, instead of overwriting or deleting package-owned files
+
 ## v3.0.8 — 2026-09-22
 
 ### Fixed
