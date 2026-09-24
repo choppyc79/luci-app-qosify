@@ -6,7 +6,7 @@ qosify is a daemon that sets up and manages CAKE together with an eBPF classifie
 
 The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids and `.cbi-progressbar` bars — and each theme draws the sections its own way — a card on Footstrap, a plain titled block on Bootstrap — as on every other LuCI page; `qosify.css` only styles what the theme has no rule for, using the theme's own colour variables. Option names on screen are the qosify UCI option names, except the Overview quick settings, which use plain labels with a short description under each field in qosify's own wording.
 
-Current version: **3.0.8**
+Current version: **3.0.9**
 
 ## What changed since 2.9.x
 
@@ -58,6 +58,8 @@ Always on the tab bar, and polled like the other tabs at LuCI's refresh interval
 - OpenWrt 22.03+ (or snapshot) with LuCI
 - `luci-base` (preinstalled with LuCI) — the app uses the `rc` ubus namespace from the rpcd core, so nothing extra is needed
 - `wget` or `curl` to fetch the installer
+
+On 25.12 and snapshots, `qosify.init` only applies its config on `reload` (or when something runs `/etc/init.d/qosify running`), not on `start`, so after a reboot qosify can run with no config until **Reload** is pressed. The app's Start, Restart and Save & Apply send the reload themselves; the boot case needs the fix in `qosify.init` (`service_running` → `service_started`).
 
 ## Install
 

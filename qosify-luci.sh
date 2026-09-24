@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.8"
+VERSION="3.0.9"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -26,6 +26,23 @@ restart_luci_services() {
 clean_legacy() {
 	rm -f "$LEGACY_CTRL"
 	rm -rf "$LEGACY_VIEW" "$LEGACY_CBI"
+}
+
+# qosify.init in 25.12 and master pushes its config from service_running(), which
+# start and restart never call, so push it once the daemon is on ubus. On 24.10
+# service_started() already did, and the same config again changes nothing.
+qosify_apply() {
+	/etc/init.d/qosify restart 2>/dev/null
+	ubus -t 10 wait_for qosify 2>/dev/null && /etc/init.d/qosify reload 2>/dev/null
+}
+
+# A package install owns these files; writing or deleting them under apk/opkg
+# leaves the package database wrong.
+not_pkg() {
+	grep -qx 'P:luci-app-qosify' /lib/apk/db/installed 2>/dev/null ||
+		[ -f /usr/lib/opkg/info/luci-app-qosify.control ] || return 0
+	echo "[ERROR] luci-app-qosify is installed as a package; use apk/opkg for it"
+	exit 1
 }
 
 install_deps() {
@@ -161,15 +178,33 @@ ifb_name() {
 	echo "ifb-$1"
 }
 
+qosify_filter() {
+	tc filter show dev "$1" "$2" 2>/dev/null | grep -q ' qosify_'
+}
+
+# qosify's filters sit at QOSIFY_PRIO_BASE (0x110 = 272): its bpf classifier on
+# egress, and on ingress the classifier plus the DNS and ifb redirects up to 277.
+# A clean exit removes them and the root qdisc, so they only survive a crash, and
+# then the root cake is qosify's too. Another shaper's root qdisc, and a clsact
+# carrying anyone else's filters, are left alone.
 clear_dev() {
 	local dev="$1"
-	local ifb
+	local ifb p
 
 	[ -n "$dev" ] || return 0
 
 	if [ -e "/sys/class/net/$dev" ]; then
-		tc qdisc del dev "$dev" clsact 2>/dev/null
-		tc qdisc del dev "$dev" root 2>/dev/null
+		if qosify_filter "$dev" egress; then
+			tc qdisc del dev "$dev" root 2>/dev/null
+			tc filter del dev "$dev" egress pref 272 2>/dev/null
+		fi
+		if qosify_filter "$dev" ingress; then
+			for p in 272 273 274 275 276 277; do
+				tc filter del dev "$dev" ingress pref "$p" 2>/dev/null
+			done
+		fi
+		[ -n "$(tc filter show dev "$dev" ingress 2>/dev/null)$(tc filter show dev "$dev" egress 2>/dev/null)" ] ||
+			tc qdisc del dev "$dev" clsact 2>/dev/null
 	fi
 
 	# An ifb outlives its parent, so this is not gated on $dev still existing.
@@ -616,9 +651,6 @@ function ifLint(s,dev){
 	});
 	if(s.disabled!=null&&s.disabled!==''&&!/^(0|1|on|off|true|false|yes|no|enabled|disabled)$/i.test(String(s.disabled)))
 		w.push(_('disabled is set to "%s" — config_get_bool does not recognise that, so the section stays enabled').format(s.disabled));
-	['bandwidth_up','bandwidth_down','bandwidth','mode','ingress_options','egress_options','options'].forEach(function(k){
-		if(s[k]&&/['"`$;&|<>(){}\\]/.test(String(s[k])))w.push(_('%s contains shell metacharacters — qosify assembles the tc command as a string and runs it with sh -c, so the command will break or execute them').format(k));
-	});
 	return w;
 }
 // Locate config blocks in raw UCI text: {type,name,start,end} (end = last non-blank
@@ -636,7 +668,7 @@ function cfgSections(txt){
 	}
 	return out;
 }
-// Section objects from raw UCI text for dscpLint()/rulesLoaded(): only plain
+// Section objects from raw UCI text for cfgLint()/rulesLoaded(): only plain
 // option/list lines (one bare or fully quoted value) are read, so an unusual
 // line is skipped rather than misread and a save is never blocked on a guess.
 function cfgOpts(txt){
@@ -751,12 +783,19 @@ function ruleWarn(txt,names){
 // dscp_* and class values in config sections (uci.get objects or cfgOpts()).
 // Defaults-level dscp_prio/dscp_bulk/dscp_icmp failing makes qosify_ubus_config()
 // return before the interfaces are applied; the rest is dropped quietly.
-function dscpLint(secs){
+// cmd_add_qdisc() pastes bandwidth, mode and the options unquoted into a tc
+// command run with sh -c as root, so a shell metacharacter there is refused too.
+function cfgLint(secs){
 	var w=[],cls=[];
 	secs.forEach(function(s){if((s['.type']==='class'||s['.type']==='alias')&&s['.name'])cls.push(s['.name']);});
 	secs.forEach(function(s){
 		var t=s['.type'],n=s['.name']||t;
-		if(t==='defaults'){
+		if(t==='interface'||t==='device'){
+			['bandwidth_up','bandwidth_down','bandwidth','mode','ingress_options','egress_options','options'].forEach(function(k){
+				if(s[k]&&/['"`$;&|<>(){}\\\n]/.test(String(s[k])))w.push({hard:true,t:_('%s: %s contains shell metacharacters — qosify runs the tc command with sh -c as root, so they would break it or be executed').format(n,k)});
+			});
+		}
+		else if(t==='defaults'){
 			['dscp_prio','dscp_bulk','dscp_icmp'].forEach(function(k){
 				if(s[k]!=null&&s[k]!==''&&!dscpOk(s[k],cls))w.push({hard:true,t:_('%s: %s "%s" is not a class, codepoint or 0-63 — qosify rejects the whole config and interface changes are not applied').format(n,k,s[k])});
 			});
@@ -1129,15 +1168,31 @@ return view.extend({
 	applyService:function(){
 		var self=this;
 		return callServiceList('qosify').then(isRunning,function(){return null;}).then(function(run){
-			if(run==null)return callRcInit('qosify','restart');
+			if(run==null)return callRcInit('qosify','restart').then(function(){return self.pushConfig();});
 			if(run)return callRcInit('qosify','reload');
 			return callRcInit('qosify','start').then(function(){
 				return self.waitForRunning(4000);
 			}).then(function(up){
 				if(up==null)throw new Error(_('rpcd is not answering for qosify, so the service state is unknown.'));
 				if(!up)throw new Error(_('qosify did not come up — check the system log'));
+				return self.pushConfig();
 			});
 		});
+	},
+
+	// qosify.init in 25.12 and master pushes its config from service_running(),
+	// which rc.common only calls for `running`, so start and restart leave the
+	// daemon with no config. reload pushes it once the ubus object is up; on 24.10,
+	// where service_started() already did, the same config changes nothing.
+	pushConfig:function(){
+		var n=10;
+		function tick(){
+			return callQosifyStatus().then(function(){return callRcInit('qosify','reload');},function(){
+				if(--n<=0)throw new Error(_('qosify did not appear on ubus, so its config was not applied — press Reload'));
+				return new Promise(function(r){setTimeout(r,400);}).then(tick);
+			});
+		}
+		return tick();
 	},
 
 	updateEnBadge:function(el,ctx,enChecked){
@@ -1279,7 +1334,7 @@ return view.extend({
 		this.qaInput(qadIf,'bandwidth_up','option','100mbit');
 		this.qaInput(qadIf,'bandwidth_down','option','100mbit');
 		this.qaInput(qadIf,'bandwidth','option','100mbit');
-			this.qaSelect(qadIf,'mode',MODES);
+		this.qaSelect(qadIf,'mode',MODES);
 		this.qaSelect(qadIf,'ingress',['0','1']);
 		this.qaSelect(qadIf,'egress',['0','1']);
 		this.qaSelect(qadIf,'nat',['0','1']);
@@ -1941,7 +1996,7 @@ return view.extend({
 			});
 		}
 		if(!load){walk('interface',false);walk('device',true);}
-		dscpLint(all).forEach(function(x){if(!load||x.hard)out.push(x.t);});
+		cfgLint(all).forEach(function(x){if(!load||x.hard)out.push(x.t);});
 		if(!rulesLoaded(all))out.push(_('%s is not in the defaults list — qosify does not load it, so the Rules tab has no effect').format(RULES_PATH));
 		return out;
 	},
@@ -2016,6 +2071,7 @@ return view.extend({
 			p=p.then(function(){return self.waitForRunning(4000);}).then(function(up){
 				if(up==null)throw new Error(_('rpcd is not answering for qosify, so the service state is unknown.'));
 				if(!up)throw new Error(_('qosify did not come up — check the system log'));
+				return self.pushConfig();
 			});
 		if(action==='stop')
 			p=p.then(function(){return self.waitForStopped(4000);}).then(function(down){
@@ -2047,8 +2103,8 @@ return view.extend({
 		var ovh=get('overhead'),mode=get('mode'),mpu=trim(get('overhead_mpu')),vlan=get('overhead_vlan'),ob=trim(get('ovh_bytes'));
 		var iopts=trim(get('ing_opts')),eopts=trim(get('egr_opts')),gopts=trim(get('opts'));
 		var safe=/^[\w\s.:-]*$/;
-		if(!safe.test(iopts)||!safe.test(eopts)||!safe.test(gopts)){
-			notify(_('Error: invalid characters in options fields. Use alphanumeric, spaces, hyphens, dots, colons only.'),'danger');
+		if(!safe.test(iopts)||!safe.test(eopts)||!safe.test(gopts)||!safe.test(bwUp)||!safe.test(bwDn)){
+			notify(_('Error: invalid characters in bandwidth or options fields. Use alphanumeric, spaces, hyphens, dots, colons only.'),'danger');
 			return;
 		}
 		if(bwUp&&!rate.test(bwUp))notify(_('bandwidth_up does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
@@ -2132,7 +2188,7 @@ return view.extend({
 		if(!/(^|\n)config /.test(data)){
 			notify(_('Error: No valid config stanzas found.'),'danger');return;
 		}
-		var hard=dscpLint(cfgOpts(data)).filter(function(x){return x.hard;});
+		var hard=cfgLint(cfgOpts(data)).filter(function(x){return x.hard;});
 		if(hard.length){hard.forEach(function(x){notify(_('Error: %s').format(x.t),'danger');});return;}
 		return self.confirmFresh(ta,UCI_PATH).then(function(go){
 			if(!go)return null;
@@ -2316,7 +2372,7 @@ return view.extend({
 		function validateUci(d){
 			if(/\x00/.test(d))return _('Binary content rejected');
 			if(!/(^|\n)config /.test(d))return _('No valid UCI config stanzas');
-			var hard=dscpLint(cfgOpts(d)).filter(function(x){return x.hard;});
+			var hard=cfgLint(cfgOpts(d)).filter(function(x){return x.hard;});
 			return hard.length?hard.map(function(x){return x.t;}).join('; '):null;
 		}
 		self.lock();
@@ -3075,6 +3131,7 @@ save_installer() {
 
 install_files() {
 	echo "===== qosify LuCI file install v$VERSION (no package ops) ====="
+	not_pkg
 	clean_legacy
 	install_templates
 	install_defaults
@@ -3089,6 +3146,7 @@ install_files() {
 
 install_all() {
 	echo "===== qosify LuCI Installer v$VERSION ====="
+	not_pkg
 	clean_legacy
 	install_deps
 	install_templates
@@ -3098,7 +3156,7 @@ install_all() {
 	install_view
 	install_keepd
 	save_installer
-	/etc/init.d/qosify restart 2>/dev/null
+	qosify_apply
 	restart_luci_services
 	logger -t qosify-luci "LuCI app installed v$VERSION"
 	echo "[OK] qosify LuCI app installed"
@@ -3107,6 +3165,7 @@ install_all() {
 
 uninstall_all() {
 	echo "===== qosify LuCI Uninstaller ====="
+	not_pkg
 	/etc/init.d/qosify stop 2>/dev/null
 	/etc/init.d/qosify disable 2>/dev/null
 	# A stop leaves clsact and ifb-dns behind; wait for qosify to exit, then sweep.
@@ -3161,7 +3220,7 @@ case "$1" in
 	install) install_all ;;
 	uninstall) uninstall_all ;;
 	migrate) migrate_pkg ;;
-	reset) install_templates; force_defaults; /etc/init.d/qosify restart 2>/dev/null ;;
+	reset) not_pkg; install_templates; force_defaults; qosify_apply ;;
 	files) install_files ;;
 	*) echo "Usage: $0 {install|uninstall|migrate|reset|files}" ;;
 esac
