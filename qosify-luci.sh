@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.9"
+VERSION="3.0.10"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -668,18 +668,29 @@ function cfgSections(txt){
 	}
 	return out;
 }
-// Section objects from raw UCI text for cfgLint()/rulesLoaded(): only plain
-// option/list lines (one bare or fully quoted value) are read, so an unusual
-// line is skipped rather than misread and a save is never blocked on a guess.
+// Section objects from raw UCI text for cfgLint()/rulesLoaded(). Each line is cut
+// at an unquoted # and split at unquoted ; as uci does, and only plain statements
+// (one bare or fully quoted value) are read. libuci also joins adjacent quoted and
+// unquoted parts and takes backslash escapes, so a tc-bound key (TCK) in any other
+// form is listed in '.bad' and refused by cfgLint(); other keys are skipped.
+var TCK=/^(bandwidth(_up|_down)?|mode|(ingress_|egress_)?options)$/;
+function cfgStmts(l){return (l.replace(/^((?:[^'"#]|'[^']*'|"[^"]*")*)#.*$/,'$1').match(/(?:[^'";]|'[^']*'|"[^"]*"|['"])+/g)||[]);}
 function cfgOpts(txt){
 	var lines=(txt||'').split('\n');
 	return cfgSections(txt).map(function(c){
-		var o={'.type':c.type,'.name':c.name},i,m;
-		for(i=c.start+1;i<=c.end;i++){
-			m=/^\s*(option|list)\s+(\S+)\s+('([^']*)'|"([^"]*)"|([^\s'"#;]+))\s*$/.exec(lines[i]);
-			if(!m)continue;
-			var v=m[4]!=null?m[4]:m[5]!=null?m[5]:m[6];
-			if(m[1]==='list')(o[m[2]]=[].concat(o[m[2]]||[])).push(v);else o[m[2]]=v;
+		var o={'.type':c.type,'.name':c.name},i,j,m,st;
+		for(i=c.start;i<=c.end;i++){
+			st=cfgStmts(lines[i]);
+			for(j=i===c.start?1:0;j<st.length;j++){
+				m=/^\s*(option|list)\s+(\S+)\s+('([^']*)'|"([^"]*)"|([^\s'"\\]+))\s*$/.exec(st[j]);
+				if(!m){
+					m=/^\s*(?:option|list)\s+(\S+)/.exec(st[j]);
+					if(m&&TCK.test(m[1].replace(/['"]/g,'')))(o['.bad']=o['.bad']||[]).push(m[1].replace(/['"]/g,''));
+					continue;
+				}
+				var k=m[2].replace(/['"]/g,''),v=m[4]!=null?m[4]:m[5]!=null?m[5]:m[6];
+				if(m[1]==='list')(o[k]=[].concat(o[k]||[])).push(v);else o[k]=v;
+			}
 		}
 		return o;
 	});
@@ -728,9 +739,9 @@ function dscpNum(v){
 	if(/^(0|[1-9]\d*)$/.test(v))return parseInt(v,10);
 	return null;
 }
-// NQB is in qosify from 298754f (2026-06-18); 24.10 and 25.12 run 1501e09
-// without it. The get_stats "classes" table came later (0edbc51), so a reply
-// with it means NQB is known, one without it means it is not; null is unknown.
+// NQB is in qosify from 298754f, the get_stats "classes" table from 0edbc51 two
+// commits on. OpenWrt went from 1501e09 (24.10, 25.12) to beeb87e (master), so a
+// reply with "classes" means NQB is known, one without it means not; null is unknown.
 var NQB_OK=null;
 function nqbSeen(st){if(st)NQB_OK=!!st.classes;}
 function dscpList(){return NQB_OK===false?DSCP.filter(function(d){return d!=='NQB';}):DSCP;}
@@ -791,6 +802,7 @@ function cfgLint(secs){
 	secs.forEach(function(s){
 		var t=s['.type'],n=s['.name']||t;
 		if(t==='interface'||t==='device'){
+			(s['.bad']||[]).forEach(function(k){w.push({hard:true,t:_('%s: %s cannot be checked — write it as one plain or fully quoted value, with no backslash').format(n,k)});});
 			['bandwidth_up','bandwidth_down','bandwidth','mode','ingress_options','egress_options','options'].forEach(function(k){
 				if(s[k]&&/['"`$;&|<>(){}\\\n]/.test(String(s[k])))w.push({hard:true,t:_('%s: %s contains shell metacharacters — qosify runs the tc command with sh -c as root, so they would break it or be executed').format(n,k)});
 			});
