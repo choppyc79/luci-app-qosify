@@ -6,7 +6,7 @@ qosify is a daemon that sets up and manages CAKE together with an eBPF classifie
 
 The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids and `.cbi-progressbar` bars — and each theme draws the sections its own way — a card on Footstrap, a plain titled block on Bootstrap — as on every other LuCI page; `qosify.css` only styles what the theme has no rule for, using the theme's own colour variables. Option names on screen are the qosify UCI option names, except the Overview quick settings, which use plain labels with a short description under each field in qosify's own wording.
 
-Current version: **3.0.9**
+Current version: **3.0.10**
 
 ## What changed since 2.9.x
 
@@ -91,7 +91,7 @@ The installer installs `qosify` via apk or opkg if missing, writes the menu entr
 
 ## OpenWrt package
 
-`luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master (#8833, #9019, #9054) and ships in snapshots. Since #9054 merged on 21 September 2026 the package carries the 3.0.x code, file for file the same as this installer's apart from the installer's `?v=<VERSION>` stylesheet suffix, so `migrate` moves you to the package without losing anything. 3.0.6 to 3.0.9 are bug fixes on top of that, submitted to openwrt/luci master as one PR; until it merges the package is behind this installer.
+`luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master (#8833, #9019, #9054) and ships in snapshots. Since #9054 merged on 21 September 2026 the package carries the 3.0.x code, file for file the same as this installer's apart from the installer's `?v=<VERSION>` stylesheet suffix, so `migrate` moves you to the package without losing anything. 3.0.6 to 3.0.10 are bug fixes on top of that, submitted to openwrt/luci master as one PR; until it merges the package is behind this installer.
 
 The `Makefile` here builds the same package from `qosify-luci.sh` in the SDK or buildroot: put this repo at `package/luci-app-qosify/` and run `make package/luci-app-qosify/compile`. The version is read from `VERSION=` in the installer.
 

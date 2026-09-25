@@ -2,6 +2,22 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.10 — 2026-09-25
+
+Review fixes for openwrt/luci #9067, amended into its first and fourth commits.
+
+### Fixed
+
+- The shell-metacharacter check on `bandwidth*`, `mode` and the CAKE `*options` skipped any
+  line it could not parse, but libuci joins adjacent quoted and unquoted parts, takes
+  backslash escapes and splits at an unquoted `;`, so `option mode x'$(id) y'` was still
+  saved and restored unchecked. Lines are now cut at an unquoted `#` and split at an
+  unquoted `;` as uci does, and a tc-bound option that is not one plain or fully quoted
+  value blocks the Config save and Restore upload
+- The NQB detection comment now states that OpenWrt went from qosify `1501e09` straight to
+  `beeb87e`, which has both NQB and the `classes` table; no OpenWrt tree has shipped the two
+  commits that have NQB without it
+
 ## v3.0.9 — 2026-09-24
 
 Bug fixes. `dev` (3.0.6 to 3.0.9) is merged into `main`, and the package changes go to
