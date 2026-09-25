@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.10"
+VERSION="3.0.11"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -668,32 +668,40 @@ function cfgSections(txt){
 	}
 	return out;
 }
-// Section objects from raw UCI text for cfgLint()/rulesLoaded(). Each line is cut
-// at an unquoted # and split at unquoted ; as uci does, and only plain statements
-// (one bare or fully quoted value) are read. libuci also joins adjacent quoted and
-// unquoted parts and takes backslash escapes, so a tc-bound key (TCK) in any other
-// form is listed in '.bad' and refused by cfgLint(); other keys are skipped.
+// Section objects from raw UCI text for cfgLint()/rulesLoaded(), read statement by
+// statement as libuci does: each line is cut at an unquoted # and split at unquoted
+// ;, adjacent quoted and bare parts join into one word, and a config statement opens
+// a section wherever it stands. A statement with a backslash outside '' (an escape or
+// line continuation) or an open quote (a multi-line value) cannot be followed line by
+// line, so it is listed in '.bad' and refused by cfgLint(), as is a tc-bound key (TCK)
+// that is not one value.
 var TCK=/^(bandwidth(_up|_down)?|mode|(ingress_|egress_)?options)$/;
 function cfgStmts(l){return (l.replace(/^((?:[^'"#]|'[^']*'|"[^"]*")*)#.*$/,'$1').match(/(?:[^'";]|'[^']*'|"[^"]*"|['"])+/g)||[]);}
+function uciWords(st){
+	var w=[],cur=null,m,re=/\s+|'([^']*)'|"([^"\\]*)"|([^\s'"\\]+)|([\s\S])/g;
+	while((m=re.exec(st))){
+		if(m[4]!=null)return null;
+		if(/^\s/.test(m[0])){if(cur!=null)w.push(cur);cur=null;}
+		else cur=(cur||'')+(m[1]!=null?m[1]:m[2]!=null?m[2]:m[3]);
+	}
+	if(cur!=null)w.push(cur);
+	return w;
+}
 function cfgOpts(txt){
-	var lines=(txt||'').split('\n');
-	return cfgSections(txt).map(function(c){
-		var o={'.type':c.type,'.name':c.name},i,j,m,st;
-		for(i=c.start;i<=c.end;i++){
-			st=cfgStmts(lines[i]);
-			for(j=i===c.start?1:0;j<st.length;j++){
-				m=/^\s*(option|list)\s+(\S+)\s+('([^']*)'|"([^"]*)"|([^\s'"\\]+))\s*$/.exec(st[j]);
-				if(!m){
-					m=/^\s*(?:option|list)\s+(\S+)/.exec(st[j]);
-					if(m&&TCK.test(m[1].replace(/['"]/g,'')))(o['.bad']=o['.bad']||[]).push(m[1].replace(/['"]/g,''));
-					continue;
-				}
-				var k=m[2].replace(/['"]/g,''),v=m[4]!=null?m[4]:m[5]!=null?m[5]:m[6];
-				if(m[1]==='list')(o[k]=[].concat(o[k]||[])).push(v);else o[k]=v;
-			}
-		}
-		return o;
+	var top={'.type':'config','.name':UCI_PATH},out=[],o=null;
+	function bad(x,k){(x['.bad']=x['.bad']||[]).push(k);}
+	(txt||'').split('\n').forEach(function(l){
+		cfgStmts(l).forEach(function(st){
+			var w=uciWords(st),k;
+			if(!w)return bad(o||top,trim(st));
+			if(w[0]==='config'){o={'.type':w[1]||'','.name':w[2]||''};out.push(o);if(w.length<2||w.length>3)bad(o,trim(st));return;}
+			if(!o||(w[0]!=='option'&&w[0]!=='list'))return;
+			k=w[1]||'';
+			if(w.length!==3){if(TCK.test(k))bad(o,k);return;}
+			if(w[0]==='list')(o[k]=[].concat(o[k]||[])).push(w[2]);else o[k]=w[2];
+		});
 	});
+	return top['.bad']?[top].concat(out):out;
 }
 // Values are spliced into a single-quoted UCI string: strip quotes and line breaks,
 // or a stray newline injects arbitrary option/config lines into the file.
@@ -801,8 +809,8 @@ function cfgLint(secs){
 	secs.forEach(function(s){if((s['.type']==='class'||s['.type']==='alias')&&s['.name'])cls.push(s['.name']);});
 	secs.forEach(function(s){
 		var t=s['.type'],n=s['.name']||t;
+		(s['.bad']||[]).forEach(function(k){w.push({hard:true,t:_('%s: %s cannot be checked — write it as one plain or fully quoted value, with no backslash').format(n,k)});});
 		if(t==='interface'||t==='device'){
-			(s['.bad']||[]).forEach(function(k){w.push({hard:true,t:_('%s: %s cannot be checked — write it as one plain or fully quoted value, with no backslash').format(n,k)});});
 			['bandwidth_up','bandwidth_down','bandwidth','mode','ingress_options','egress_options','options'].forEach(function(k){
 				if(s[k]&&/['"`$;&|<>(){}\\\n]/.test(String(s[k])))w.push({hard:true,t:_('%s: %s contains shell metacharacters — qosify runs the tc command with sh -c as root, so they would break it or be executed').format(n,k)});
 			});

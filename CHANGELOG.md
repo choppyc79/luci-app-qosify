@@ -2,6 +2,24 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.11 — 2026-09-25
+
+Second round of review fixes for openwrt/luci #9067, amended into its fourth commit.
+
+### Fixed
+
+- A `config` statement after an unquoted `;` was skipped, so its options were read into the
+  section before it and `config defaults` / `option foo 1; config interface wan` /
+  `option bandwidth_up '$(reboot)'` passed the interface check. The config is now read
+  statement by statement as libuci does, and a `config` statement opens a section wherever
+  it stands, including before the first section
+- A backslash was only refused in values, but libuci also unescapes it in the keyword, key
+  and header, so `option mo\de '$(reboot)'` was read as `mode` by qosify and not checked
+  here. Any statement with a backslash outside single quotes, a line continuation or a quote
+  left open at the end of a line now blocks the Config save and Restore upload. Adjacent
+  quoted and bare parts are joined as libuci joins them, so `config 'inter'face` reads as
+  `interface`
+
 ## v3.0.10 — 2026-09-25
 
 Review fixes for openwrt/luci #9067, amended into its first and fourth commits.
