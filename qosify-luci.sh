@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.11"
+VERSION="3.0.12"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2803,6 +2803,20 @@ JSEOF
 #qos-app summary > h3 {
 	display: inline;
 	margin: 0;
+}
+
+/* Quick Add and Reference folds each get their own box, drawn like the quick
+   settings and counters boxes, with a heading sized to the rest of the app. */
+#qos-app .qa > details.cbi-section {
+	margin: 0 0 var(--qos-gap);
+	padding: var(--qos-pad);
+	border: 1px solid var(--qos-bd);
+	border-radius: var(--qos-r);
+}
+
+#qos-app .qa > details.cbi-section > summary > h3 {
+	font-size: 1em;
+	font-weight: 600;
 }
 
 /* Reference panels inside a section. */
