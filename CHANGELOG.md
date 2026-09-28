@@ -2,6 +2,13 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.13 — 2026-09-28
+
+### Changed
+
+- Advanced: the Maintenance and Defaults sections get the same box and smaller heading as
+  the Quick Add folds
+
 ## v3.0.12 — 2026-09-28
 
 ### Changed
