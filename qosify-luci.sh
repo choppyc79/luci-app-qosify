@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.12"
+VERSION="3.0.13"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -888,7 +888,7 @@ function refBox(title,note,rows){
 }
 function sect(title,kids,attrs){
 	var a=attrs||{};
-	a['class']='cbi-section';
+	a['class']='cbi-section'+(a['class']?' '+a['class']:'');
 	return E('div',a,[E('h3',{'id':a.id?a.id+'-title':null},title)].concat(kids||[]));
 }
 function colTable(cols,kids){
@@ -1577,11 +1577,11 @@ return view.extend({
 				E('div',{'class':'cbi-section-node'},valRow(_('Re-check devices'),[
 					E('button',{'class':'cbi-button cbi-button-action','id':'qos-btn-chkdev','click':function(){return self.checkDevices();}},_('Check Devices')),
 					desc(_('Re-runs the daemon\'s own device pass: every shaped section is looked up again, one whose device now exists is started and one whose device has gone is stopped. Nothing is reported back by the call — the result shows in the Service table on the Overview tab.'))]))
-			]),
+			],{'class':'qos-box'}),
 			sect(_('Defaults'),[
 				E('div',{'class':'cbi-section-node'},valRow(_('Restore qosify defaults'),
 					E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},_('Reset'))))
-			])
+			],{'class':'qos-box'})
 		]);
 	},
 
@@ -2805,18 +2805,25 @@ JSEOF
 	margin: 0;
 }
 
-/* Quick Add and Reference folds each get their own box, drawn like the quick
-   settings and counters boxes, with a heading sized to the rest of the app. */
-#qos-app .qa > details.cbi-section {
+/* Quick Add and Reference folds, and the Advanced Maintenance and Defaults
+   sections, each get their own box, drawn like the quick settings and counters
+   boxes, with a heading sized to the rest of the app. */
+#qos-app .qa > details.cbi-section,
+#qos-app .cbi-section.qos-box {
 	margin: 0 0 var(--qos-gap);
 	padding: var(--qos-pad);
 	border: 1px solid var(--qos-bd);
 	border-radius: var(--qos-r);
 }
 
-#qos-app .qa > details.cbi-section > summary > h3 {
+#qos-app .qa > details.cbi-section > summary > h3,
+#qos-app .qos-box > h3 {
 	font-size: 1em;
 	font-weight: 600;
+}
+
+#qos-app .qos-box > h3 {
+	margin: 0 0 var(--qos-gap);
 }
 
 /* Reference panels inside a section. */
