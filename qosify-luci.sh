@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.16"
+VERSION="3.0.17"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -1102,7 +1102,7 @@ return view.extend({
 				[_('Ingress CAKE options'),[txt('ing_opts',w.ingress_options,_('e.g. %s').format('triple-isolate memlimit 32mb')),desc(_('CAKE ingress options, space separated.'))]],
 				[_('Egress CAKE options'),[txt('egr_opts',w.egress_options,_('e.g. %s').format('wash')),desc(_('CAKE egress options, space separated.'))]],
 				[_('Common CAKE options'),[txt('opts',w.options,_('e.g. %s').format('overhead 46 memlimit 32mb')),desc(OPT_DESC.options)]]
-			],[E('div',{'class':'cbi-tab-descr'},_('Invalid CAKE options can stop qosify starting.'))],'qs-wide')
+			],null,'qs-wide')
 		]);
 		// Every pane is marked, as the sub tabs share LuCI's stored tab id with the page tabs.
 		if(!grp.querySelector('[data-tab-active="true"]'))grp.firstChild.setAttribute('data-tab-active','true');

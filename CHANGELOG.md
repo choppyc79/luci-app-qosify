@@ -2,6 +2,13 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.17 — 2026-09-28
+
+### Changed
+
+- Overview: the "Invalid CAKE options can stop qosify starting." note is dropped from the
+  quick settings Advanced tab, as in openwrt/luci #9082
+
 ## v3.0.16 — 2026-09-28
 
 ### Changed
