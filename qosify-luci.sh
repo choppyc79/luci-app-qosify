@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.13"
+VERSION="3.0.14"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -1556,6 +1556,7 @@ return view.extend({
 				fi=E('input',{'type':'file','id':id,'style':'display:none','change':function(){nm.textContent=fi.files[0]?fi.files[0].name:_('No file selected');}});
 			return [E('code',{},path),E('span',{},[fi,E('button',{'class':'cbi-button','click':function(){fi.click();}},_('Choose file…')),' ',nm])];
 		}
+		var box={'class':'qos-box'};
 		return E('div',{'id':'qos-ad'},[
 			sect(_('Backup'),[
 				sdesc(_('Download the current files from the router.')),
@@ -1563,7 +1564,7 @@ return view.extend({
 					bkRow(0,UCI_PATH,'qosify',ctx.cfgStat),
 					bkRow(1,RULES_PATH,'00-defaults.conf',ctx.rulesStat)
 				])
-			]),
+			],{'class':'qos-box','id':'qos-ad-bk'}),
 			sect(_('Restore'),[
 				sdesc(_('The selected files replace the ones on the router and qosify is reloaded.')),
 				gridTable([_('File'),_('Upload')],[
@@ -1572,16 +1573,24 @@ return view.extend({
 				]),
 				E('div',{'class':'cbi-page-actions'},
 					E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.uploadFiles();}},_('Upload & Apply')))
-			]),
+			],box),
 			sect(_('Maintenance'),[
-				E('div',{'class':'cbi-section-node'},valRow(_('Re-check devices'),[
-					E('button',{'class':'cbi-button cbi-button-action','id':'qos-btn-chkdev','click':function(){return self.checkDevices();}},_('Check Devices')),
-					desc(_('Re-runs the daemon\'s own device pass: every shaped section is looked up again, one whose device now exists is started and one whose device has gone is stopped. Nothing is reported back by the call — the result shows in the Service table on the Overview tab.'))]))
-			],{'class':'qos-box'}),
+				sdesc(_('Re-runs the daemon\'s own device pass.')),
+				gridTable([_('Action'),_('Description')],[
+					[_('Re-check devices'),_('Every shaped section is looked up again, one whose device now exists is started and one whose device has gone is stopped. Nothing is reported back by the call — the result shows in the Service table on the Overview tab.')]
+				]),
+				E('div',{'class':'cbi-page-actions'},
+					E('button',{'class':'cbi-button cbi-button-action','id':'qos-btn-chkdev','click':function(){return self.checkDevices();}},_('Check Devices')))
+			],box),
 			sect(_('Defaults'),[
-				E('div',{'class':'cbi-section-node'},valRow(_('Restore qosify defaults'),
-					E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},_('Reset'))))
-			],{'class':'qos-box'})
+				sdesc(_('Restore qosify defaults. Shaping is left disabled.')),
+				gridTable([_('File'),_('Replaced with')],[
+					[E('code',{},UCI_PATH),_('qosify package template')],
+					[E('code',{},RULES_PATH),_('qosify package template')]
+				]),
+				E('div',{'class':'cbi-page-actions'},
+					E('button',{'class':'cbi-button cbi-button-negative','click':function(){return self.resetDefaults();}},_('Reset')))
+			],box)
 		]);
 	},
 
@@ -2824,6 +2833,24 @@ JSEOF
 
 #qos-app .qos-box > h3 {
 	margin: 0 0 var(--qos-gap);
+}
+
+/* Closed folds shrink to their heading; an open one takes the row for its form. */
+#qos-app .qa > details.cbi-section:not([open]) {
+	width: fit-content;
+	padding-right: 1.5em;
+}
+
+/* Advanced: every section is a box with a table and its buttons on the right. */
+#qos-ad .cbi-page-actions {
+	margin: var(--qos-gap) 0 0;
+}
+
+#qos-ad-bk .th:last-child,
+#qos-ad-bk .td:last-child {
+	width: 1%;
+	text-align: right;
+	white-space: nowrap;
 }
 
 /* Reference panels inside a section. */

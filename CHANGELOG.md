@@ -2,6 +2,17 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.14 — 2026-09-28
+
+### Changed
+
+- Advanced: Backup, Restore, Maintenance and Defaults share one layout — a box with a
+  smaller heading, a description, a table with the theme's header row, and the buttons on
+  the right. Maintenance and Defaults move from label rows to that layout, the Defaults
+  table listing the two files the Reset replaces
+- Config and Rules: a closed Quick Add or Reference fold shrinks to fit its heading; an open
+  one still takes the full row for its form
+
 ## v3.0.13 — 2026-09-28
 
 ### Changed
