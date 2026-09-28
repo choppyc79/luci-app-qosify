@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.17"
+VERSION="3.0.18"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -888,7 +888,7 @@ function refBox(title,note,rows){
 }
 function sect(title,kids,attrs){
 	var a=attrs||{};
-	a['class']='cbi-section'+(a['class']?' '+a['class']:'');
+	a=Object.assign({},a,{'class':'cbi-section'+(a['class']?' '+a['class']:'')});
 	return E('div',a,[E('h3',{'id':a.id?a.id+'-title':null},title)].concat(kids||[]));
 }
 function colTable(cols,kids){
@@ -2814,9 +2814,9 @@ JSEOF
 	margin: 0;
 }
 
-/* Quick Add and Reference folds, and the Advanced Maintenance and Defaults
-   sections, each get their own box, drawn like the quick settings and counters
-   boxes, with a heading sized to the rest of the app. */
+/* Quick Add and Reference folds, and every Advanced section, each get their
+   own box, drawn like the quick settings and counters boxes, with a heading
+   sized to the rest of the app. */
 #qos-app .qa > details.cbi-section,
 #qos-app .cbi-section.qos-box {
 	margin: 0 0 var(--qos-gap);

@@ -2,6 +2,16 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.18 — 2026-09-28
+
+### Fixed
+
+- Advanced: `sect()` copies its attributes instead of writing the class back into them, so
+  the shared box no longer grows to `cbi-section cbi-section … qos-box` across Backup,
+  Restore, Maintenance and Defaults (#9082 review)
+- qosify.css: the box comment names every Advanced section, not just Maintenance and
+  Defaults (#9082 review)
+
 ## v3.0.17 — 2026-09-28
 
 ### Changed
