@@ -2,6 +2,14 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.15 — 2026-09-28
+
+### Changed
+
+- Config and Rules: Quick Add and Reference boxes fill the row again, as the editor does,
+  and are only slightly deeper than their heading — the theme's `h3` line-height no longer
+  sets their depth
+
 ## v3.0.14 — 2026-09-28
 
 ### Changed
