@@ -2,6 +2,14 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.12 — 2026-09-28
+
+### Changed
+
+- Config and Rules: each Quick Add and Reference fold sits in its own box, drawn with the
+  same border and radius as the quick settings and counters boxes, and its heading is
+  sized to the rest of the app instead of the theme's full `h3`
+
 ## v3.0.11 — 2026-09-25
 
 Second round of review fixes for openwrt/luci #9067, amended into its fourth commit.
