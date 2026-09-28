@@ -2,6 +2,15 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.16 — 2026-09-28
+
+### Changed
+
+- Advanced: Check Devices sits on the right like the other section buttons (Bootstrap
+  floats an action button left)
+- Overview: the `interface wan quick settings` rows are shallower — the theme's
+  `.cbi-value` bottom margin is dropped and the row and box padding tightened
+
 ## v3.0.15 — 2026-09-28
 
 ### Changed

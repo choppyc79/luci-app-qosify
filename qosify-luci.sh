@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.15"
+VERSION="3.0.16"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2845,7 +2845,20 @@ JSEOF
 
 /* Advanced: every section is a box with a table and its buttons on the right. */
 #qos-ad .cbi-page-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: .4em;
 	margin: var(--qos-gap) 0 0;
+}
+
+#qos-ad .cbi-page-actions::after {
+	content: none;
+}
+
+/* Bootstrap floats an action button left; every Advanced button sits right. */
+#qos-ad .cbi-page-actions > * {
+	float: none;
+	margin: 0;
 }
 
 #qos-ad-bk .th:last-child,
@@ -3061,15 +3074,16 @@ JSEOF
    the same column. */
 #qos-app .qs-box {
 	min-width: 0;
-	min-height: 17em;
-	padding: .7em 1.5em;
+	min-height: 13em;
+	padding: .3em 1.5em;
 	border: 1px solid var(--qos-bd);
 	border-radius: var(--qos-r);
 }
 
 #qos-qs-sect .cbi-value {
 	align-items: flex-start;
-	padding: .55em 0;
+	margin: 0;
+	padding: .25em 0;
 }
 
 #qos-qs-sect .cbi-value + .cbi-value {
