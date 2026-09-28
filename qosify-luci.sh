@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.14"
+VERSION="3.0.15"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2829,16 +2829,18 @@ JSEOF
 #qos-app .qos-box > h3 {
 	font-size: 1em;
 	font-weight: 600;
+	line-height: 1.4;
+	padding: 0;
+}
+
+/* The fold box sits just clear of its heading; the theme's h3 line-height
+   would otherwise double its depth. */
+#qos-app .qa > details.cbi-section {
+	padding: .4em .75em;
 }
 
 #qos-app .qos-box > h3 {
 	margin: 0 0 var(--qos-gap);
-}
-
-/* Closed folds shrink to their heading; an open one takes the row for its form. */
-#qos-app .qa > details.cbi-section:not([open]) {
-	width: fit-content;
-	padding-right: 1.5em;
 }
 
 /* Advanced: every section is a box with a table and its buttons on the right. */
