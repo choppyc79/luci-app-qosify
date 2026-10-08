@@ -2,6 +2,26 @@
 
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 
+## v3.0.19 — 2026-10-08
+
+Follows the qosify changes in openwrt/openwrt#25696.
+
+### Added
+
+- `multiqueue` (cake_mq on devices with more than one queue): Multiqueue CAKE on the quick
+  settings Shaping tab, written as `1` when ticked and removed when not; a Quick Add
+  interface/device option; `multiqueue 0` in the Defaults reference; checked by the
+  section lint like the other booleans
+
+### Fixed
+
+- Cleanup helper: qosify now has twelve ingress filters (802.1ad and double-tag DNS
+  redirects), so a crash sweep deletes prefs 272-283 instead of 272-277; otherwise the
+  leftovers kept `clsact` in place
+- Cleanup helper: `ifb_name()` derives the ifb of a device name of 12 or more characters
+  as qosify now does (`ifb-` + first two + last nine characters) instead of skipping it
+- Counters: Traffic by CAKE Tin also reads a root `cake_mq` qdisc
+
 ## v3.0.18 — 2026-09-28
 
 ### Fixed

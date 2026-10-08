@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.18"
+VERSION="3.0.19"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -143,11 +143,12 @@ EOF
 # Remove qosify qdiscs and ifb devices left behind after qosify exits.
 #
 # A clean stop only does part of this: interface_clear_qdisc() removes the root
-# qdisc, the bpf filters and the ifb device but not clsact, and main() never
-# calls qosify_dns_stop(), so ifb-dns stays up. A crash, a SIGKILL or a respawn
-# loop leaves the rest too. This script deliberately only touches the devices of
-# enabled qosify sections, the ifb names qosify derives from them and qosify's
-# own ifb-dns -- never a qdisc or ifb qosify did not create.
+# qdisc, the bpf filters and the ifb device but not clsact, and before
+# openwrt/openwrt#25696 main() never called qosify_dns_stop(), so ifb-dns stayed
+# up. A crash, a SIGKILL or a respawn loop leaves the rest too. This script
+# deliberately only touches the devices of enabled qosify sections, the ifb
+# names qosify derives from them and qosify's own ifb-dns -- never a qdisc or
+# ifb qosify did not create.
 #
 # `cleanup wait` is for a package removal: qosify is stopped by its own prerm,
 # which may run after ours, so the device names are read now and the sweep waits
@@ -171,11 +172,12 @@ exec 9>"$LOCK"
 command -v flock >/dev/null && { flock -n 9 || exit 0; }
 
 # Mirrors interface_ifb_name() in qosify: "ifb-<dev>" while strlen(dev) + 4 is
-# below IFNAMSIZ. Longer names take a different branch upstream which we do not
-# try to reproduce here.
+# below IFNAMSIZ, else "ifb-" + the first two and last nine characters of dev
+# (openwrt/openwrt#25696; older builds read before the name, so their long-name
+# ifb cannot be derived and simply is not found here).
 ifb_name() {
-	[ "${#1}" -lt 12 ] || return 1
-	echo "ifb-$1"
+	[ "${#1}" -lt 12 ] && echo "ifb-$1" ||
+		echo "ifb-$(printf %.2s "$1")${1#"${1%?????????}"}"
 }
 
 qosify_filter() {
@@ -183,7 +185,8 @@ qosify_filter() {
 }
 
 # qosify's filters sit at QOSIFY_PRIO_BASE (0x110 = 272): its bpf classifier on
-# egress, and on ingress the classifier plus the DNS and ifb redirects up to 277.
+# egress, and on ingress the classifier plus the DNS and ifb redirects: 272-277,
+# or 272-283 with the 802.1ad and double-tag DNS filters of openwrt/openwrt#25696.
 # A clean exit removes them and the root qdisc, so they only survive a crash, and
 # then the root cake is qosify's too. Another shaper's root qdisc, and a clsact
 # carrying anyone else's filters, are left alone.
@@ -199,8 +202,10 @@ clear_dev() {
 			tc filter del dev "$dev" egress pref 272 2>/dev/null
 		fi
 		if qosify_filter "$dev" ingress; then
-			for p in 272 273 274 275 276 277; do
+			p=272
+			while [ "$p" -le 283 ]; do
 				tc filter del dev "$dev" ingress pref "$p" 2>/dev/null
+				p=$((p + 1))
 			done
 		fi
 		[ -n "$(tc filter show dev "$dev" ingress 2>/dev/null)$(tc filter show dev "$dev" egress 2>/dev/null)" ] ||
@@ -444,6 +449,7 @@ var OPT_DESC={
 	nat:_('Enable CAKE NAT host detection via conntrack'),
 	host_isolate:_('Enable CAKE host isolation'),
 	autorate_ingress:_('Enable CAKE automatic rate estimation for ingress'),
+	multiqueue:_('Use cake_mq instead of cake on devices with more than one queue'),
 	overhead_type:_('CAKE overhead keyword added to options; manual uses overhead and overhead_encap'),
 	overhead:_('Adds overhead <bytes> when overhead_type is manual'),
 	overhead_encap:_('Adds atm, noatm or ptm when overhead_type is manual'),
@@ -537,7 +543,7 @@ function clsOpt(c){var d=c.ingress===c.egress?c.egress:(c.ingress||'-')+'/'+(c.e
 function trim(s){return (s||'').replace(/^\s+|\s+$/g,'');}
 function $(id){return document.getElementById(id);}
 
-// ingress/egress/nat/host_isolate/autorate_ingress reach the daemon through
+// ingress/egress/nat/host_isolate/autorate_ingress/multiqueue reach the daemon through
 // qosify.init's `add_option boolean` -> json_add_boolean -> !!atoi(), so only a
 // non-zero number is true: 'true', 'on' and 'yes' all mean off.
 function numBool(v,def){
@@ -646,7 +652,7 @@ function ifLint(s,dev){
 	if(!c.ingress&&!c.egress)w.push(_('ingress and egress are both 0 — nothing is shaped'));
 	if(c.egress&&!c.bw_up)w.push(_('no bandwidth_up or bandwidth — egress CAKE runs unlimited'));
 	if(c.ingress&&!c.bw_dn)w.push(_('no bandwidth_down or bandwidth — ingress CAKE runs unlimited'));
-	['ingress','egress','nat','host_isolate','autorate_ingress'].forEach(function(k){
+	['ingress','egress','nat','host_isolate','autorate_ingress','multiqueue'].forEach(function(k){
 		if(s[k]!=null&&s[k]!==''&&!boolNum(s[k]))w.push(_('%s is set to "%s" — qosify converts it with atoi(), so anything but a non-zero number means off').format(k,s[k]));
 	});
 	if(s.disabled!=null&&s.disabled!==''&&!/^(0|1|on|off|true|false|yes|no|enabled|disabled)$/i.test(String(s.disabled)))
@@ -1089,7 +1095,8 @@ return view.extend({
 				[_('Upload shaping'),[chk('egress',numBool(w.egress,true)),desc(OPT_DESC['if.egress'])]],
 				[_('Automatic download rate'),[chk('autorate',numBool(w.autorate_ingress,false)),desc(OPT_DESC.autorate_ingress)]],
 				[_('NAT awareness'),[chk('nat',numBool(w.nat,!isDev)),desc(OPT_DESC.nat),natNote]],
-				[_('Host isolation'),[hiCb,desc(OPT_DESC.host_isolate)]]
+				[_('Host isolation'),[hiCb,desc(OPT_DESC.host_isolate)]],
+				[_('Multiqueue CAKE'),[chk('multiqueue',numBool(w.multiqueue,false)),desc(OPT_DESC.multiqueue)]]
 			]),
 			pane('qs-overhead',_('Overhead'),[
 				[_('Overhead preset'),[ovSel,desc(_('CAKE overhead keyword. Use none if unsure.'))]],
@@ -1360,6 +1367,7 @@ return view.extend({
 		this.qaSelect(qadIf,'nat',['0','1']);
 		this.qaSelect(qadIf,'host_isolate',['0','1']);
 		this.qaSelect(qadIf,'autorate_ingress',['0','1']);
+		this.qaSelect(qadIf,'multiqueue',['0','1']);
 		this.qaSelect(qadIf,'overhead_type',OVH);
 		this.qaNum(qadIf,'overhead','44');
 		this.qaSelect(qadIf,'overhead_encap',ENCAP);
@@ -1383,7 +1391,7 @@ return view.extend({
 		qa.appendChild(fold('qos-qa-ref',_('Reference'),[
 			this.classRef('qos-cls-cfg'),
 			refBox(_('DSCP values'),_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF (NQB needs qosify from June 2026; 24.10 and 25.12 do not have it). A raw value from 0 to 63 is accepted too, and any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero.'),[]),
-			refBox(_('Defaults'),_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).'),[])
+			refBox(_('Defaults'),_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0, multiqueue 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).'),[])
 		],false));
 		section.appendChild(qa);
 		section.addEventListener('toggle',function(){self.fitEditor();},true);
@@ -1834,8 +1842,8 @@ return view.extend({
 	},
 
 	// qosify-status, as the Status tab prints it: tc -s qdisc for each shaped
-	// direction. q_cake.c prints a column per tin in tin_order, lowest priority
-	// first, so a column is a TIN_COLORS index; rows are reversed to put the
+	// direction, root cake or cake_mq. q_cake.c prints a column per tin in
+	// tin_order, lowest priority first, so a column is a TIN_COLORS index; rows are reversed to put the
 	// highest priority tin first, as the class bars are. Qdiscs running the same
 	// mode are summed tin by tin into one chart, egress and ingress together; a
 	// mode only one direction runs gets a chart of its own.
@@ -1846,7 +1854,7 @@ return view.extend({
 			if(/^===== (?:interface|device) \S+: /.test(l)||/^(egress|ingress) status:$/.test(l))b=null;
 			else if(/^qdisc /.test(l)){
 				w=l.split(/\s+/).filter(function(x){return MODES.indexOf(x)>=0;});
-				b=/^qdisc cake /.test(l)?{mode:w.pop()}:null;
+				b=/^qdisc cake(_mq)? /.test(l)?{mode:w.pop()}:null;
 				if(b)blk.push(b);
 			}
 			else if(b&&!b.names&&/^\s+(Bulk|Tin 0)\b/.test(l))b.names=l.trim().split(/\s{2,}/);
@@ -2156,6 +2164,7 @@ return view.extend({
 			nat:chk('nat')?'1':'0',
 			host_isolate:chk('host_isolate')?'1':'0',
 			autorate_ingress:chk('autorate')?'1':'0',
+			multiqueue:chk('multiqueue')?'1':null,
 			ingress_options:iopts||null,
 			egress_options:eopts||null,
 			options:gopts||null
