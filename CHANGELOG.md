@@ -21,6 +21,7 @@ Follows the qosify changes in openwrt/openwrt#25696.
 - Cleanup helper: `ifb_name()` derives the ifb of a device name of 12 or more characters
   as qosify now does (`ifb-` + first two + last nine characters) instead of skipping it
 - Counters: Traffic by CAKE Tin also reads a root `cake_mq` qdisc
+- README: current version and release status brought up to 3.0.19
 
 ## v3.0.18 — 2026-09-28
 
