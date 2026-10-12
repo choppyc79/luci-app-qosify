@@ -1,105 +1,145 @@
 # luci-app-qosify
 
-LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt / ImmortalWrt.
+A LuCI web interface for [qosify](https://github.com/openwrt/qosify) on OpenWrt and ImmortalWrt.
 
-qosify is a daemon that sets up and manages CAKE together with an eBPF classifier that marks DSCP fields. This app adds a **Network → qosify** page with tabs for Overview, Config, Rules, Status, Counters, and Advanced — every option maps to a real qosify UCI key or ubus parameter, nothing is invented.
+qosify sets up CAKE traffic shaping and uses an eBPF classifier to mark each packet's DSCP field,
+so voice, video, bulk and best-effort traffic land in the right CAKE tin. This app puts all of it
+on one page under **Network → qosify**: turn shaping on, set your bandwidth, edit the config and
+classification rules, and watch what qosify is doing. Every setting is a real qosify option —
+nothing is added on top.
 
-The page is built from stock LuCI markup — `div.cbi-section` sections with `h3` titles, `.table` rows, `.label` badges, `.cbi-value` form rows, `.cbi-section-table` grids and `.cbi-progressbar` bars — and each theme draws the sections its own way — a card on Footstrap, a plain titled block on Bootstrap — as on every other LuCI page; `qosify.css` only styles what the theme has no rule for, using the theme's own colour variables. Option names on screen are the qosify UCI option names, except the Overview quick settings, which use plain labels with a short description under each field in qosify's own wording.
+Current version: **3.0.18** — see [CHANGELOG.md](CHANGELOG.md).
 
-Current version: **3.0.18**
+## Quick start
 
-## What changed since 2.9.x
+1. Install (below), then open **Network → qosify** and press Ctrl+F5 once.
+2. On **Overview**, open the quick settings, tick **QoS Enabled** and set **Upload** and
+   **Download bandwidth** to a little under your measured line speed.
+3. Click **Save & Apply**. The Service status turns green once qosify is shaping.
 
-3.0.0 is the 3.x development series folded into one release on top of v2.9.11; 3.0.1–3.0.11 are review and bug fixes, 3.0.12–3.0.18 styling. The daemon contract is unchanged — same UCI keys, same ubus calls, same file paths — so an upgrade needs no config changes. In short:
-
-- **New Counters tab** — Traffic by Class from `ubus call qosify get_stats`, Traffic by CAKE Tin from `qosify-status` in graph form, and DNS Entries from `ubus call qosify dump` where the running daemon reports them
-- **Rebuilt on stock LuCI markup** — the `qos-*` classes are gone; sections are left to the theme, and `qosify.css` draws the folds' markers and the inner boxes with one outline, radius and row line from the theme's own variables, the class and tin colours follow the theme in light and dark, and the tab highlight is left to the theme
-- **Six tabs** — Overview, Config, Rules, Status, Counters, Advanced, with the page title lowercase `qosify`
-- **Overview holds the service picture** — one Service section with status, uptime, autostart, shaping count and the per-interface rows moved over from Status; the control bar sits at the bottom of the tab instead of under every tab
-- **Quick settings in four tabs** — Basic, Shaping, Overhead, Advanced, with plain labels, a short qosify-worded hint beside each field and each field sized for its value
-- **Reload Rules**, `ubus call qosify reload`, re-reads only the mapping files, and **Check Devices**, `ubus call qosify check_devices`, picks up a device that appeared after qosify started
-- **Tri-state service reporting** — a status call rpcd never answered shows amber **Unknown** rather than reading as a stopped, unshaped qosify
-- **Polling follows LuCI** — every tab ticks at `luci.main.pollinterval` instead of a fixed 10 s
-
-Full detail is in [CHANGELOG.md](CHANGELOG.md).
-
-## Tabs
-
-### Overview
-The **Service** section shows status (green while shaping, amber while running idle, red when stopped), uptime, autostart, how many interfaces are shaping, one row per interface or device from `ubus call qosify status` (active state, resolved device, ingress and egress) and `/etc/init.d/qosify`. Uptime is the qosify process's `starttime` from `/proc/<pid>/stat` set against `/proc/uptime`, read once per pid and advanced on the browser's monotonic clock, so a reload keeps counting, a restart starts again and a clock change does not skew it. Autostart (labelled Enabled, Disabled or Unknown), Start, Restart, Reload, Reload Rules and Stop sit in a bar at the bottom of the Overview tab, in that order on every theme; buttons that do not apply to the current state are disabled. **Reload** is the init script's `reload_service()`, a full `ubus call qosify config` push that re-sends `/etc/config/qosify` and re-reads the mapping files, ending in a device check. **Reload Rules** is `ubus call qosify reload`, which re-reads only the files in the `defaults` list (`qosify_map_reload()`) and leaves the qdiscs and interface config alone — what a rules edit needs, without the config push. **Files** is a single table under its own title, listing both config files with their validity, section or rule count, size and modification time. Service control goes through the `rc` ubus namespace, and a start or stop that does not take effect is reported as a failure rather than a silent no-op.
-
-The **quick settings** write straight to the interface or device section in `/etc/config/qosify`, in one section titled with the section it edits (e.g. `interface wan quick settings`) holding four tabs with one Save & Apply bar under them: **Basic** (QoS Enabled with its state badge, writing `disabled` `0` when ticked and `1` when not; Interface, or Device for a `config device` section, `name`; Upload/Download bandwidth, `bandwidth_up`/`bandwidth_down`; Queueing mode `mode`, defaulting to `diffserv4`, the daemon's own default in `interface.c`), **Shaping** (Download shaping `ingress`, Upload shaping `egress`, Automatic download rate `autorate_ingress`, NAT awareness `nat`, Host isolation `host_isolate`), **Overhead** (Overhead preset `overhead_type`, Manual overhead `overhead`, Encapsulation overhead `overhead_encap`, Minimum packet unit `overhead_mpu`, VLAN tags `overhead_vlan` 0–2) and **Advanced** (Ingress, Egress and Common CAKE options, `ingress_options`/`egress_options`/`options`). The overhead presets are the `overhead_type` values `qosify.init` accepts; Manual overhead and Encapsulation overhead (`atm`, `noatm` or `ptm`) show only under `manual` and are dropped for any other type, since qosify ignores them. Each row puts the field and its hint on one line, hints aligned in a column and rows separated by the same faint line as the Service table, and each field is sized for its value — a byte count gets a small box, the CAKE option strings a long one. The open tab is kept when the section redraws after a save. None of `wash`, `triple-isolate`, `ack-filter`, `split-gso`, `rtt`, `memlimit` or `fwmark` is added for you; they go in the Advanced fields. Values are validated before writing: `overhead_mpu` and `overhead` must be whole numbers of bytes (`overhead` may be negative), option strings are checked for the shell metacharacters that would break the `tc` command qosify builds, and bandwidth is checked against `tc` rate syntax (including `unlimited`) but passed through with a warning rather than blocked, since `tc` is the authority. A failed read of `/etc/config/qosify` aborts the save instead of replacing the file, and a file that changed on disk since the page loaded prompts before being overwritten. The same two checks cover the Config editor: emptying it and saving truncates the file, so a save is refused when the file is non-empty on disk but the editor never loaded it, and the cleanup helper only runs once the daemon is confirmed stopped. It skips sections with `disabled 1`, as `qosify.init` does, and only removes the ifb device qosify derives from each enabled section, so a Stop never touches a device or ifb qosify did not create.
-
-### Config
-Inline editor for `/etc/config/qosify`, sized so the whole tab fits the window (refitted when the tab opens, a section folds or the window resizes) and draggable in both directions, the fit measured on the following animation frame so the tab being left is not counted, with three **Quick Add** sections, one per stanza group, each folding away on its own and laid out as LuCI section grids with the option names across the top (the class and interface forms start with the section type and name), that build `config defaults`, `config class`, `config alias`, `config interface`, and `config device` stanzas from constrained dropdowns — DSCP codepoints, CAKE overhead types, and diffserv modes only. Under each form a collapsible panel lists every option with its description from the qosify README. A folding **Reference** section lists the defined classes, the accepted DSCP values and the defaults qosify applies when a key is absent. Each section remembers whether it was open for the browser session.
-
-The editor lints as you go and flags keys the daemon will silently drop — an interface section with no `name`, `nat` set without `host_isolate` (qosify only emits `nat`/`nonat` inside the host isolate branch), `overhead`/`overhead_encap` set while `overhead_type` is not `manual`, both directions disabled, missing bandwidth, shell metacharacters in values, and booleans that do not survive the daemon's conversion — `option nat 'true'` reaches qosify through `json_add_boolean`, which uses `!!atoi()`, so it means *off*.
-
-### Rules
-Editor for `/etc/qosify/00-defaults.conf`, laid out and sized like the Config tab. The folding **Quick Add** bar is a single row (`match`, value, `dscp`, `+` and Add, with each class listed alongside its DSCP value) and covers every qosify match type: `tcp:`, `udp:`, both, `dns:` patterns, `dns:/` regex, `dns_c:` CNAME-only patterns and regex, and IPv4/IPv6 addresses, with an "only if unset" toggle for the `+` prefix. Ports are range-checked to 1–65534 (qosify rejects 65535), `#` and whitespace are blocked in patterns, CIDR is rejected, and rule targets are checked against the classes actually defined in the UCI config. Raw DSCP values are read the way the daemon reads them (`strtoul` base 0, so `077` is 63) and flagged if ≥ 64. Lines with no DSCP target are reported as lines qosify will skip rather than blocking the save. Collapsible panels carry the mapping file syntax from the qosify README and the defined classes.
-
-### Status
-The detailed `qosify-status` output with CAKE qdisc statistics for egress and ingress; the per-interface summary is in the Overview Service section. The tab fetches as soon as it is opened and the scroll position survives a refresh. Polled at LuCI's refresh interval (`luci.main.pollinterval`, 5 seconds by default) only while the tab is open; a tick that would overlap the last one is skipped.
-
-### Counters
-Always on the tab bar, and polled like the other tabs at LuCI's refresh interval while open. Nothing on this tab outlives the daemon — `get_stats` counts since the last reload and the tin figures come from qdiscs a stop removes — so while qosify is stopped the charts are cleared and every box but the notice is dropped, as on the Status tab, rather than leaving the last poll's numbers on screen looking live. With qosify running but `get_stats` returning nothing, the tab says so instead. The two traffic views come from different places and are not expected to match: **Traffic by Class** is qosify's own classifier statistics, **Traffic by CAKE Tin** is CAKE's queue statistics as `qosify-status` prints them.
-
-**Traffic by Class** shows the per-class packet totals from `ubus call qosify get_stats` as a compact box with its header above the rows, as on DNS Entries: class, its `dscp`, a progress bar, then `packets`, `bytes` and share with grouped digits in right-aligned columns, and a total row. Bar length is the cube root of each row against the largest, so the biggest row fills the track and a row at 0.1% of it still shows at a tenth of the track, and a bulk download does not flatten everything else; the share column stays exact. Cells and bars are updated in place, so the bars ease to their new length and nothing below them moves. Each class is grouped and coloured by the CAKE tin its egress codepoint lands in, highest priority tin first and by codepoint within a tin — AF codepoints by drop precedence, so AF41, AF42, AF43 run top to bottom, likewise AF3x, AF2x and AF1x — matching the tin bars: red bulk, blue best effort, yellow video and green voice, with the extra diffserv8 and precedence tins in their own colours. When the shaped sections do not share one mode, classes fall back to a colour per name. They are totals since qosify last reloaded, not rates, so nothing is lost while the tab is closed. **get_stats** lists `ebpf_map_entries`, `last_reload_time` and `dns_cache` where the running daemon reports them. The qosify OpenWrt 24.10 and 25.12 ship (`1501e09`) returns per-class packets only, and the tab shows just that.
-
-**Traffic by CAKE Tin** graphs the `qosify-status` output shown on the Status tab as one chart: egress and ingress are summed tin by tin from the `pkts` and `bytes` rows `tc` prints, highest priority tin first, in the tin colours above, in the same boxed layout with `tc`'s own `pkts`, `bytes` and `drops` columns, and `marks` on hover. Qdiscs running a different CAKE mode, whose tins do not line up, get a table of their own. These are CAKE's counters for each qdisc since it was created, so they count what CAKE queued after any re-marking and firewall marks, not the rule a packet matched. `qosify-status` is forked once per tick only while qosify runs, and a tick where it fails keeps the last chart; it needs write access, as on the Status tab.
-
-**DNS Entries** only appears when `get_stats` has a `dns` table (qosify `beeb87e`, OpenWrt snapshots); on 25.12 and 24.10 it stays hidden and `dump` is never called, and it appears by itself once a release or backport ships the newer qosify. It lists the `dns` entries from `ubus call qosify dump` with `hits`, `packets` and `bytes` from the `get_stats` `dns` table, under the field names qosify uses. Port and address entries are left out, because qosify keeps no per-entry counters for them. The section title carries the entry count, and the table sits in a box that can be dragged taller or shorter like the editors, with its header above the box rather than inside it, so no rows scroll under it; header and rows share fixed column widths, and the header is padded by the scrollbar width so they line up. The list is read on each tick after the counters; while its entries are unchanged only the figures are rewritten in place, so it does not redraw or move and a text selection holds.
-
-### Advanced
-Backup, Restore, Maintenance and Defaults share one layout: a box with a heading, a description, a table and the buttons on the right. **Backup** lists both files with size, modification time and a Download button. **Restore** has a Choose file button per file, a LuCI button over the hidden native picker, with the chosen name beside it; Upload & Apply replaces the chosen files (validated, 64 KB cap, binary rejected). **Maintenance** has Check Devices, `ubus call qosify check_devices`, which re-runs the daemon's own `qosify_iface_check()`: each `config device` section is looked up with `if_nametoindex()` and each `config interface` section through netifd, then started if its device now exists and stopped if it has gone. It picks up a device that appeared after qosify started without rebuilding the qdiscs a restart would. The method arms a 10 ms uloop timer and returns an empty reply, so the call reports nothing itself — the page waits for the pass to run and then refreshes, and the result shows in the Service table on the Overview tab. **Defaults** lists the two files it replaces and resets both back to qosify defaults after a confirmation.
-
-## Requirements
-
-- OpenWrt 22.03+ (or snapshot) with LuCI
-- `luci-base` (preinstalled with LuCI) — the app uses the `rc` ubus namespace from the rpcd core, so nothing extra is needed
-- `wget` or `curl` to fetch the installer
-
-On 25.12 and snapshots, `qosify.init` only applies its config on `reload` (or when something runs `/etc/init.d/qosify running`), not on `start`, so after a reboot qosify can run with no config until **Reload** is pressed. The app's Start, Restart and Save & Apply send the reload themselves; the boot case needs the fix in `qosify.init` (`service_running` → `service_started`).
+The shipped config has QoS disabled, so nothing is shaped until you do this.
 
 ## Install
 
+On snapshots, install the package: `apk add luci-app-qosify`.
+
+On 24.10, 25.12 or any other build, use the installer:
+
 ```
 wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
-chmod +x /root/qosify-luci.sh
-/root/qosify-luci.sh install
+sh /root/qosify-luci.sh install
 ```
 
-Or with curl:
+`curl -o /root/qosify-luci.sh <same URL>` works too. The installer adds `qosify` if it is missing,
+writes the app files, creates default configs without overwriting yours, and restarts rpcd and the
+web server.
 
-```
-curl -o /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
-chmod +x /root/qosify-luci.sh
-/root/qosify-luci.sh install
-```
+### Installer commands
 
-The installer installs `qosify` via apk or opkg if missing, writes the menu entry, ACL, and JS view to the standard LuCI paths, seeds default configs without overwriting existing ones, registers the app in `/lib/upgrade/keep.d/`, and restarts rpcd and the web server. Then open **Network → qosify** (Ctrl+F5 first).
-
-## Commands
-
-| Command | Action |
+| Command | What it does |
 | --- | --- |
-| `install` | Full install — package, files, configs, service restart |
-| `files` | App files only, no package operations and no service restarts |
-| `reset` | Restore both config files to qosify defaults and restart |
-| `uninstall` | Remove the app, qosify, configs, and qosify's own leftover `clsact` and `ifb-dns` |
-| `migrate` | Swap the script install for the `luci-app-qosify` package, keeping both config files; falls back to the script install if the package is not in the feeds |
+| `install` | Install qosify if needed, the app and default configs, then restart services |
+| `files` | Write the app files only — no packages, no restarts (for ImageBuilder) |
+| `reset` | Put both config files back to qosify defaults and restart qosify |
+| `uninstall` | Remove the app, qosify and both configs, plus the `clsact` and `ifb-dns` qosify leaves behind |
+| `migrate` | Switch to the `luci-app-qosify` package, keeping both config files; restores the script install if the package is not available |
 
-`install`, `files`, `uninstall` and `reset` stop without changing anything when `luci-app-qosify` is installed as an apk/opkg package.
+`install`, `files`, `uninstall` and `reset` refuse to run when the app is installed as a package —
+use apk/opkg for it then.
 
-## OpenWrt package
+### Requirements
 
-`luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify) master and ships in snapshots: #8833 and #9019 (2.x), #9054 (3.0.0–3.0.5), #9067 (3.0.6–3.0.11) and #9082 (3.0.12–3.0.18, merged 30 September 2026). The package is file for file the same as this installer at 3.0.18, apart from the installer's `?v=<VERSION>` stylesheet suffix, so `migrate` moves you to the package without losing anything. It is not in the 24.10 or 25.12 release branches; use the installer there.
+- OpenWrt 22.03 or later (or a snapshot) with LuCI
+- `wget` or `curl` for the installer
 
-The `Makefile` here builds the same package from `qosify-luci.sh` in the SDK or buildroot: put this repo at `package/luci-app-qosify/` and run `make package/luci-app-qosify/compile`. The version is read from `VERSION=` in the installer.
+**25.12 and snapshots:** `qosify.init` only applies its config on `reload`, not on `start`, so after
+a reboot qosify can run with no config until you press **Reload**. The app's Start, Restart and
+Save & Apply send the reload for you; the boot case needs a fix in `qosify.init`
+(`service_running` → `service_started`).
 
-## ImageBuilder / custom firmware builds
+## The tabs
 
-Use `files` mode. Include `qosify` in your package list, place the installer in `files/root/`, and add `files/etc/uci-defaults/99-qosify-luci`:
+### Overview
+
+- **Service** — status (green shaping, amber running but idle, red stopped), uptime, autostart,
+  how many interfaces are shaping, and one row per interface or device with its ingress and egress.
+- **Service bar** — Autostart, Start, Restart, Reload, Reload Rules and Stop. **Reload** re-sends
+  the whole config; **Reload Rules** only re-reads the rule files, which is all a rules edit needs.
+- **Files** — both config files with their validity, size and last change.
+- **Quick settings** — edits one interface or device section directly, in four tabs:
+  - **Basic**: QoS Enabled, interface or device name, upload/download bandwidth, queueing mode
+    (`diffserv4` by default)
+  - **Shaping**: download and upload shaping, automatic download rate, NAT awareness, host isolation
+  - **Overhead**: overhead preset, plus manual and encapsulation overhead (shown only for
+    `manual`), MPU and VLAN tags
+  - **Advanced**: extra CAKE options for ingress, egress or both
+
+Values are checked before saving (bandwidth that `tc` might still accept only warns), and if the file changed on disk since the page loaded you are
+asked before it is overwritten.
+
+### Config
+
+An editor for `/etc/config/qosify` that checks as you type and warns about settings qosify will
+quietly ignore — a section with no `name`, `nat` without `host_isolate`, manual overhead without
+`overhead_type manual`, both directions off, no bandwidth, or `option nat 'true'` (qosify reads
+that as off; use `1`).
+
+**Quick Add** builds `defaults`, `class`, `alias`, `interface` and `device` sections from
+dropdowns, with each option explained underneath. **Reference** lists your classes, the DSCP
+values qosify accepts and the defaults it uses when a key is missing.
+
+### Rules
+
+An editor for `/etc/qosify/00-defaults.conf`, the file that decides which traffic gets which DSCP
+class. **Quick Add** builds one rule at a time for any match qosify supports: TCP/UDP ports and
+ranges, IPv4/IPv6 addresses, `dns:` patterns and regex, and `dns_c:` CNAME matches, with an "only
+if unset" option for the `+` prefix. Rules are checked the way qosify reads them: ports 1–65534,
+single addresses (no CIDR), and targets that are defined classes or valid DSCP values. A line qosify
+would skip is reported rather than silently saved.
+
+### Status
+
+The full `qosify-status` output — CAKE statistics for egress and ingress — refreshed at LuCI's
+refresh interval while the tab is open.
+
+### Counters
+
+- **Traffic by Class** — packets and bytes per qosify class since the last reload, with bars
+  coloured by CAKE tin. On 24.10 and 25.12 qosify reports packets only.
+- **Traffic by CAKE Tin** — CAKE's own per-tin packets, bytes and drops, from `qosify-status`.
+- **DNS Entries** — hits and traffic per `dns:` rule. Only on snapshots (qosify `beeb87e`); on
+  24.10 and 25.12 the running qosify does not report them.
+
+The two traffic views count different things and are not expected to match. While qosify is
+stopped the tab is cleared rather than showing stale numbers.
+
+### Advanced
+
+- **Backup** — download either config file.
+- **Restore** — upload a replacement file (64 KB max, checked before it is applied).
+- **Maintenance** — **Check Devices** picks up a device that appeared after qosify started, without
+  a restart.
+- **Defaults** — reset both files to qosify defaults, after a confirmation.
+
+## Good to know
+
+**Read-only users** get a read-only page: editors, Quick Add and service buttons are disabled.
+Backup and Counters still work, apart from Traffic by CAKE Tin.
+
+**Unknown status** — if rpcd does not answer a status call (often an old ACL after an upgrade), the
+page shows an amber **Unknown** rather than guessing, and a Stop never cleans up on an unanswered
+call. `/etc/init.d/rpcd restart` usually clears it.
+
+**Stop and uninstall** only remove what qosify created: sections with `disabled 1` are skipped, and
+another shaper such as SQM on the same device is left alone.
+
+**Sysupgrade** — the installer lists its files in `/lib/upgrade/keep.d/luci-app-qosify`, so the app
+survives sysupgrade, attended sysupgrade and owut.
+
+## Custom firmware
+
+**ImageBuilder:** add `qosify` to your package list, put the installer in `files/root/`, and add
+`files/etc/uci-defaults/99-qosify-luci`:
 
 ```
 #!/bin/sh
@@ -107,40 +147,37 @@ Use `files` mode. Include `qosify` in your package list, place the installer in 
 exit 0
 ```
 
-## Sysupgrade
+**SDK / buildroot:** put this repo at `package/luci-app-qosify/` and run
+`make package/luci-app-qosify/compile`. The `Makefile` builds the package from the installer and
+takes its version from `VERSION=`.
 
-The app registers every file it owns, including the stylesheet, in `/lib/upgrade/keep.d/luci-app-qosify`, so it survives sysupgrade — including attended sysupgrade and owut — with no runtime hooks or self-healing logic.
+## OpenWrt package
 
-## Read-only access
+`luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify)
+master and ships in snapshots. Master matches this installer at 3.0.18 file for file, apart from
+the installer's `?v=<VERSION>` stylesheet suffix, so `migrate` loses nothing. It is not in the 24.10
+or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082.
 
-A session with only *read* access to the `luci-app-qosify` ACL group gets a read-only page: the editors, Quick Add forms and service controls are disabled rather than offered and failing with a permission error. Backup downloads and the Counters tab stay available, apart from Traffic by CAKE Tin, which needs the `qosify-status` exec grant.
-
-If rpcd does not answer the app's status calls — an ACL left behind by an older install, a session that predates it, or rpcd itself not running — the page reports **Unknown** instead of guessing. Each of Status, Autostart, Shaping and `/etc/init.d/qosify` shows an amber Unknown badge only when the call it comes from went unanswered, with one line naming the cause on the first row that reads Unknown; the service buttons stay clickable so the failing call reports its own error, a Stop never runs the qdisc cleanup on an unanswered call, a save whose `service.list` goes unanswered restarts qosify on the new config rather than failing, and a save says shaping could not be checked rather than warning that qosify is not shaping. Restarting rpcd after an upgrade (`/etc/init.d/rpcd restart`) is what the installer does at the end of an install.
-
-## Configuration
-
-The shipped config has QoS **disabled** for a safe first run. Set your WAN bandwidth in Quick Settings on the Overview tab and enable it there; no raw editing is needed for common setups. The Config and Rules tabs are there when you want full control, and the Advanced tab accepts pre-built files.
-
-## Translations
-
-All user-visible strings go through LuCI's i18n system, so the app translates like any official LuCI app. The template is `po/templates/qosify.pot` in openwrt/luci, generated with `build/i18n-scan.pl`; translations are done on Weblate and ship as `luci-i18n-qosify-*` packages from the in-tree build. The installer carries no translations of its own.
+Translations are done on Weblate and ship as
+`luci-i18n-qosify-*` packages from the in-tree build; the installer is English only.
 
 ## Files
 
-| File | Purpose |
+| Path | Purpose |
 | --- | --- |
-| `/etc/config/qosify` | UCI config (defaults, classes, interfaces, devices) |
-| `/etc/qosify/00-defaults.conf` | DSCP classification rules |
-| `/usr/share/luci/menu.d/luci-app-qosify.json` | LuCI menu entry |
-| `/usr/share/rpcd/acl.d/luci-app-qosify.json` | rpcd ACL grants |
-| `/www/luci-static/resources/view/qosify/main.js` | LuCI JS view (single page) |
-| `/www/luci-static/resources/view/qosify/qosify.css` | View stylesheet (inner boxes, fold markers, theme variables) |
-| `/usr/share/qosify-luci/` | Default config templates, cleanup helper |
-| `/lib/upgrade/keep.d/luci-app-qosify` | Sysupgrade keep list |
+| `/etc/config/qosify` | qosify config — defaults, classes, interfaces, devices |
+| `/etc/qosify/00-defaults.conf` | Classification rules |
+| `/www/luci-static/resources/view/qosify/main.js` | The page |
+| `/www/luci-static/resources/view/qosify/qosify.css` | Its stylesheet |
+| `/usr/share/luci/menu.d/luci-app-qosify.json` | Menu entry |
+| `/usr/share/rpcd/acl.d/luci-app-qosify.json` | Access rights |
+| `/usr/share/qosify-luci/` | Default configs and the cleanup helper |
+| `/lib/upgrade/keep.d/luci-app-qosify` | Sysupgrade keep list (installer only) |
 
 ## Credits
 
-This builds on the work of [@nbd168](https://github.com/nbd168), who authored [qosify](https://github.com/openwrt/qosify). This app only adds a web interface on top of qosify — it does not modify or fork the daemon, its init script, or its defaults, and every setting it exposes is a documented qosify option.
+Built on [qosify](https://github.com/openwrt/qosify) by [@nbd168](https://github.com/nbd168). This
+app is only a web interface: it does not change qosify, its init script or its defaults.
 
 ## License
 
