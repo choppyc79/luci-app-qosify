@@ -3,6 +3,22 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.0.35 — 2026-10-13
+
+3.0.19–3.0.35 from `dev`. The multiqueue (`cake_mq`) and openwrt/openwrt#25696 cleanup parts are
+held on `dev` until that PR merges.
+
+- Config/Restore refuse shell metacharacters in `overhead`, `overhead_encap` and `overhead_mpu`
+  too (qosify runs them through `sh -c`), and `#*?[]~`
+- Counters count qosify's `tcp_default`/`udp_default` unless the default names a class
+- Lint: names over 15 characters or quoted, more than 16 classes, invalid `mode`, rates, overhead
+  or `overhead_vlan` values, non-numeric integer keys
+- Rules: **Dynamic Entries** fold — `ubus call qosify add`/`remove` with a timeout, live `user`
+  entries from `dump`; write ACL grants `add` and `remove`
+- Counters: **Traffic by DSCP** (codepoints only) and **Reset counters** from `get_stats`
+- Overview: quick settings laid out like the Service table, every tab the height of the tallest,
+  no line above a tab's first row; one cell padding for every box and table
+
 ## v3.0.18 — 2026-09-28
 
 3.0.12–3.0.18 went upstream as #9082, merged 2026-09-30.
