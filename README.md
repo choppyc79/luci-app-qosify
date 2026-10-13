@@ -8,12 +8,12 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.0.35** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.0.36** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
 1. Install (below), then open **Network → qosify** and press Ctrl+F5 once.
-2. On **Overview**, open the quick settings, tick **qosify** and set **Upload** and
+2. On **Overview**, open the quick settings, tick **QoS Enabled** and set **Upload** and
    **Download bandwidth** to a little under your measured line speed.
 3. Click **Save & Apply**. The Service status turns green once qosify is shaping.
 
@@ -74,7 +74,7 @@ Save & Apply send the reload for you; the boot case needs a fix in `qosify.init`
   the whole config; **Reload Rules** only re-reads the rule files, which is all a rules edit needs.
 - **Files** — both config files with their validity, size and last change.
 - **Quick settings** — edits one interface or device section directly, in four tabs:
-  - **Basic**: qosify (enable), interface or device name, upload/download bandwidth, queueing mode
+  - **Basic**: QoS Enabled, interface or device name, upload/download bandwidth, queueing mode
     (`diffserv4` by default)
   - **Shaping**: download and upload shaping, automatic download rate, NAT awareness, host isolation
   - **Overhead**: overhead preset, plus manual and encapsulation overhead (shown only for
@@ -173,7 +173,7 @@ takes its version from `VERSION=`.
 
 `luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify)
 master and ships in snapshots. Master matches this installer at 3.0.18 file for file, apart from
-the installer's `?v=<VERSION>` stylesheet suffix; 3.0.19–3.0.35 is submitted upstream, and until
+the installer's `?v=<VERSION>` stylesheet suffix; 3.0.19–3.0.36 is submitted upstream (#9131), and until
 it merges `migrate` drops back to the 3.0.18 code. It is not in the 24.10
 or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082.
 
