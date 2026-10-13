@@ -3,6 +3,14 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.0.36 — 2026-10-13
+
+#9131 review fixes.
+
+- Quick settings: the enable row is labelled **QoS Enabled** again, and the bandwidth hints say
+  "same format as tc" again
+- CSS: the two `#qos-qs-sect .cbi-value` blocks merged into one
+
 ## v3.0.35 — 2026-10-13
 
 3.0.19–3.0.35 from `dev`. The multiqueue (`cake_mq`) and openwrt/openwrt#25696 cleanup parts are
