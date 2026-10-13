@@ -13,7 +13,7 @@ Current version: **3.0.35** — see [CHANGELOG.md](CHANGELOG.md).
 ## Quick start
 
 1. Install (below), then open **Network → qosify** and press Ctrl+F5 once.
-2. On **Overview**, open the quick settings, tick **QoS Enabled** and set **Upload** and
+2. On **Overview**, open the quick settings, tick **qosify** and set **Upload** and
    **Download bandwidth** to a little under your measured line speed.
 3. Click **Save & Apply**. The Service status turns green once qosify is shaping.
 
@@ -74,7 +74,7 @@ Save & Apply send the reload for you; the boot case needs a fix in `qosify.init`
   the whole config; **Reload Rules** only re-reads the rule files, which is all a rules edit needs.
 - **Files** — both config files with their validity, size and last change.
 - **Quick settings** — edits one interface or device section directly, in four tabs:
-  - **Basic**: QoS Enabled, interface or device name, upload/download bandwidth, queueing mode
+  - **Basic**: qosify (enable), interface or device name, upload/download bandwidth, queueing mode
     (`diffserv4` by default)
   - **Shaping**: download and upload shaping, automatic download rate, NAT awareness, host isolation
   - **Overhead**: overhead preset, plus manual and encapsulation overhead (shown only for
