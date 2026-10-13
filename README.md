@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.0.18** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.0.35** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -52,6 +52,13 @@ use apk/opkg for it then.
 - OpenWrt 22.03 or later (or a snapshot) with LuCI
 - `wget` or `curl` for the installer
 
+| qosify build | Class bytes, DSCP and DNS stats, NQB |
+| --- | --- |
+| 24.10, 25.12 (`1501e09`) | – |
+| snapshot (`beeb87e`) | ✓ |
+
+The app reads what the running qosify reports and hides what it lacks.
+
 **25.12 and snapshots:** `qosify.init` only applies its config on `reload`, not on `start`, so after
 a reboot qosify can run with no config until you press **Reload**. The app's Start, Restart and
 Save & Apply send the reload for you; the boot case needs a fix in `qosify.init`
@@ -74,15 +81,19 @@ Save & Apply send the reload for you; the boot case needs a fix in `qosify.init`
     `manual`), MPU and VLAN tags
   - **Advanced**: extra CAKE options for ingress, egress or both
 
+  All four tabs are the height of the tallest, so switching tabs never moves the page.
+
 Values are checked before saving (bandwidth that `tc` might still accept only warns), and if the file changed on disk since the page loaded you are
 asked before it is overwritten.
 
 ### Config
 
 An editor for `/etc/config/qosify` that checks as you type and warns about settings qosify will
-quietly ignore — a section with no `name`, `nat` without `host_isolate`, manual overhead without
-`overhead_type manual`, both directions off, no bandwidth, or `option nat 'true'` (qosify reads
-that as off; use `1`).
+quietly ignore — a section with no `name` or a name over 15 characters, more than 16 classes,
+`nat` without `host_isolate`, manual overhead without `overhead_type manual`, an invalid `mode`,
+rate or overhead value, a non-numeric integer key, both directions off, no bandwidth, or
+`option nat 'true'` (qosify reads that as off; use `1`). Shell metacharacters in any value that
+reaches `tc`, the overhead keys included, block the save.
 
 **Quick Add** builds `defaults`, `class`, `alias`, `interface` and `device` sections from
 dropdowns, with each option explained underneath. **Reference** lists your classes, the DSCP
@@ -97,6 +108,10 @@ if unset" option for the `+` prefix. Rules are checked the way qosify reads them
 single addresses (no CIDR), and targets that are defined classes or valid DSCP values. A line qosify
 would skip is reported rather than silently saved.
 
+**Dynamic Entries** sends `ubus call qosify add` straight to the running qosify — not saved,
+gone after its timeout or a restart — and lists the live entries with their remaining timeout
+and a Remove button (`ubus call qosify remove`).
+
 ### Status
 
 The full `qosify-status` output — CAKE statistics for egress and ingress — refreshed at LuCI's
@@ -105,10 +120,13 @@ refresh interval while the tab is open.
 ### Counters
 
 - **Traffic by Class** — packets and bytes per qosify class since the last reload, with bars
-  coloured by CAKE tin. On 24.10 and 25.12 qosify reports packets only.
+  coloured by CAKE tin, including qosify's `tcp_default`/`udp_default` unless the default names a
+  class. On 24.10 and 25.12 qosify reports packets only.
+- **Traffic by DSCP** — traffic per DSCP codepoint from `get_stats`. Only on snapshots.
 - **Traffic by CAKE Tin** — CAKE's own per-tin packets, bytes and drops, from `qosify-status`.
 - **DNS Entries** — hits and traffic per `dns:` rule. Only on snapshots (qosify `beeb87e`); on
   24.10 and 25.12 the running qosify does not report them.
+- **Reset counters** — `get_stats` with `reset`; the CAKE tin counters belong to `tc` and are kept.
 
 The two traffic views count different things and are not expected to match. While qosify is
 stopped the tab is cleared rather than showing stale numbers.
@@ -155,7 +173,8 @@ takes its version from `VERSION=`.
 
 `luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify)
 master and ships in snapshots. Master matches this installer at 3.0.18 file for file, apart from
-the installer's `?v=<VERSION>` stylesheet suffix, so `migrate` loses nothing. It is not in the 24.10
+the installer's `?v=<VERSION>` stylesheet suffix; 3.0.19–3.0.35 is submitted upstream, and until
+it merges `migrate` drops back to the 3.0.18 code. It is not in the 24.10
 or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082.
 
 Translations are done on Weblate and ship as
