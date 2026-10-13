@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.35"
+VERSION="3.0.36"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -1121,10 +1121,10 @@ return view.extend({
 		syncOvh();
 		var grp=E('div',{'class':'qs-panes'},[
 			pane('qs-basic',_('Basic'),[
-				[_('qosify'),[E('span',{'class':'qs-ctl'},[chk('enabled',enChecked),' ',enBadge]),desc(_('Unticked sets disabled 1 and qosify skips this section.'))]],
+				[_('QoS Enabled'),[E('span',{'class':'qs-ctl'},[chk('enabled',enChecked),' ',enBadge]),desc(_('Unticked sets disabled 1 and qosify skips this section.'))]],
 				[isDev?_('Device'):_('Interface'),[txt('name',w.name||(sn?(isDev?'':sn.name):'wan'),_('e.g. %s').format(isDev?'eth0':'wan')),desc(isDev?_('Netdev to enable QoS on. Required.'):_('netifd interface to enable QoS on. Required.'))]],
-				[_('Upload bandwidth'),[txt('bw_up',w.bandwidth_up,bwPh),desc(_('Uplink bandwidth. Set just below line speed.'))]],
-				[_('Download bandwidth'),[txt('bw_down',w.bandwidth_down,bwPh),desc(_('Downlink bandwidth. Set just below line speed.'))]],
+				[_('Upload bandwidth'),[txt('bw_up',w.bandwidth_up,bwPh),desc(_('Uplink bandwidth, same format as tc. Set just below line speed.'))]],
+				[_('Download bandwidth'),[txt('bw_down',w.bandwidth_down,bwPh),desc(_('Downlink bandwidth, same format as tc. Set just below line speed.'))]],
 				[_('Queueing mode'),[sel('mode',w.mode,MODES,'diffserv4'),desc(OPT_DESC.mode)]]
 			]),
 			pane('qs-shaping',_('Shaping'),[
@@ -3305,9 +3305,6 @@ JSEOF
 	align-items: center;
 	margin: 0;
 	padding: 0;
-}
-
-#qos-qs-sect .cbi-value {
 	border-top: 1px solid var(--qos-ln);
 }
 
