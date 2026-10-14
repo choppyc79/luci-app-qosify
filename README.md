@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.0.36** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.0.37** (`dev`) — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -30,6 +30,7 @@ wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-ap
 sh /root/qosify-luci.sh install
 ```
 
+For the `dev` test build, use `dev` in place of `main` in the URL.
 `curl -o /root/qosify-luci.sh <same URL>` works too. The installer adds `qosify` if it is missing,
 writes the app files, creates default configs without overwriting yours, and restarts rpcd and the
 web server.
@@ -49,13 +50,14 @@ use apk/opkg for it then.
 
 ### Requirements
 
-- OpenWrt 22.03 or later (or a snapshot) with LuCI
+- OpenWrt 24.10, 25.12 or snapshot with LuCI
 - `wget` or `curl` for the installer
 
-| qosify build | Class bytes, DSCP and DNS stats, NQB |
-| --- | --- |
-| 24.10, 25.12 (`1501e09`) | – |
-| snapshot (`beeb87e`) | ✓ |
+| qosify build | Class bytes, DSCP and DNS stats, NQB | `multiqueue` |
+| --- | --- | --- |
+| 24.10, 25.12 (`1501e09`) | – | – |
+| snapshot (`beeb87e`) | ✓ | – |
+| a `qosify.init` that passes `multiqueue` | ✓ | ✓ |
 
 The app reads what the running qosify reports and hides what it lacks.
 
@@ -76,7 +78,8 @@ Save & Apply send the reload for you; the boot case needs a fix in `qosify.init`
 - **Quick settings** — edits one interface or device section directly, in four tabs:
   - **Basic**: QoS Enabled, interface or device name, upload/download bandwidth, queueing mode
     (`diffserv4` by default)
-  - **Shaping**: download and upload shaping, automatic download rate, NAT awareness, host isolation
+  - **Shaping**: download and upload shaping, automatic download rate, NAT awareness, host
+    isolation, and Multiqueue CAKE (`cake_mq`) where `qosify.init` passes `multiqueue`
   - **Overhead**: overhead preset, plus manual and encapsulation overhead (shown only for
     `manual`), MPU and VLAN tags
   - **Advanced**: extra CAKE options for ingress, egress or both
@@ -176,6 +179,9 @@ master and ships in snapshots. Master matches this installer at 3.0.18 file for 
 the installer's `?v=<VERSION>` stylesheet suffix; 3.0.19–3.0.36 is submitted upstream (#9131), and until
 it merges `migrate` drops back to the 3.0.18 code. It is not in the 24.10
 or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082.
+
+`dev` is main plus `multiqueue` (`cake_mq`) and the matching cleanup and Tin chart support.
+These stay on `dev` until `qosify.init` passes `multiqueue` upstream, then go to main in their own PR.
 
 Translations are done on Weblate and ship as
 `luci-i18n-qosify-*` packages from the in-tree build; the installer is English only.
