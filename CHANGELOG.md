@@ -3,6 +3,16 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.0.37 — dev (2026-10-13)
+
+main 3.0.36 plus the parts held on `dev` until `qosify.init` passes `multiqueue`.
+
+- Quick settings, Quick Add and lint: `multiqueue` (`cake_mq`), shown only when
+  `/etc/init.d/qosify` passes it; ACL read grant for that file
+- Counters: Traffic by CAKE Tin also reads `cake_mq` root qdiscs
+- Cleanup helper: long-name ifb (`ifb-` + first two and last nine characters) and ingress
+  prefs 272–283
+
 ## v3.0.36 — 2026-10-13
 
 #9131 review fixes.
@@ -13,8 +23,8 @@ PR numbers are on openwrt/luci.
 
 ## v3.0.35 — 2026-10-13
 
-3.0.19–3.0.35 from `dev`. The multiqueue (`cake_mq`) and openwrt/openwrt#25696 cleanup parts are
-held on `dev` until that PR merges.
+3.0.19–3.0.35 from `dev`. The multiqueue (`cake_mq`) and matching cleanup parts are held on
+`dev`.
 
 - Config/Restore refuse shell metacharacters in `overhead`, `overhead_encap` and `overhead_mpu`
   too (qosify runs them through `sh -c`), and `#*?[]~`
