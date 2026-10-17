@@ -3,15 +3,17 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
-## v3.0.37 — dev (2026-10-13)
+## v3.0.38 — dev (2026-10-17)
 
-main 3.0.36 plus the parts held on `dev` until `qosify.init` passes `multiqueue`.
+main 3.0.36 plus support for qosify `b3ee50e` (openwrt/openwrt#25696).
 
 - Quick settings, Quick Add and lint: `multiqueue` (`cake_mq`), shown only when
   `/etc/init.d/qosify` passes it; ACL read grant for that file
+- Rules: port 65535 accepted where `qosify.init` passes `multiqueue` (same qosify bump)
+- Reference: `+` noted as working only from `b3ee50e`
 - Counters: Traffic by CAKE Tin also reads `cake_mq` root qdiscs
-- Cleanup helper: long-name ifb (`ifb-` + first two and last nine characters) and ingress
-  prefs 272–283
+- Cleanup helper: long-name ifb (`ifb-` + first two and last nine characters); ingress prefs
+  kept at 272–277, the six qosify itself clears
 
 ## v3.0.36 — 2026-10-13
 
