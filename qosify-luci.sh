@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.37"
+VERSION="3.0.38"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -143,8 +143,8 @@ EOF
 # Remove qosify qdiscs and ifb devices left behind after qosify exits.
 #
 # A clean stop only does part of this: interface_clear_qdisc() removes the root
-# qdisc, the bpf filters and the ifb device but not clsact, and main() never
-# calls qosify_dns_stop(), so ifb-dns stays up. A crash, a SIGKILL or a respawn
+# qdisc, the bpf filters and the ifb device but not clsact, and before 16c95b0
+# main() never called qosify_dns_stop(), so ifb-dns stays up. A crash, a SIGKILL or a respawn
 # loop leaves the rest too. This script deliberately only touches the devices of
 # enabled qosify sections, the ifb names qosify derives from them and qosify's
 # own ifb-dns -- never a qdisc or ifb qosify did not create.
@@ -171,9 +171,9 @@ exec 9>"$LOCK"
 command -v flock >/dev/null && { flock -n 9 || exit 0; }
 
 # Mirrors interface_ifb_name() in qosify: "ifb-<dev>" while strlen(dev) + 4 is
-# below IFNAMSIZ, else "ifb-" + the first two and last nine characters of dev.
-# Current builds read before the name for long devices, so their ifb cannot be
-# derived and simply is not found here.
+# below IFNAMSIZ, else "ifb-" + the first two and last nine characters of dev
+# (21cc618). Older builds read before the name for long devices, so their ifb
+# cannot be derived and simply is not found here.
 ifb_name() {
 	[ "${#1}" -lt 12 ] && echo "ifb-$1" ||
 		echo "ifb-$(printf %.2s "$1")${1#"${1%?????????}"}"
@@ -184,8 +184,8 @@ qosify_filter() {
 }
 
 # qosify's filters sit at QOSIFY_PRIO_BASE (0x110 = 272): its bpf classifier on
-# egress, and on ingress the classifier plus the DNS and ifb redirects: 272-277,
-# or 272-283 where qosify adds 802.1ad and double-tag DNS filters.
+# egress, and on ingress the classifier plus the DNS and ifb redirects up to 277
+# (interface_clear_qdisc() deletes the same six; aa3aa6b uses 272-274 of them).
 # A clean exit removes them and the root qdisc, so they only survive a crash, and
 # then the root cake is qosify's too. Another shaper's root qdisc, and a clsact
 # carrying anyone else's filters, are left alone.
@@ -201,10 +201,8 @@ clear_dev() {
 			tc filter del dev "$dev" egress pref 272 2>/dev/null
 		fi
 		if qosify_filter "$dev" ingress; then
-			p=272
-			while [ "$p" -le 283 ]; do
+			for p in 272 273 274 275 276 277; do
 				tc filter del dev "$dev" ingress pref "$p" 2>/dev/null
-				p=$((p + 1))
 			done
 		fi
 		[ -n "$(tc filter show dev "$dev" ingress 2>/dev/null)$(tc filter show dev "$dev" egress 2>/dev/null)" ] ||
@@ -273,7 +271,7 @@ fi
 for dev in $DEVS; do clear_dev "$dev"; done
 
 # ifb-dns is qosify's fixed DNS ifb, not derived from any section, and a stop
-# leaves it up under the kernel's default fq_codel. Deleting its root qdisc only
+# before 16c95b0 leaves it up under the kernel's default fq_codel. Deleting its root qdisc only
 # re-attaches the default, so drop the device -- only once qosify has exited.
 pidof qosify >/dev/null || ip link del ifb-dns 2>/dev/null
 
@@ -467,8 +465,10 @@ var RATE=/^(unlimited|\d+(\.\d+)?((k|m|g|t)?(bit|bps)|(ki|mi|gi)(bit|bps))?)$/i;
 var NAME_MAX=15;
 // class_map has QOSIFY_MAX_CLASS_ENTRIES slots for class and alias sections.
 var CLASS_MAX=16;
-// true once qosify.init passes multiqueue (cake_mq); null is unknown.
+// true once qosify.init passes multiqueue (cake_mq); null is unknown. OpenWrt
+// added it with qosify b3ee50e, which also takes port 65535 (1501e09 and beeb87e stop at 65534).
 var MQ_OK=null;
+function portMax(){return MQ_OK?65535:65534;}
 
 // luci.setInitAction was dropped from luci-base in 4440b267d; the rc namespace
 // (built into the rpcd core binary, so no extra dependency) replaces it.
@@ -799,11 +799,11 @@ function dscpOk(v,cls){
 	var n=dscpNum(v);
 	return n!==null&&n<64;
 }
-// Match keys qosify_map_parse_line() loads: ports 1-65534 (strtoul base 0),
+// Match keys qosify_map_parse_line() loads: ports 1-portMax() (strtoul base 0),
 // one address for inet_pton(), or a dns pattern.
 function portOk(p){
 	var a=p.split('-'),x=dscpNum(a[0]),y=a.length>1?dscpNum(a[1]):x;
-	return a.length<3&&x!==null&&y!==null&&x>=1&&y>=x&&y<=65534;
+	return a.length<3&&x!==null&&y!==null&&x>=1&&y>=x&&y<=portMax();
 }
 function ip4Ok(a){return /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.|$)){4}$/.test(a)&&!/\.$/.test(a);}
 function ip6Ok(a){
@@ -832,7 +832,7 @@ function ruleWarn(txt,names){
 	}
 	if(bare.length)w.push(_('No DSCP target on line %s — qosify skips single-field lines').format(bare.join(', ')));
 	if(xtra.length)w.push(_('More than two fields on line %s — qosify reads the rest of the line as the DSCP value and skips it').format(xtra.join(', ')));
-	if(mt.length)w.push(_('Match not loaded by qosify on line %s — ports 1-65534, one IPv4/IPv6 address (no CIDR or %%zone), or dns:, dns_c:').format(mt.join(', ')));
+	if(mt.length)w.push(_('Match not loaded by qosify on line %s — ports 1-%d, one IPv4/IPv6 address (no CIDR or %%zone), or dns:, dns_c:').format(mt.join(', '),portMax()));
 	if(bad.length)w.push(_('Unknown class/DSCP target: %s').format(bad.join(', '))+(NQB_OK===false&&bad.indexOf('NQB')>=0?' '+_('(this qosify build has no NQB)'):''));
 	return w;
 }
@@ -1436,7 +1436,7 @@ return view.extend({
 		});
 		qa.appendChild(fold('qos-qa-ref',_('Reference'),[
 			this.classRef('qos-cls-cfg'),
-			refBox(_('DSCP values'),_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF (NQB needs qosify from June 2026; 24.10 and 25.12 do not have it). A raw value from 0 to 63 is accepted too, and any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero.'),[]),
+			refBox(_('DSCP values'),_('DSCP codepoints: CS0–CS7, AF11–AF43, EF, VA, NQB, LE, DF (NQB needs qosify from June 2026; 24.10 and 25.12 do not have it). A raw value from 0 to 63 is accepted too, and any dscp_* value may also name a class. Prefix with + to override only when the DSCP field is zero (as described from qosify c698349; 24.10 and 25.12 do not honour it).'),[]),
 			refBox(_('Defaults'),_('Defaults qosify applies when a key is absent — interface: mode diffserv4, ingress 1, egress 1, nat 1, host_isolate 1, autorate_ingress 0, multiqueue 0. device: identical except nat 0. defaults: timeout 3600, dscp_default_tcp/udp CS0, dscp_prio/dscp_bulk/dscp_icmp unset, bulk_trigger_pps/bulk_trigger_timeout/prio_max_avg_pkt_len 0 (disabled).'),[])
 		],false));
 		section.appendChild(qa);
@@ -2727,7 +2727,7 @@ return view.extend({
 			for(j=0;j<pp.length;j++){
 				n=dscpNum(trim(pp[j]));
 				if(n===null){notify(_('Port must be a number or a range (4500, 5060-5061).'),'danger');return;}
-				if(n<1||n>65534){notify(_('Port must be 1-65534 (qosify rejects 65535).'),'danger');return;}
+				if(n<1||n>portMax()){notify(_('Port must be 1-%d.').format(portMax()),'danger');return;}
 				pn.push(n);
 			}
 			if(pn.length===2&&pn[0]>pn[1]){notify(_('Range start must not exceed end.'),'danger');return;}
