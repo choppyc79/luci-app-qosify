@@ -56,8 +56,11 @@ use apk/opkg for it then.
 | qosify build | Class bytes, DSCP and DNS stats, NQB | `multiqueue` |
 | --- | --- | --- |
 | 24.10, 25.12 (`1501e09`) | – | – |
-| snapshot (`beeb87e`) | ✓ | – |
-| a `qosify.init` that passes `multiqueue` | ✓ | ✓ |
+| snapshot before 2026-10-16 (`beeb87e`) | ✓ | – |
+| snapshot from 2026-10-16 (`b3ee50e`) | ✓ | ✓ |
+
+`b3ee50e` also takes port 65535 and applies `+` values as documented; the app follows the
+build it finds.
 
 The app reads what the running qosify reports and hides what it lacks.
 
@@ -107,7 +110,8 @@ values qosify accepts and the defaults it uses when a key is missing.
 An editor for `/etc/qosify/00-defaults.conf`, the file that decides which traffic gets which DSCP
 class. **Quick Add** builds one rule at a time for any match qosify supports: TCP/UDP ports and
 ranges, IPv4/IPv6 addresses, `dns:` patterns and regex, and `dns_c:` CNAME matches, with an "only
-if unset" option for the `+` prefix. Rules are checked the way qosify reads them: ports 1–65534,
+if unset" option for the `+` prefix. Rules are checked the way qosify reads them: ports 1–65534
+(1–65535 on `b3ee50e`),
 single addresses (no CIDR), and targets that are defined classes or valid DSCP values. A line qosify
 would skip is reported rather than silently saved.
 
@@ -180,8 +184,9 @@ the installer's `?v=<VERSION>` stylesheet suffix; 3.0.19–3.0.36 is submitted u
 it merges `migrate` drops back to the 3.0.18 code. It is not in the 24.10
 or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082.
 
-`dev` is main plus `multiqueue` (`cake_mq`) and the matching cleanup and Tin chart support.
-These stay on `dev` until `qosify.init` passes `multiqueue` upstream, then go to main in their own PR.
+`dev` is main plus `multiqueue` (`cake_mq`), port 65535 and the matching cleanup and Tin chart
+support for qosify `b3ee50e` (openwrt/openwrt#25696, merged 2026-10-16). They go to main in their
+own PR after testing and once #9131 merges.
 
 Translations are done on Weblate and ship as
 `luci-i18n-qosify-*` packages from the in-tree build; the installer is English only.
