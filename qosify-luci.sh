@@ -15,7 +15,9 @@ LEGACY_CBI="/usr/lib/lua/luci/model/cbi/qosify"
 restart_luci_services() {
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null
 	rm -rf /tmp/luci-modulecache 2>/dev/null
-	[ -f /etc/init.d/rpcd ] && /etc/init.d/rpcd restart 2>/dev/null
+	# reload (SIGHUP) re-reads acl.d and keeps the LuCI sessions; a restart
+	# drops every login.
+	[ -f /etc/init.d/rpcd ] && /etc/init.d/rpcd reload 2>/dev/null
 	sleep 1
 	if [ -f /etc/init.d/uhttpd ]; then /etc/init.d/uhttpd restart 2>/dev/null
 	elif [ -f /etc/init.d/nginx ]; then /etc/init.d/nginx restart 2>/dev/null
@@ -29,18 +31,24 @@ clean_legacy() {
 }
 
 # qosify.init in 25.12 and master pushes its config from service_running(), which
-# start and restart never call, so push it once the daemon is on ubus. On 24.10
-# service_started() already did, and the same config again changes nothing.
+# procd runs on its own, asynchronously, after the instance starts; on 24.10
+# service_started() does it. Pushing it here once the daemon is on ubus makes
+# the config applied by the time this returns; the same config again changes
+# nothing.
 qosify_apply() {
 	/etc/init.d/qosify restart 2>/dev/null
 	ubus -t 10 wait_for qosify 2>/dev/null && /etc/init.d/qosify reload 2>/dev/null
 }
 
+pkg_installed() {
+	grep -qx 'P:luci-app-qosify' /lib/apk/db/installed 2>/dev/null ||
+		[ -f /usr/lib/opkg/info/luci-app-qosify.control ]
+}
+
 # A package install owns these files; writing or deleting them under apk/opkg
 # leaves the package database wrong.
 not_pkg() {
-	grep -qx 'P:luci-app-qosify' /lib/apk/db/installed 2>/dev/null ||
-		[ -f /usr/lib/opkg/info/luci-app-qosify.control ] || return 0
+	pkg_installed || return 0
 	echo "[ERROR] luci-app-qosify is installed as a package; use apk/opkg for it"
 	exit 1
 }
@@ -126,6 +134,7 @@ config interface wan
 	option nat 1
 	option host_isolate 1
 	option autorate_ingress 0
+	option multiqueue 0
 	option ingress_options ""
 	option egress_options ""
 	option options ""
@@ -761,12 +770,13 @@ function setOpts(txt,type,name,idx,kv){
 	}
 	var out=[lines[s.start]],seen={};
 	for(i=s.start+1;i<=s.end;i++){
-		var lm=/^\s*list\s+(\S+)(\s|$)/.exec(lines[i]);
-		if(lm&&(lm[1] in kv))throw new Error(_('%s is a list in this section — edit %s directly').format(lm[1],UCI_PATH));
-		var m=/^\s*option\s+(\S+)\s+(.*)$/.exec(lines[i]);
-		if(m&&(m[1] in kv)){
-			seen[m[1]]=1;
-			if(kv[m[1]]!=null)out.push("\toption "+m[1]+" '"+qv(kv[m[1]])+"'");
+		// An option name may be quoted ('bandwidth_up'), as libuci reads it.
+		var lm=/^\s*list\s+(\S+)(\s|$)/.exec(lines[i]),lk=lm&&unq(lm[1]);
+		if(lm&&(lk in kv))throw new Error(_('%s is a list in this section — edit %s directly').format(lk,UCI_PATH));
+		var m=/^\s*option\s+(\S+)\s+(.*)$/.exec(lines[i]),ok=m&&unq(m[1]);
+		if(m&&(ok in kv)){
+			seen[ok]=1;
+			if(kv[ok]!=null)out.push("\toption "+ok+" '"+qv(kv[ok])+"'");
 			continue;
 		}
 		out.push(lines[i]);
@@ -896,11 +906,16 @@ function rulesLoaded(secs){
 	});
 }
 
+// E() and dom.content() set a lone string child as innerHTML and append array
+// members as text nodes. Messages and cells carry values from the config, the
+// rules file and qosify's replies, so every string goes in as text.
+function tx(v){return typeof v==='string'?[v]:v;}
+
 var noteSeen={};
 function notify(msg,kind){
 	var key=String(msg);
 	if(noteSeen[key])return null;
-	var n=ui.addNotification(null,E('p',{},msg),kind||'info');
+	var n=ui.addNotification(null,E('p',{},tx(key)),kind||'info');
 	if(!n)return null;
 	noteSeen[key]=1;
 	var ms=(kind==='danger')?10000:(kind==='warning')?8000:5000;
@@ -913,13 +928,13 @@ function notify(msg,kind){
 
 // Stock LuCI markup: themes style .cbi-section, .table, .label and
 // .cbi-value already, so qosify.css only draws the section boxes.
-function badge(kind,t){return E('span',{'class':kind?'label '+kind:'label'},t);}
-function desc(t){return E('div',{'class':'cbi-value-description'},t);}
-function sdesc(t){return E('div',{'class':'cbi-section-descr'},t);}
-function kvRow(k,v,id){return E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},k),E('td',{'class':'td left','id':id||null},v)]);}
+function badge(kind,t){return E('span',{'class':kind?'label '+kind:'label'},tx(t));}
+function desc(t){return E('div',{'class':'cbi-value-description'},tx(t));}
+function sdesc(t){return E('div',{'class':'cbi-section-descr'},tx(t));}
+function kvRow(k,v,id){return E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},tx(k)),E('td',{'class':'td left','id':id||null},tx(v))]);}
 function kvTable(rows,id){return E('table',{'class':'table','id':id||null},rows);}
-function emRow(t){return E('tr',{'class':'tr placeholder'},E('td',{'class':'td'},E('em',{},t)));}
-function emP(t){return E('p',{},E('em',{},t));}
+function emRow(t){return E('tr',{'class':'tr placeholder'},E('td',{'class':'td'},E('em',{},tx(t))));}
+function emP(t){return E('p',{},E('em',{},tx(t)));}
 function gridTable(head,rows,empty){
 	return E('table',{'class':'table cbi-section-table'},[E('tr',{'class':'tr cbi-section-table-titles'},head.map(function(h){return E('th',{'class':'th'},h);}))]
 		.concat(rows.length?rows.map(function(r){return E('tr',{'class':'tr cbi-section-table-row'},r.map(function(c,i){return E('td',{'class':'td','data-title':head[i]},c);}));}):[emRow(empty)]));
@@ -973,7 +988,7 @@ function confirmDialog(title,text,label,negative){
 	return new Promise(function(resolve){
 		var done=function(v){ui.hideModal();resolve(v);};
 		ui.showModal(title,[
-			E('p',{},text),
+			E('p',{},tx(text)),
 			E('div',{'class':'right'},[
 				E('button',{'class':'cbi-button','click':function(){done(false);}},_('Cancel')),
 				' ',
@@ -1096,7 +1111,7 @@ return view.extend({
 			var s=E('select',{'class':'cbi-input-select','id':'q-'+name,'data-q':name}),sv=val||def,known=false;
 			if(def==null)s.appendChild(E('option',{'value':''},'--'));
 			opts.forEach(function(o){var a={'value':o};if(sv===o){a.selected='selected';known=true;}s.appendChild(E('option',a,o));});
-			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},_('%s (current)').format(val)));
+			if(val&&!known)s.appendChild(E('option',{'value':val,'selected':'selected'},[_('%s (current)').format(val)]));
 			return s;
 		}
 		function num(name,val,ph){var e=txt(name,val,ph);e.type='number';return e;}
@@ -1254,9 +1269,10 @@ return view.extend({
 	},
 
 	// qosify.init in 25.12 and master pushes its config from service_running(),
-	// which rc.common only calls for `running`, so start and restart leave the
-	// daemon with no config. reload pushes it once the ubus object is up; on 24.10,
-	// where service_started() already did, the same config changes nothing.
+	// which procd runs on its own, asynchronously, after the instance starts; on
+	// 24.10 service_started() does it. reload pushes it once the ubus object is
+	// up, so the config is in place before the shaping check reads the status;
+	// the same config again changes nothing.
 	pushConfig:function(){
 		var n=10;
 		function tick(){
@@ -1502,7 +1518,7 @@ return view.extend({
 		var classes=this.getClasses(),sel=$('qar-cls'),cur,self=this;
 		if(sel){
 			cur=sel.value;
-			dom.content(sel,classes.map(function(c){return E('option',{'value':c.name},clsOpt(c));}));
+			dom.content(sel,classes.map(function(c){return E('option',{'value':c.name},[clsOpt(c)]);}));
 			if(cur&&classes.some(function(c){return c.name===cur;}))sel.value=cur;
 		}
 		['qos-cls-cfg','qos-cls-ru'].forEach(function(id){
@@ -1525,7 +1541,7 @@ return view.extend({
 	classRows:function(classes){
 		if(!classes.length)return emRow(_('No classes defined in %s').format(UCI_PATH));
 		return classes.map(function(c){
-			return kvRow(E('code',{},c.name),_('ingress %s, egress %s').format(c.ingress||'-',c.egress||'-')+(c.alias?' '+_('(alias)'):''));
+			return kvRow(E('code',{},[c.name]),_('ingress %s, egress %s').format(c.ingress||'-',c.egress||'-')+(c.alias?' '+_('(alias)'):''));
 		});
 	},
 
@@ -1556,7 +1572,8 @@ return view.extend({
 	},
 
 	editorSect:function(id,path,text,st,clear,save){
-		var ta=E('textarea',{'id':id,'class':'cbi-input-textarea','style':'width:100%','rows':28,'spellcheck':'false','wrap':'off'},text||'');
+		// As text, not innerHTML, which decodes &amp; and the like in the file.
+		var ta=E('textarea',{'id':id,'class':'cbi-input-textarea','style':'width:100%','rows':28,'spellcheck':'false','wrap':'off'},[text||'']);
 		ta.dataset.orig=text||'';
 		stampFile(ta,st);
 		return sect(path,[
@@ -1575,7 +1592,7 @@ return view.extend({
 		[['tcp:','tcp:<port>[-<endport>]'],['udp:','udp:<port>[-<endport>]'],['both:','tcp: + udp:'],['dns:','dns:<pattern>'],['dnsr:','dns:/<regex>'],['dns_c:','dns_c:<pattern>'],['dns_cr:','dns_c:/<regex>'],['ipv4:',_('IPv4 address, e.g. 1.1.1.1')],['ipv6:',_('IPv6 address, e.g. ff01::1')]].forEach(function(o){
 			qarType.appendChild(E('option',{'value':o[0]},[document.createTextNode(o[1])]));
 		});
-		var qarCls=E('select',{'class':'cbi-input-select','id':'qar-cls','aria-label':'dscp'},this.getClasses().map(function(c){return E('option',{'value':c.name},clsOpt(c));}));
+		var qarCls=E('select',{'class':'cbi-input-select','id':'qar-cls','aria-label':'dscp'},this.getClasses().map(function(c){return E('option',{'value':c.name},[clsOpt(c)]);}));
 		var qr=[['match',5,qarType],['',8,E('input',{'type':'text','class':'cbi-input-text','id':'qar-val','aria-label':_('value'),'placeholder':_('e.g. %s').format('4500')})],
 			['dscp',6,qarCls],['+',1,E('input',{'type':'checkbox','class':'cbi-input-checkbox','id':'qar-prio','aria-label':_('Only override the DSCP value if it is zero')})],
 			['',2,E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.qarAdd();}},_('Add'))]];
@@ -1675,9 +1692,9 @@ return view.extend({
 			trs=rows.slice(0,MAP_ROWS).map(function(e){
 				var a=String(e.addr),c=E('td',{'class':'td qn'});
 				box.qosCells.push(c);
-				return E('tr',{'class':'tr'},[E('td',{'class':'td'},e.type),
-					E('td',{'class':'td','title':a},[E('code',{},a),e.file?' '+_('(over file)'):'']),
-					E('td',{'class':'td'},e.dscp||'-'),c,
+				return E('tr',{'class':'tr'},[E('td',{'class':'td'},[e.type]),
+					E('td',{'class':'td','title':a},[E('code',{},[a]),e.file?' '+_('(over file)'):'']),
+					E('td',{'class':'td'},[e.dscp||'-']),c,
 					E('td',{'class':'td qn'},self.readonly?'':E('button',{'class':'cbi-button cbi-button-remove','click':function(){return self.dynRemove(e.type,a);}},_('Remove')))]);
 			});
 			dom.content(box,[E('div',{'class':'qbox'},[colHead(cols,'qos-dyn-head'),E('div',{'id':'qos-dyn-box'},colTable(cols,trs))]),
@@ -1867,8 +1884,8 @@ return view.extend({
 			if(r.file)src.push('file');
 			if(r.user)src.push('user');
 			cells.push(c);
-			return E('tr',{'class':'tr'},[E('td',{'class':'td','title':a},E('code',{},a)),
-				E('td',{'class':'td'},r.dscp||'-'),E('td',{'class':'td'},src.join(', ')||'-'),c.t,c.w||'']);
+			return E('tr',{'class':'tr'},[E('td',{'class':'td','title':a},E('code',{},[a])),
+				E('td',{'class':'td'},[r.dscp||'-']),E('td',{'class':'td'},src.join(', ')||'-'),c.t,c.w||'']);
 		});
 		return E('div',{'class':'qbox'},[colHead(cols,'qos-cn-map-head'),E('div',{'id':'qos-cn-map-box'},colTable(cols,trs))]);
 	},
@@ -3525,6 +3542,12 @@ uninstall_all() {
 
 migrate_pkg() {
 	echo "===== qosify LuCI migration to package v$VERSION ====="
+	# Run again after a migration, the removal below would delete the package's
+	# own files and the add would find nothing to do.
+	if pkg_installed; then
+		echo "[OK] luci-app-qosify is already installed as a package; nothing to migrate"
+		return 0
+	fi
 	echo "[*] Removing script-installed app files (configs preserved)..."
 	rm -f "$MENU_DIR/luci-app-qosify.json" "$ACL_DIR/luci-app-qosify.json"
 	rm -rf "$VIEW_DIR" "$TPL_DIR"
