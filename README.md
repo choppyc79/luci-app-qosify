@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.0.37** (`dev`) — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.0.39** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -179,14 +179,11 @@ takes its version from `VERSION=`.
 ## OpenWrt package
 
 `luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify)
-master and ships in snapshots. Master matches this installer at 3.0.18 file for file, apart from
-the installer's `?v=<VERSION>` stylesheet suffix; 3.0.19–3.0.36 is submitted upstream (#9131), and until
-it merges `migrate` drops back to the 3.0.18 code. It is not in the 24.10
-or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082.
-
-`dev` is main plus `multiqueue` (`cake_mq`), port 65535 and the matching cleanup and Tin chart
-support for qosify `b3ee50e` (openwrt/openwrt#25696, merged 2026-10-16). They go to main in their
-own PR after testing and once #9131 merges.
+master and ships in snapshots. Master matches this installer at 3.0.36 file for file, apart from
+the installer's `?v=<VERSION>` stylesheet suffix; 3.0.37–3.0.39 (`multiqueue`/`cake_mq`, port
+65535 and long-name ifb for qosify `b3ee50e`, values rendered as text) is submitted upstream
+(#9164), and until it merges `migrate` drops back to the 3.0.36 code. It is not in the 24.10
+or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082, #9131.
 
 Translations are done on Weblate and ship as
 `luci-i18n-qosify-*` packages from the in-tree build; the installer is English only.
