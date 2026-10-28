@@ -32,8 +32,8 @@ sh /root/qosify-luci.sh install
 
 For the `dev` test build, use `dev` in place of `main` in the URL.
 `curl -o /root/qosify-luci.sh <same URL>` works too. The installer adds `qosify` if it is missing,
-writes the app files, creates default configs without overwriting yours, and restarts rpcd and the
-web server.
+writes the app files, creates default configs without overwriting yours, reloads rpcd and restarts
+the web server.
 
 ### Installer commands
 
@@ -64,10 +64,9 @@ build it finds.
 
 The app reads what the running qosify reports and hides what it lacks.
 
-**25.12 and snapshots:** `qosify.init` only applies its config on `reload`, not on `start`, so after
-a reboot qosify can run with no config until you press **Reload**. The app's Start, Restart and
-Save & Apply send the reload for you; the boot case needs a fix in `qosify.init`
-(`service_running` → `service_started`).
+**25.12 and snapshots:** `qosify.init` applies its config from `service_running`, which procd runs
+by itself shortly after every start, respawn and boot. The app's Start, Restart and Save & Apply
+also send a reload and wait for it, so the page shows the new state straight away.
 
 ## The tabs
 
@@ -153,7 +152,7 @@ Backup and Counters still work, apart from Traffic by CAKE Tin.
 
 **Unknown status** — if rpcd does not answer a status call (often an old ACL after an upgrade), the
 page shows an amber **Unknown** rather than guessing, and a Stop never cleans up on an unanswered
-call. `/etc/init.d/rpcd restart` usually clears it.
+call. `/etc/init.d/rpcd reload` usually clears it, without logging anyone out.
 
 **Stop and uninstall** only remove what qosify created: sections with `disabled 1` are skipped, and
 another shaper such as SQM on the same device is left alone.
@@ -168,7 +167,7 @@ survives sysupgrade, attended sysupgrade and owut.
 
 ```
 #!/bin/sh
-/root/qosify-luci.sh files
+sh /root/qosify-luci.sh files
 exit 0
 ```
 
