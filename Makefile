@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-qosify
 PKG_VERSION:=$(shell sed -n 's/^VERSION="\(.*\)"/\1/p' $(CURDIR)/qosify-luci.sh)
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_MAINTAINER:=Ash Clarke <clarkeaj@hotmail.co.uk>
 PKG_LICENSE:=MIT
@@ -71,13 +71,17 @@ endef
 
 # qosify leaves clsact and ifb-dns behind when it stops, and its own prerm may
 # run after this one, so a copy of cleanup waits in the background for qosify to
-# exit. If qosify stays installed and running it touches nothing.
+# exit. If qosify stays installed and running it touches nothing. The copy is a
+# mktemp file: a fixed /tmp name could be created first by another user and
+# rewritten before root runs it.
 define Package/luci-app-qosify/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || [ "$${PKG_UPGRADE}" = 1 ] || {
-	cp /usr/share/qosify-luci/cleanup /tmp/qosify-luci-cleanup &&
-	( /tmp/qosify-luci-cleanup wait; rm -f /tmp/qosify-luci-cleanup ) \
-		</dev/null >/dev/null 2>&1 &
+	t=$$(mktemp /tmp/qosify-luci-cleanup.XXXXXX) && {
+		cat /usr/share/qosify-luci/cleanup > "$$t" && chmod 700 "$$t" &&
+			"$$t" wait
+		rm -f "$$t"
+	} </dev/null >/dev/null 2>&1 &
 }
 exit 0
 endef
