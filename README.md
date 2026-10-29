@@ -8,7 +8,8 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.0.43** — see [CHANGELOG.md](CHANGELOG.md).
+This is the `dev` branch: untested development builds, version **3.0.43** — see
+[CHANGELOG.md](CHANGELOG.md). The release build is on `main`.
 
 ## Quick start
 
@@ -21,16 +22,12 @@ The shipped config has QoS disabled, so nothing is shaped until you do this.
 
 ## Install
 
-On snapshots, install the package: `apk add luci-app-qosify`.
-
-On 24.10, 25.12 or any other build, use the installer:
+Install the `dev` build with the installer, on 24.10, 25.12 or a snapshot:
 
 ```
-wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
+wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev/qosify-luci.sh
 sh /root/qosify-luci.sh install
 ```
-
-For the `dev` test build, use `dev` in place of `main` in the URL.
 
 `curl -o /root/qosify-luci.sh <same URL>` works too. The installer adds `qosify` if it is missing,
 writes the app files, creates default configs without overwriting yours, reloads rpcd and restarts
