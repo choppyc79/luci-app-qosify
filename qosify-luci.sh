@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.40"
+VERSION="3.0.41"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -469,7 +469,7 @@ var OPT_DESC={
 // Quick Add grids hold at most this many options per table.
 var QA_COLS=7;
 // tc get_rate() units, plus CAKE's unlimited; a bare number is bytes per second.
-var RATE=/^(unlimited|\d+(\.\d+)?((k|m|g|t)?(bit|bps)|(ki|mi|gi)(bit|bps))?)$/i;
+var RATE=/^(unlimited|\d+(\.\d+)?((k|m|g|t)?(bit|bps)|(ki|mi|gi|ti)(bit|bps))?)$/i;
 // interface_create() drops a name of IFNAMSIZ (16) or more, or with a quote.
 var NAME_MAX=15;
 // class_map has QOSIFY_MAX_CLASS_ENTRIES slots for class and alias sections.
@@ -775,6 +775,10 @@ function setOpts(txt,type,name,idx,kv){
 		if(lm&&(lk in kv))throw new Error(_('%s is a list in this section — edit %s directly').format(lk,UCI_PATH));
 		var m=/^\s*option\s+(\S+)\s+(.*)$/.exec(lines[i]),ok=m&&unq(m[1]);
 		if(m&&(ok in kv)){
+			// Replacing the line would drop a second statement after ; or leave the rest
+			// of a value that runs onto the next line.
+			var st=cfgStmts(lines[i]);
+			if(st.length>1||!uciWords(st[0]||''))throw new Error(_('%s is not one plain statement in this section — edit %s directly').format(ok,UCI_PATH));
 			seen[ok]=1;
 			if(kv[ok]!=null)out.push("\toption "+ok+" '"+qv(kv[ok])+"'");
 			continue;
@@ -795,7 +799,7 @@ function dscpNum(v){
 	return null;
 }
 // NQB is in qosify from 298754f, the get_stats "classes" table from 0edbc51 two
-// commits on. OpenWrt went from 1501e09 (24.10, 25.12) to beeb87e (master), so a
+// commits on. OpenWrt went from 1501e09 (24.10, 25.12) to b3ee50e (master), so a
 // reply with "classes" means NQB is known, one without it means not; null is unknown.
 var NQB_OK=null;
 function nqbSeen(st){if(st)NQB_OK=!!st.classes;}
@@ -842,7 +846,7 @@ function ruleWarn(txt,names){
 	}
 	if(bare.length)w.push(_('No DSCP target on line %s — qosify skips single-field lines').format(bare.join(', ')));
 	if(xtra.length)w.push(_('More than two fields on line %s — qosify reads the rest of the line as the DSCP value and skips it').format(xtra.join(', ')));
-	if(mt.length)w.push(_('Match not loaded by qosify on line %s — ports 1-%d, one IPv4/IPv6 address (no CIDR or %%zone), or dns:, dns_c:').format(mt.join(', '),portMax()));
+	if(mt.length)w.push(_('Match not loaded by qosify on line %s — ports 1-%d, one IPv4/IPv6 address (no CIDR or %%zone), or dns:, dns_c:, dns_q:').format(mt.join(', '),portMax()));
 	if(bad.length)w.push(_('Unknown class/DSCP target: %s').format(bad.join(', '))+(NQB_OK===false&&bad.indexOf('NQB')>=0?' '+_('(this qosify build has no NQB)'):''));
 	return w;
 }
@@ -1179,7 +1183,7 @@ return view.extend({
 		var wrap=E('div',{},grp);
 		ui.tabs.initTabGroup(grp.childNodes);
 		return [
-			E('h3',{},_('%s quick settings').format(sn?sn.type+(sn.name?' '+sn.name:''):'interface wan')),
+			E('h3',{},tx(_('%s quick settings').format(sn?sn.type+(sn.name?' '+sn.name:''):'interface wan'))),
 			wrap,
 			E('div',{'class':'cbi-page-actions'},
 				E('button',{'class':'cbi-button cbi-button-apply','click':function(){return self.saveQuick();}},_('Save & Apply')))
@@ -1485,7 +1489,7 @@ return view.extend({
 	},
 	qaSelect:function(parent,opt,opts){
 		var s=E('select',{'id':this.qaId(parent,opt),'class':'cbi-input-select','data-opt':opt,'aria-label':opt},E('option',{'value':''},'--'));
-		opts.forEach(function(o){s.appendChild(E('option',{'value':o},o));});
+		opts.forEach(function(o){s.appendChild(E('option',{'value':o},[o]));});
 		this.qaCell(parent,opt,s);
 	},
 	qaNum:function(parent,opt,ph){
@@ -1526,13 +1530,13 @@ return view.extend({
 			if(b)dom.content(b,self.classRows(classes));
 		});
 		var names=classes.map(function(c){return c.name;}).concat(dscpList()),dy=$('qdy-dscp');
-		if(dy){cur=dy.value;dom.content(dy,names.map(function(o){return E('option',{'value':o},o);}));if(names.indexOf(cur)>=0)dy.value=cur;}
+		if(dy){cur=dy.value;dom.content(dy,names.map(function(o){return E('option',{'value':o},[o]);}));if(names.indexOf(cur)>=0)dy.value=cur;}
 		['qac-opts-defaults','qac-opts-class'].forEach(function(id){
 			var p=$(id);if(!p)return;
 			var ss=p.querySelectorAll('select[data-opt^="dscp_"]');
 			for(var i=0;i<ss.length;i++){
 				var s=ss[i],cur=s.value;
-				dom.content(s,[E('option',{'value':''},'--')].concat(names.map(function(o){return E('option',{'value':o},o);})));
+				dom.content(s,[E('option',{'value':''},'--')].concat(names.map(function(o){return E('option',{'value':o},[o]);})));
 				s.value=cur;
 			}
 		});
@@ -1626,7 +1630,7 @@ return view.extend({
 		var self=this,d=uci.sections('qosify','defaults')[0]||{};
 		var qr=[['match',4,E('select',{'class':'cbi-input-select','id':'qdy-type','aria-label':_('match')},DYN_KEYS.map(function(k){return E('option',{'value':k},k);}))],
 			['',8,E('input',{'type':'text','class':'cbi-input-text','id':'qdy-val','aria-label':_('value'),'placeholder':_('e.g. %s').format('1.1.1.1')})],
-			['dscp',5,E('select',{'class':'cbi-input-select','id':'qdy-dscp','aria-label':'dscp'},this.getClasses().map(function(c){return c.name;}).concat(dscpList()).map(function(o){return E('option',{'value':o},o);}))],
+			['dscp',5,E('select',{'class':'cbi-input-select','id':'qdy-dscp','aria-label':'dscp'},this.getClasses().map(function(c){return c.name;}).concat(dscpList()).map(function(o){return E('option',{'value':o},[o]);}))],
 			['+',1,E('input',{'type':'checkbox','class':'cbi-input-checkbox','id':'qdy-prio','aria-label':_('Only override the DSCP value if it is zero')})],
 			['timeout',4,E('input',{'type':'number','min':'1','class':'cbi-input-text','id':'qdy-tmo','aria-label':'timeout','placeholder':d.timeout||'3600'})],
 			['',2,E('button',{'class':'cbi-button cbi-button-add','click':function(){return self.dynAdd();}},_('Add'))]];
