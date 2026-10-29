@@ -3,6 +3,19 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.0.41 — dev (2026-10-29)
+
+main 3.0.40 plus audit fixes. Not upstream yet; the setOpts and rules-hint changes touch lines
+#9164 changes, so they follow it once it merges.
+
+- Class names in the DSCP dropdowns and the section name in the quick settings heading render
+  as text, like every other config value
+- Quick settings: Save refuses a section where an edited option shares its line with another
+  statement (`;`) or has a value that runs onto the next line, instead of mangling it
+- Rules hint lists `dns_q:`, which qosify loads like `dns:`
+- Rate check takes tc's `tibit`/`TiBps` units
+- Comment: master pins qosify `b3ee50e`, not `beeb87e`
+
 ## v3.0.40 — 2026-10-29
 
 #9164 review fix.
