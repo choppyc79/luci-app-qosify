@@ -182,11 +182,9 @@ takes its version from `VERSION=`.
 ## OpenWrt package
 
 `luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify)
-master and ships in snapshots. Master is installer 3.0.36 file for file, apart from the
-installer's `?v=<VERSION>` stylesheet suffix; 3.0.37–3.0.43 (`multiqueue`/`cake_mq`, port 65535
-and long-name ifb for qosify `b3ee50e`, values rendered as text) is submitted upstream (#9164),
-and until it merges `migrate` drops back to the 3.0.36 code. It is not in the 24.10
-or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082, #9131.
+master and ships in snapshots. Master is installer 3.0.43 file for file, apart from the
+installer's `?v=<VERSION>` stylesheet suffix. It is not in the 24.10 or 25.12 release branches.
+Merged PRs: #8833, #9019, #9054, #9067, #9082, #9131, #9164.
 
 Translations are done on Weblate and ship as
 `luci-i18n-qosify-*` packages from the in-tree build; the installer is English only.
