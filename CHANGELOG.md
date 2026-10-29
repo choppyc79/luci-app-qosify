@@ -3,10 +3,9 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
-## v3.0.43 — dev (2026-10-29)
+## v3.0.43 — 2026-10-29
 
-3.0.40 plus audit fixes (3.0.41–3.0.43), on `dev` only. Not upstream yet; the setOpts and
-rules-hint changes touch lines #9164 changes, so they follow it once it merges.
+`dev` 3.0.41–3.0.43 merged into main. The package changes are folded into #9164.
 
 - Class names in the DSCP dropdowns and the section name in the quick settings heading render
   as text, like every other config value
