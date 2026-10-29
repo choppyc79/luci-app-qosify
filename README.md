@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.0.40** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.0.41** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -148,7 +148,9 @@ stopped the tab is cleared rather than showing stale numbers.
 ## Good to know
 
 **Read-only users** get a read-only page: editors, Quick Add and service buttons are disabled.
-Backup and Counters still work, apart from Traffic by CAKE Tin.
+Backup and Counters still work, apart from Traffic by CAKE Tin. **Reset counters** is disabled
+for them, but rpcd cannot limit `get_stats` by argument, so a read-only session can still zero
+qosify's counters with a direct ubus call.
 
 **Unknown status** — if rpcd does not answer a status call (often an old ACL after an upgrade), the
 page shows an amber **Unknown** rather than guessing, and a Stop never cleans up on an unanswered
