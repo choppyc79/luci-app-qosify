@@ -3,6 +3,13 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.0.40 — 2026-10-29
+
+#9164 review fix.
+
+- Quick settings: an unchecked **Multiqueue CAKE** saves `option multiqueue '0'`, like `nat`,
+  `host_isolate` and `autorate_ingress`, instead of removing the option
+
 ## v3.0.39 — 2026-10-27
 
 dev 3.0.38 merged into main, plus the fixes below. The package changes went upstream as #9164.
