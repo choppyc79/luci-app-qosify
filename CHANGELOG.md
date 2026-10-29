@@ -5,7 +5,7 @@ PR numbers are on openwrt/luci.
 
 ## v3.0.43 — 2026-10-29
 
-`dev` 3.0.41–3.0.43 merged into main. The package changes are folded into #9164.
+`dev` 3.0.41–3.0.43 merged into main. The package changes went upstream in #9164, merged 2026-10-29.
 
 - Class names in the DSCP dropdowns and the section name in the quick settings heading render
   as text, like every other config value
