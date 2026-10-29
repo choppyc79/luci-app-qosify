@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.39"
+VERSION="3.0.40"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2387,7 +2387,7 @@ return view.extend({
 		kv.overhead_mpu=mpu||null;
 		kv.overhead_vlan=vlan&&vlan!=='0'?vlan:null;
 		// Hidden on a qosify.init without multiqueue, where it is left as it is.
-		if($('q-multiqueue'))kv.multiqueue=chk('multiqueue')?'1':null;
+		if($('q-multiqueue'))kv.multiqueue=chk('multiqueue')?'1':'0';
 		var nmEl=$('q-name');
 		if(nmEl){
 			var nm=trim(nmEl.value);
