@@ -8,8 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-This is the `dev` branch: untested development builds, version **3.0.43** — see
-[CHANGELOG.md](CHANGELOG.md).
+Current version: **3.0.43** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -22,12 +21,16 @@ The shipped config has QoS disabled, so nothing is shaped until you do this.
 
 ## Install
 
-Install the `dev` build with the installer, on 24.10, 25.12 or a snapshot:
+On snapshots, install the package: `apk add luci-app-qosify`.
+
+On 24.10, 25.12 or any other build, use the installer:
 
 ```
-wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/dev/qosify-luci.sh
+wget -O /root/qosify-luci.sh https://raw.githubusercontent.com/choppyc79/luci-app-qosify/main/qosify-luci.sh
 sh /root/qosify-luci.sh install
 ```
+
+For the `dev` test build, use `dev` in place of `main` in the URL.
 
 `curl -o /root/qosify-luci.sh <same URL>` works too. The installer adds `qosify` if it is missing,
 writes the app files, creates default configs without overwriting yours, reloads rpcd and restarts
@@ -180,9 +183,9 @@ takes its version from `VERSION=`.
 
 `luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify)
 master and ships in snapshots. Master is installer 3.0.36 file for file, apart from the
-installer's `?v=<VERSION>` stylesheet suffix; 3.0.37–3.0.40 (`multiqueue`/`cake_mq`, port 65535
+installer's `?v=<VERSION>` stylesheet suffix; 3.0.37–3.0.43 (`multiqueue`/`cake_mq`, port 65535
 and long-name ifb for qosify `b3ee50e`, values rendered as text) is submitted upstream (#9164),
-and until it merges `migrate` drops back to the 3.0.36 code. 3.0.41–3.0.43 are on `dev` only. It is not in the 24.10
+and until it merges `migrate` drops back to the 3.0.36 code. It is not in the 24.10
 or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082, #9131.
 
 Translations are done on Weblate and ship as
