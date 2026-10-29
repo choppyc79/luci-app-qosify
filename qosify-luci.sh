@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.42"
+VERSION="3.0.43"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -337,7 +337,8 @@ install_acl() {
 				"qosify": [ "status", "get_stats", "dump" ],
 				"rc": [ "list" ],
 				"service": [ "list" ],
-				"file": [ "read", "stat" ]
+				"network.interface": [ "status" ],
+				"file": [ "read", "stat", "list" ]
 			},
 			"uci": [ "qosify" ],
 			"file": {
@@ -347,7 +348,8 @@ install_acl() {
 				"/usr/share/qosify-luci/qosify": [ "read" ],
 				"/usr/share/qosify-luci/00-defaults.conf": [ "read" ],
 				"/proc/uptime": [ "read" ],
-				"/proc/[0-9]*/stat": [ "read" ]
+				"/proc/[0-9]*/stat": [ "read" ],
+				"/sys/class/net/*/queues": [ "list" ]
 			}
 		},
 		"write": {
@@ -478,6 +480,11 @@ var CLASS_MAX=16;
 // added it with qosify b3ee50e, which also takes port 65535 (1501e09 and beeb87e stop at 65534).
 var MQ_OK=null;
 function portMax(){return MQ_OK?65535:65534;}
+// cmd_add_qdisc() only attaches cake_mq where /sys/class/net/<dev>/queues has more
+// than one tx (egress) or rx (ingress, the ifb) queue, so a single-queue device
+// such as pppoe-wan gets plain cake. MQ_DEV is that device for the quick settings
+// section and MQ_MULTI whether it has several queues; null is unknown.
+var MQ_DEV=null,MQ_MULTI=null;
 
 // luci.setInitAction was dropped from luci-base in 4440b267d; the rc namespace
 // (built into the rpcd core binary, so no extra dependency) replaces it.
@@ -544,6 +551,28 @@ var callQosifyStatsReset=rpc.declare({object:'qosify',method:'get_stats',params:
 // dump type_name to the add/remove argument it came from.
 var DYN_ARG={ipv4_addr:'ipv4',ipv6_addr:'ipv6',tcp_port:'tcp_port',udp_port:'udp_port',dns:'dns'};
 function dynArgs(k,v){return DYN_KEYS.map(function(x){return x===k?[v]:undefined;});}
+var callIfStatus=rpc.declare({
+	object:'network.interface',
+	method:'status',
+	params:['interface'],
+	expect:{'':{}},
+	reject:true
+});
+// A config interface resolves to its l3_device, as qosify does; down or unknown
+// leaves MQ_MULTI null and the row shown.
+function mqProbe(){
+	var sn=ifSect(),w=(sn&&uci.get('qosify',sn.id))||{},n=w.name;
+	MQ_DEV=MQ_MULTI=null;
+	if(!n||MQ_OK===false)return Promise.resolve();
+	return (sn.type==='device'?Promise.resolve(n):callIfStatus(n).then(function(r){return r.l3_device||null;})).then(function(d){
+		if(!d||!/^[\w.@:-]+$/.test(d))return;
+		return fs.list('/sys/class/net/'+d+'/queues').then(function(l){
+			var tx=0,rx=0;
+			l.forEach(function(e){if(/^tx-/.test(e.name))tx++;else if(/^rx-/.test(e.name))rx++;});
+			MQ_DEV=d;MQ_MULTI=tx>1||rx>1;
+		});
+	}).catch(function(){MQ_DEV=MQ_MULTI=null;});
+}
 var callServiceList=rpc.declare({
 	object:'service',
 	method:'list',
@@ -1009,7 +1038,7 @@ return view.extend({
 
 	load:function(){
 		return Promise.all([
-			uci.load('qosify').catch(function(){return null;}),
+			uci.load('qosify').catch(function(){return null;}).then(function(r){return r&&mqProbe().then(function(){return r;});}),
 			this.gatherCtx(true),
 			callQosifyStats().then(nqbSeen,function(){}),
 			L.resolveDefault(fs.read('/etc/init.d/qosify'),null).then(function(t){if(t!=null)MQ_OK=/add_option boolean multiqueue/.test(t);})
@@ -1162,7 +1191,7 @@ return view.extend({
 				[_('Automatic download rate'),[chk('autorate',numBool(w.autorate_ingress,false)),desc(OPT_DESC.autorate_ingress)]],
 				[_('NAT awareness'),[chk('nat',numBool(w.nat,!isDev)),desc(OPT_DESC.nat),natNote]],
 				[_('Host isolation'),[hiCb,desc(OPT_DESC.host_isolate)]]
-			].concat(MQ_OK===false?[]:[[_('Multiqueue CAKE'),[chk('multiqueue',numBool(w.multiqueue,false)),desc(OPT_DESC.multiqueue)]]])),
+			].concat(MQ_OK===false||MQ_MULTI===false?[]:[[_('Multiqueue CAKE'),[chk('multiqueue',numBool(w.multiqueue,false)),desc(OPT_DESC.multiqueue)]]])),
 			pane('qs-overhead',_('Overhead'),[
 				[_('Overhead preset'),[ovSel,desc(_('CAKE overhead keyword. Use none if unsure.'))]],
 				manRows[0],
@@ -2252,6 +2281,8 @@ return view.extend({
 		}
 		if(!load){walk('interface',false);walk('device',true);}
 		cfgLint(all).forEach(function(x){if(!load||x.hard||x.load)out.push(x.t);});
+		if(!load&&MQ_MULTI===false){var qs=ifSect(),qw=(qs&&uci.get('qosify',qs.id))||{};
+			if(numBool(qw.multiqueue,false))out.push(_('%s: multiqueue is set, but %s has one queue, so qosify uses plain cake').format(qs.id,MQ_DEV));}
 		if(!rulesLoaded(all))out.push(_('%s is not in the defaults list — qosify does not load it, so the Rules tab has no effect').format(RULES_PATH));
 		return out;
 	},
@@ -2897,7 +2928,7 @@ return view.extend({
 
 	refreshOverviewFull:function(){
 		var self=this;
-		return self.refreshOverview().then(function(ctx){
+		return self.refreshOverview().then(function(ctx){return mqProbe().then(function(){return ctx;});}).then(function(ctx){
 			self.fillSect('qos-svc-sect',self.buildSvcSect(ctx));
 			self.fillSect('qos-qs-sect',self.buildQsSect(ctx));
 			return ctx;
