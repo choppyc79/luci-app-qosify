@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-This is the `dev` branch: untested development builds, version **3.0.42** — see
+This is the `dev` branch: untested development builds, version **3.0.43** — see
 [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
@@ -79,7 +79,8 @@ also send a reload and wait for it, so the page shows the new state straight awa
   - **Basic**: QoS Enabled, interface or device name, upload/download bandwidth, queueing mode
     (`diffserv4` by default)
   - **Shaping**: download and upload shaping, automatic download rate, NAT awareness, host
-    isolation, and Multiqueue CAKE (`cake_mq`) where `qosify.init` passes `multiqueue`
+    isolation, and Multiqueue CAKE (`cake_mq`) where `qosify.init` passes `multiqueue` and the
+    section's device has more than one queue (never on PPPoE)
   - **Overhead**: overhead preset, plus manual and encapsulation overhead (shown only for
     `manual`), MPU and VLAN tags
   - **Advanced**: extra CAKE options for ingress, egress or both
@@ -181,7 +182,7 @@ takes its version from `VERSION=`.
 master and ships in snapshots. Master is installer 3.0.36 file for file, apart from the
 installer's `?v=<VERSION>` stylesheet suffix; 3.0.37–3.0.40 (`multiqueue`/`cake_mq`, port 65535
 and long-name ifb for qosify `b3ee50e`, values rendered as text) is submitted upstream (#9164),
-and until it merges `migrate` drops back to the 3.0.36 code. 3.0.41–3.0.42 are on `dev` only. It is not in the 24.10
+and until it merges `migrate` drops back to the 3.0.36 code. 3.0.41–3.0.43 are on `dev` only. It is not in the 24.10
 or 25.12 release branches. Merged PRs: #8833, #9019, #9054, #9067, #9082, #9131.
 
 Translations are done on Weblate and ship as
