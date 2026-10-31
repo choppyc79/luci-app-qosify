@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.1.0"
+VERSION="3.1.1"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -53,6 +53,13 @@ not_pkg() {
 	exit 1
 }
 
+# Every app file is a heredoc write; without this a full overlay ends the
+# install with [OK] and a truncated main.js.
+fail() {
+	echo "[ERROR] $1 was not written"
+	exit 1
+}
+
 install_deps() {
 	echo "[*] Installing qosify..."
 	if command -v apk >/dev/null 2>&1; then
@@ -75,7 +82,7 @@ install_deps() {
 install_templates() {
 	echo "[*] Writing template files..."
 	mkdir -p "$TPL_DIR"
-	cat > "$TPL_DIR/00-defaults.conf" << 'EOF'
+	cat > "$TPL_DIR/00-defaults.conf" << 'EOF' || fail "$TPL_DIR/00-defaults.conf"
 # DNS
 tcp:53		voice
 tcp:5353	voice
@@ -94,7 +101,7 @@ tcp:443		+besteffort
 udp:80		+besteffort
 udp:443		+besteffort
 EOF
-	cat > "$TPL_DIR/qosify" << 'EOF'
+	cat > "$TPL_DIR/qosify" << 'EOF' || fail "$TPL_DIR/qosify"
 config defaults
 	list defaults /etc/qosify/*.conf
 	option dscp_prio video
@@ -145,7 +152,7 @@ config device wandev
 	option bandwidth 100mbit
 
 EOF
-	cat > "$TPL_DIR/cleanup" << 'EOF'
+	cat > "$TPL_DIR/cleanup" << 'EOF' || fail "$TPL_DIR/cleanup"
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 #
@@ -307,7 +314,7 @@ force_defaults() {
 install_menu() {
 	echo "[*] Writing menu entry..."
 	mkdir -p "$MENU_DIR"
-	cat > "$MENU_DIR/luci-app-qosify.json" << 'EOF'
+	cat > "$MENU_DIR/luci-app-qosify.json" << 'EOF' || fail "$MENU_DIR/luci-app-qosify.json"
 {
 	"admin/network/qosify": {
 		"title": "qosify",
@@ -328,7 +335,7 @@ EOF
 install_acl() {
 	echo "[*] Writing ACL..."
 	mkdir -p "$ACL_DIR"
-	cat > "$ACL_DIR/luci-app-qosify.json" << 'EOF'
+	cat > "$ACL_DIR/luci-app-qosify.json" << 'EOF' || fail "$ACL_DIR/luci-app-qosify.json"
 {
 	"luci-app-qosify": {
 		"description": "Grant access to LuCI app qosify",
@@ -375,7 +382,7 @@ EOF
 install_view() {
 	echo "[*] Writing view..."
 	mkdir -p "$VIEW_DIR"
-	cat > "$VIEW_DIR/main.js" << 'JSEOF'
+	cat > "$VIEW_DIR/main.js" << 'JSEOF' || fail "$VIEW_DIR/main.js"
 // SPDX-License-Identifier: MIT
 'use strict';
 'require view';
@@ -2990,7 +2997,7 @@ JSEOF
 	[ -s "$VIEW_DIR/main.js" ] || { echo "[ERROR] Failed writing $VIEW_DIR/main.js"; exit 1; }
 	# Versioned stylesheet URL, so an update is not served from the browser cache.
 	sed -i "s/@VERSION@/$VERSION/" "$VIEW_DIR/main.js"
-	cat > "$VIEW_DIR/qosify.css" << 'CSSEOF'
+	cat > "$VIEW_DIR/qosify.css" << 'CSSEOF' || fail "$VIEW_DIR/qosify.css"
 /* SPDX-License-Identifier: MIT */
 
 /* The page is stock LuCI markup and each theme draws .cbi-section its own way,
@@ -3497,9 +3504,9 @@ CSSEOF
 install_keepd() {
 	echo "[*] Writing sysupgrade keep list..."
 	mkdir -p /lib/upgrade/keep.d
-	cat > /lib/upgrade/keep.d/luci-app-qosify << 'EOF'
+	cat > /lib/upgrade/keep.d/luci-app-qosify << 'EOF' || fail /lib/upgrade/keep.d/luci-app-qosify
 /etc/config/qosify
-/etc/qosify/00-defaults.conf
+/etc/qosify
 /root/qosify-luci.sh
 /lib/upgrade/keep.d/luci-app-qosify
 /usr/share/luci/menu.d/luci-app-qosify.json
