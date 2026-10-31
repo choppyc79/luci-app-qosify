@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.42"
+VERSION="3.0.43"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -1968,12 +1968,12 @@ return view.extend({
 	},
 
 	// get_stats dscp: every packet by the DSCP read back from it after the
-	// classifier, with the tin colours and order of the class chart. Codepoints
-	// only: a value none has (qosify's 0x%02x) is left out of rows and total.
+	// classifier, with the tin colours and order of the class chart. A value no
+	// codepoint names is keyed 0x%02x (qosify_dscp_name()) and kept under that key.
 	dscpTotals:function(t,mode){
 		var rows=[],total=0,bytes=null,self=this,byTin=MODES.indexOf(mode)>=0;
 		Object.keys(t).sort().forEach(function(k,ix){
-			if(!t[k]||t[k].packets==null||DSCP_VAL[k]==null)return;
+			if(!t[k]||t[k].packets==null||self.dscpVal(k)<0)return;
 			var v=self.dscpVal(k),tn=byTin&&v>=0?+TIN_MAP[mode].charAt(v):-1;
 			total+=t[k].packets;
 			if(t[k].bytes!=null)bytes=(bytes||0)+t[k].bytes;
