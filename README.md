@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.0.42** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.0.43** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
