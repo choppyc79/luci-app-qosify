@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.0.41"
+VERSION="3.0.42"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -468,8 +468,10 @@ var OPT_DESC={
 };
 // Quick Add grids hold at most this many options per table.
 var QA_COLS=7;
-// tc get_rate() units, plus CAKE's unlimited; a bare number is bytes per second.
-var RATE=/^(unlimited|\d+(\.\d+)?((k|m|g|t)?(bit|bps)|(ki|mi|gi|ti)(bit|bps))?)$/i;
+// tc get_rate64() units; a bare number is bytes per second. Not CAKE's unlimited:
+// qosify sends a set value as "bandwidth <value>", which get_rate64() refuses for
+// a word, so the qdisc is not created. An empty bandwidth is what runs unlimited.
+var RATE=/^\d+(\.\d+)?((k|m|g|t)?(bit|bps)|(ki|mi|gi|ti)(bit|bps))?$/i;
 // interface_create() drops a name of IFNAMSIZ (16) or more, or with a quote.
 var NAME_MAX=15;
 // class_map has QOSIFY_MAX_CLASS_ENTRIES slots for class and alias sections.
@@ -2361,8 +2363,8 @@ return view.extend({
 			notify(_('Error: invalid characters in bandwidth or options fields. Use alphanumeric, spaces, hyphens, dots, colons only.'),'danger');
 			return;
 		}
-		if(bwUp&&!RATE.test(bwUp))notify(_('bandwidth_up does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
-		if(bwDn&&!RATE.test(bwDn))notify(_('bandwidth_down does not look like a tc rate (100mbit, 12MBps, unlimited) — passing it through anyway').format(),'warning');
+		if(bwUp&&!RATE.test(bwUp))notify(_('bandwidth_up does not look like a tc rate (100mbit, 12MBps; leave empty for unlimited) — passing it through anyway').format(),'warning');
+		if(bwDn&&!RATE.test(bwDn))notify(_('bandwidth_down does not look like a tc rate (100mbit, 12MBps; leave empty for unlimited) — passing it through anyway').format(),'warning');
 		if(mpu&&!/^\d+$/.test(mpu)){notify(_('Error: overhead_mpu must be a whole number of bytes'),'danger');return;}
 		if(ovh==='manual'&&ob&&!/^-?\d+$/.test(ob)){notify(_('Error: overhead must be a whole number of bytes'),'danger');return;}
 		var en=chk('enabled'),s0=ifSect(),bwAll=((s0&&uci.get('qosify',s0.id))||{}).bandwidth;
