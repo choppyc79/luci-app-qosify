@@ -15,10 +15,9 @@ corrections came out of it; nothing in the app was found without daemon backing.
 - Counters: **Traffic by DSCP** lists a value no codepoint names, which `get_stats` keys as
   `0x%02x`, instead of dropping it from the rows, the total and the shares
 
-## v3.0.41 — dev (2026-10-29)
+## v3.0.43 — 2026-10-29
 
-main 3.0.40 plus audit fixes. Not upstream yet; the setOpts and rules-hint changes touch lines
-#9164 changes, so they follow it once it merges.
+`dev` 3.0.41–3.0.43 merged into main. The package changes went upstream in #9164, merged 2026-10-29.
 
 - Class names in the DSCP dropdowns and the section name in the quick settings heading render
   as text, like every other config value
@@ -27,6 +26,12 @@ main 3.0.40 plus audit fixes. Not upstream yet; the setOpts and rules-hint chang
 - Rules hint lists `dns_q:`, which qosify loads like `dns:`
 - Rate check takes tc's `tibit`/`TiBps` units
 - Comment: master pins qosify `b3ee50e`, not `beeb87e`
+- Quick settings: the two tc-rate warnings drop a stray `.format()`
+- README: install notes give the `dev` URL only
+- Quick settings: **Multiqueue CAKE** is hidden when the section's device (a `config interface`'s
+  `l3_device`) has one tx and one rx queue, where qosify uses plain cake, e.g. `pppoe-wan`; Save
+  warns if it is set there. ACL read: `network.interface status`, `file list`,
+  `/sys/class/net/*/queues`
 
 ## v3.0.40 — 2026-10-29
 
