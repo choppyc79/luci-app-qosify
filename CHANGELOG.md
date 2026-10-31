@@ -3,20 +3,17 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
-## v3.0.43 — dev (2026-10-31)
+## v3.1.0 — dev (2026-10-31)
 
-Fidelity audit patch 2 of 2. Not upstream yet.
-
-- Counters: **Traffic by DSCP** lists a value no codepoint names, which `get_stats` keys as
-  `0x%02x`, instead of dropping it from the rows, the total and the shares
-
-## v3.0.42 — dev (2026-10-31)
-
-Fidelity audit against qosify `b3ee50e` and `1501e09`, patch 1 of 2. Not upstream yet.
+Fidelity audit against qosify `b3ee50e` (master) and `1501e09` (24.10, 25.12), `qosify.init`
+and iproute2: every UCI option, ubus method and reply field checked against the sources. Two
+corrections came out of it; nothing in the app was found without daemon backing. Not upstream yet.
 
 - Rate check no longer takes `unlimited`: qosify passes a set bandwidth to tc as
   `bandwidth <value>` and `get_rate64()` refuses the word, so no qdisc was created. The warning
   says to leave the field empty, which is what runs CAKE unlimited
+- Counters: **Traffic by DSCP** lists a value no codepoint names, which `get_stats` keys as
+  `0x%02x`, instead of dropping it from the rows, the total and the shares
 
 ## v3.0.41 — dev (2026-10-29)
 
