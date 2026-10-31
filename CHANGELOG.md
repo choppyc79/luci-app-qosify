@@ -3,6 +3,14 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.0.42 — dev (2026-10-31)
+
+Fidelity audit against qosify `b3ee50e` and `1501e09`, patch 1 of 2. Not upstream yet.
+
+- Rate check no longer takes `unlimited`: qosify passes a set bandwidth to tc as
+  `bandwidth <value>` and `get_rate64()` refuses the word, so no qdisc was created. The warning
+  says to leave the field empty, which is what runs CAKE unlimited
+
 ## v3.0.41 — dev (2026-10-29)
 
 main 3.0.40 plus audit fixes. Not upstream yet; the setOpts and rules-hint changes touch lines
