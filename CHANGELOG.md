@@ -3,6 +3,16 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.1.1 — dev (2026-10-31)
+
+Audit report fixes, installer only. Not upstream yet.
+
+- Installer: a heredoc write that fails (full overlay) stops the install with an error instead
+  of ending with `[OK]` and a truncated `main.js`
+- Sysupgrade keep list carries `/etc/qosify` instead of `00-defaults.conf` alone, so every
+  mapping file the defaults list loads survives an upgrade (sysupgrade expands a directory
+  with `find`)
+
 ## v3.1.0 — dev (2026-10-31)
 
 Fidelity audit against qosify `b3ee50e` (master) and `1501e09` (24.10, 25.12), `qosify.init`
