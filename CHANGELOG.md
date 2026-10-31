@@ -3,6 +3,13 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.0.43 — dev (2026-10-31)
+
+Fidelity audit patch 2 of 2. Not upstream yet.
+
+- Counters: **Traffic by DSCP** lists a value no codepoint names, which `get_stats` keys as
+  `0x%02x`, instead of dropping it from the rows, the total and the shares
+
 ## v3.0.42 — dev (2026-10-31)
 
 Fidelity audit against qosify `b3ee50e` and `1501e09`, patch 1 of 2. Not upstream yet.
