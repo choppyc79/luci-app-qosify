@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.1.0** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.1.1** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -161,8 +161,8 @@ call. `/etc/init.d/rpcd reload` usually clears it, without logging anyone out.
 **Stop and uninstall** only remove what qosify created: sections with `disabled 1` are skipped, and
 another shaper such as SQM on the same device is left alone.
 
-**Sysupgrade** — the installer lists its files in `/lib/upgrade/keep.d/luci-app-qosify`, so the app
-survives sysupgrade, attended sysupgrade and owut.
+**Sysupgrade** — the installer lists its files and `/etc/qosify` in `/lib/upgrade/keep.d/luci-app-qosify`,
+so the app and every mapping file survive sysupgrade, attended sysupgrade and owut.
 
 ## Custom firmware
 
