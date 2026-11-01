@@ -3,6 +3,19 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.1.2 — dev (2026-10-31)
+
+Second audit, run against the app in a mocked LuCI runtime. Not upstream yet.
+
+- Config and Rules editors refuse to save over a file they never loaded. When rpcd cannot read
+  it (the rules file is over its 256 KiB read limit, or the read fails) the editor comes up
+  empty, and a Quick Add followed by Save & Apply replaced the whole file. The rules file gets
+  the "could not be read" notice the config already had, and both saves stop with the
+  existing "refusing to overwrite it" message
+- Overview refresh survives a missing `/etc/config/qosify`. `uci.load()` rejects there, so every
+  poll raised an unhandled rejection, the service table stopped updating, and a Start or Stop
+  that worked was reported as "Service action failed"
+
 ## v3.1.1 — dev (2026-10-31)
 
 Audit report fixes, installer only. Not upstream yet.
