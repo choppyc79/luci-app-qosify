@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.1.1"
+VERSION="3.1.2"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2469,6 +2469,11 @@ return view.extend({
 
 	confirmFresh:function(el,path){
 		return L.resolveDefault(fs.stat(path),null).then(function(st){
+			// A failed read leaves the editor empty although the file is not; saving would replace it.
+			if(st&&st.size>0&&!(el.dataset.orig||'').length){
+				notify(_('%s came back empty although it is %d bytes on disk — refusing to overwrite it').format(path,st.size),'danger');
+				return false;
+			}
 			if(!fileMoved(el,st))return true;
 			return confirmDialog(_('File changed on disk'),
 				_('%s has changed since this editor was loaded. Saving now discards those changes.').format(path),
@@ -2888,6 +2893,7 @@ return view.extend({
 				self._rulesN=countRules(ctx.rulesText);
 				self._cfgOk=(ctx.cfgRaw||'').length>10&&/(^|\n)config /.test(ctx.cfgRaw||'');
 				if(ctx.cfgRaw===null)notify(_('%s could not be read — the editor is left empty and will not be saved over it.').format(UCI_PATH),'danger');
+				if(ctx.rulesText===null&&ctx.rulesStat&&ctx.rulesStat.size>0)notify(_('%s could not be read — the editor is left empty and will not be saved over it.').format(RULES_PATH),'danger');
 			}
 			ctx.rulesN=self._rulesN;
 			ctx.cfgOk=self._cfgOk;
@@ -2920,7 +2926,8 @@ return view.extend({
 		var self=this;
 		self.lock();
 		uci.unload('qosify');
-		return uci.load('qosify').then(function(){
+		// uci.load() rejects when the config is missing; the service table must still refresh.
+		return uci.load('qosify').catch(function(){}).then(function(){
 			return self.gatherCtx(false);
 		}).then(function(ctx){
 			self.updateSvcTable(ctx);
