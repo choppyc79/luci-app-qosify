@@ -3,6 +3,17 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.3 — dev (2026-11-03)
+
+Not upstream yet.
+
+- **Traffic by Class** under one CAKE mode lists the classes under their tin instead of
+  stacking them in one bar: a row per tin with its total, then a row per class with traffic,
+  busiest first, with its codepoint, a bar against the busiest class, its figure and share.
+  Classes without traffic share one line under their tin, so classes in a tin no longer have
+  to be told apart by shades of its colour. On a phone the bars are left out and a long class
+  name wraps
+
 ## v3.2.2 — dev (2026-11-03)
 
 Not upstream yet.
