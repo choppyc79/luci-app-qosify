@@ -3,6 +3,16 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.5 — dev (2026-11-03)
+
+Not upstream yet.
+
+- **Traffic by Class** goes back to the 3.2.3 layout, a row per tin with its total and its
+  classes under it, busiest first, and lists only tins and classes with traffic: the "No
+  traffic" lines are gone, and so are 3.2.4's prio and bulk flow lines. Until a class has
+  traffic it reads "No class traffic yet." A class with `dscp_prio` or `dscp_bulk` is counted
+  in full under its own tin, as in 3.2.3; Traffic by DSCP shows where those flows leave
+
 ## v3.2.4 — dev (2026-11-03)
 
 Found testing 3.2.3 on a snapshot. Not upstream yet.
