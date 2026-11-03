@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.2.4** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.2.5** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -134,12 +134,11 @@ refresh interval while the tab is open.
   drops beside it; hover a row for its ECN marks. Interfaces running the same mode are added
   together.
 - **Traffic by Class** — what qosify classified since the last reload, grouped by the CAKE tin
-  each class's egress codepoint lands in: a heading per tin, and under it a row per class with
-  traffic, busiest first, with its codepoint and a bar. qosify counts a class once, before flow
-  detection moves some of its flows to `dscp_prio` or `dscp_bulk`, so tins carry no total: a
-  class row lists its prio and bulk codepoints, and a line under each other tin they, or a
-  different ingress codepoint, land in names the class. Classes without traffic share one line
-  under their tin. qosify's `tcp_default`/`udp_default` count as classes unless the
+  each class's egress codepoint lands in: a row per tin with its total, and under it a row per
+  class, busiest first, with its codepoint and a bar. Only tins and classes with traffic are
+  listed. qosify counts a class before flow detection moves some of its flows to `dscp_prio` or
+  `dscp_bulk`, so such a class is counted in full under its own tin; Traffic by DSCP shows where
+  those flows leave. qosify's `tcp_default`/`udp_default` count as classes unless the
   default names one. With interfaces in different modes it shows a bar per class instead, and
   on a phone the bars are left out. Under it, one `get_stats` line with the map entries, last
   reload and DNS cache (snapshots only). On 24.10 and 25.12 qosify reports packets only per
