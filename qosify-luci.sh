@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.2"
+VERSION="3.2.3"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2073,7 +2073,7 @@ return view.extend({
 	},
 	// Cumulative totals since the last reload, EF first and bulk last.
 	// Grouped and coloured by the tin the class's egress codepoint lands in under
-	// mode, highest priority tin first as the tin bars are, then by codepoint within
+	// mode, highest priority tin first as the donut tables are, then by codepoint within
 	// a tin. With no single mode to fold by, codepoint order and a colour per name.
 	classTotals:function(st,mode){
 		var cls=st&&st.classes,k,rows=[],names=[],pk=0,bytes=null,self=this,
@@ -2237,64 +2237,74 @@ return view.extend({
 		if(c.tot.bytes)set(c.tot.bytes,'%1024.2mB'.format(rows.bytes));
 	},
 
-	// Traffic by Class under one CAKE mode: a bar per tin, highest priority first,
-	// as long as the tin's total against the largest tin's, with a segment per
-	// class (alternate segments lighter), and under it each class with its
-	// codepoint and figure. One auto-layout table, so the names and figures keep
-	// their width and the bar takes the rest. Rebuilt only when the tins, classes
-	// or unit change; otherwise widths and figures are set in place.
-	drawStack:function(box,rows,mode){
+	// Traffic by Class under one CAKE mode: a row per tin with its total, highest
+	// priority first, and under it a row per class with traffic, busiest first,
+	// its bar against the busiest class's. Classes without traffic share one line
+	// under their tin. One auto-layout table, so the names and figures keep their
+	// width and the bars take the rest. Rebuilt only when the tins, the classes,
+	// their order or the unit change; otherwise figures and widths are set in place.
+	drawGroups:function(box,rows,mode){
 		var grp=[],by={},max=0,c=box.qosChart,sig,n=TIN_COLORS[mode].length,b=rows.unit==='bytes';
 		function set(el,v){if(el.textContent!==v)el.textContent=v;}
 		function fig(v){return b?'%1024.2mB'.format(v):Number(v).toLocaleString();}
 		function pct(v){return fmtShare(rows.total?v/rows.total*100:0);}
+		function names(l){return l.map(function(r){return r.name;}).join();}
 		if(!rows.length){box.qosChart=null;dom.content(box,emP(_('No per-class counters.')));return;}
-		rows.forEach(function(r){var g=by[r.tin];if(!g)grp.push(g=by[r.tin]={tin:r.tin,rows:[],v:0});g.rows.push(r);g.v+=r.v;});
-		grp.forEach(function(g){if(g.v>max)max=g.v;});
-		sig=['tin',rows.unit].concat(grp.map(function(g){return g.tin+':'+g.rows.map(function(r){return r.name;}).join();})).join('\n');
+		rows.forEach(function(r){
+			var g=by[r.tin];
+			if(!g)grp.push(g=by[r.tin]={tin:r.tin,rows:[],v:0});
+			g.rows.push(r);
+			g.v+=r.v;
+			if(r.v>max)max=r.v;
+		});
+		grp.forEach(function(g){
+			g.on=g.rows.filter(function(r){return r.v>0;}).sort(function(x,y){return y.v-x.v||y.rk-x.rk||(x.name<y.name?-1:1);});
+			g.off=g.rows.filter(function(r){return !r.v;});
+		});
+		sig=['tin',rows.unit].concat(grp.map(function(g){return g.tin+':'+names(g.on)+':'+names(g.off);})).join('\n');
 		if(!c||c.sig!==sig){
-			var trs=[E('tr',{'class':'tr table-titles'},[E('th',{'class':'th left'},'tin'),E('th',{'class':'th'}),
+			var trs=[E('tr',{'class':'tr table-titles'},[E('th',{'class':'th left'},'tin / class'),E('th',{'class':'th qos-bar'}),
 				E('th',{'class':'th qn'},rows.unit),E('th',{'class':'th qn'},_('share'))])];
 			c=box.qosChart={sig:sig,grp:[]};
 			grp.forEach(function(g){
-				var o={val:E('td',{'class':'td qn'}),share:E('td',{'class':'td qn'}),segs:[],figs:[]},chips=[];
-				g.rows.forEach(function(r,j){
-					var st='background:'+r.color+(j%2?';opacity:.6':''),f=E('span');
-					o.segs.push(E('div',{'style':st}));
-					o.figs.push(f);
-					chips.push(E('span',{'class':'qos-chip'},[E('span',{'class':'qos-sw','style':st}),E('code',{},[r.name]),' '+(r.mark||'')+' · ',f]));
-				});
+				var o={val:E('td',{'class':'td qn'}),share:E('td',{'class':'td qn'}),cls:[]};
 				c.grp.push(o);
-				trs.push(E('tr',{'class':'tr'},[E('td',{'class':'td left'},[E('span',{'class':'qos-sw','style':'background:'+g.rows[0].color}),g.tin<0?'-':tinName(n,g.tin)]),
-					E('td',{'class':'td qos-bar'},E('div',{'class':'cbi-progressbar qos-stack'},o.segs)),o.val,o.share]),
-					E('tr',{'class':'tr qos-sub'},[E('td',{'class':'td'}),E('td',{'class':'td','colspan':3},chips)]));
+				trs.push(E('tr',{'class':'tr qos-grp'},[E('td',{'class':'td left'},[E('span',{'class':'qos-sw','style':'background:'+g.rows[0].color}),g.tin<0?'-':tinName(n,g.tin)]),
+					E('td',{'class':'td qos-bar'}),o.val,o.share]));
+				g.on.forEach(function(r){
+					var k={bar:E('div',{'style':'background:'+r.color}),val:E('td',{'class':'td qn'}),share:E('td',{'class':'td qn'})};
+					o.cls.push(k);
+					trs.push(E('tr',{'class':'tr qos-in'},[E('td',{'class':'td left'},[E('code',{},[r.name]),E('span',{'class':'qos-mk'},[' '+(r.mark||'')])]),
+						E('td',{'class':'td qos-bar'},E('div',{'class':'cbi-progressbar'},k.bar)),k.val,k.share]));
+				});
+				if(g.off.length)trs.push(E('tr',{'class':'tr qos-idle'},E('td',{'class':'td left','colspan':4},[_('No traffic')+': '].concat(g.off.map(function(r){
+					return E('span',{'class':'qos-chip'},[E('code',{},[r.name]),' '+(r.mark||'')]);})))));
 			});
 			c.tot=E('td',{'class':'td qn'});
-			trs.push(E('tr',{'class':'tr qt'},[E('td',{'class':'td left'},_('total')),E('td',{'class':'td'}),c.tot,E('td',{'class':'td qn'},'100%')]));
-			dom.content(box,E('div',{'class':'qbox'},E('table',{'class':'table'},trs)));
+			trs.push(E('tr',{'class':'tr qt'},[E('td',{'class':'td left'},_('total')),E('td',{'class':'td qos-bar'}),c.tot,E('td',{'class':'td qn'},'100%')]));
+			dom.content(box,E('div',{'class':'qbox'},E('table',{'class':'table qos-cls'},trs)));
 		}
 		grp.forEach(function(g,i){
 			var o=c.grp[i];
 			set(o.val,fig(g.v));
 			set(o.share,pct(g.v));
-			g.rows.forEach(function(r,j){
-				var w=max&&r.v?Math.max(r.v/max*100,.5):0,tip=r.name+' '+(r.mark||'')+': '+fig(r.v)+', '+pct(r.v);
-				o.segs[j].style.width=w.toFixed(2)+'%';
-				if(o.segs[j].title!==tip)o.segs[j].title=tip;
-				set(o.figs[j],fig(r.v));
+			g.on.forEach(function(r,j){
+				o.cls[j].bar.style.width=Math.max(r.v/max*100,1).toFixed(2)+'%';
+				set(o.cls[j].val,fig(r.v));
+				set(o.cls[j].share,pct(r.v));
 			});
 		});
 		set(c.tot,fig(rows.total));
 	},
 
-	// One CAKE mode stacks the classes by tin; with none or several, a bar per class.
+	// One CAKE mode groups the classes by tin; with none or several, a bar per class.
 	drawBars:function(){
 		var st=this._cnStats,box=$('qos-cn-bars'),m=this.cakeModes(),mode=m.length===1?m[0]:null,rows;
 		if(!box)return;
 		var ds=$('qos-cn-dscp'),dss=$('qos-cn-dscp-sect'),dt=st&&st.dscp,note=$('qos-cn-note');
 		if(st){
 			rows=this.classTotals(st,mode);
-			if(MODES.indexOf(mode)>=0)this.drawStack(box,rows,mode);
+			if(MODES.indexOf(mode)>=0)this.drawGroups(box,rows,mode);
 			else this.drawChart(box,rows,_('No per-class counters.'),'class');
 		}
 		else{box.qosChart=null;dom.content(box,'');}
@@ -3603,26 +3613,31 @@ JSEOF
 	white-space: nowrap;
 }
 
-/* Traffic by Class under one mode: a tin's bar holds a segment per class, 2px
-   apart, and the list of its classes under it wraps. The bar's column takes
-   what the tin name and figures leave. */
+/* Traffic by Class under one mode: tin rows are shaded as the header is. Class
+   rows and the line of classes without traffic sit under the tin name, by the
+   cell padding plus a swatch and its margin; codepoints and that line are muted,
+   and the line wraps. The bars' column takes what the names and figures leave. */
 #qos-cn .qos-bar {
 	width: 100%;
 	min-width: 4em;
 }
 
-#qos-cn .qos-stack {
-	display: flex;
-	gap: 2px;
+#qos-cn .qbox .qos-grp .td {
+	background: var(--qos-hd);
 }
 
-#qos-cn .qos-stack > div {
-	flex: none;
+#qos-cn .qos-cls .qos-in > .td:first-child,
+#qos-cn .qbox .qos-idle .td {
+	padding-left: 1.85em;
 }
 
-#qos-cn .qbox .qos-sub .td {
-	padding-top: 0;
+#qos-cn .qos-mk {
+	opacity: .75;
+}
+
+#qos-cn .qbox .qos-idle .td {
 	white-space: normal;
+	opacity: .75;
 }
 
 #qos-cn .qos-chip {
@@ -3801,6 +3816,20 @@ JSEOF
 
 	#qos-qs-sect .cbi-value-field > * {
 		grid-column: 1;
+	}
+
+	/* Traffic by Class leaves its bars out and lets a codepoint, or a class name
+	   too long for the line, wrap, so the figures keep their width. */
+	#qos-cn .qos-bar {
+		display: none;
+	}
+
+	#qos-cn .qos-cls .td:first-child {
+		white-space: normal;
+	}
+
+	#qos-cn .qos-cls code {
+		overflow-wrap: anywhere;
 	}
 }
 CSSEOF
