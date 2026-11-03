@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.2.0** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.2.1** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -137,7 +137,8 @@ refresh interval while the tab is open.
   segment per class, placed by the class's egress codepoint, including qosify's
   `tcp_default`/`udp_default` unless the default names a class. With interfaces in different
   modes it shows a bar per class instead. Under it, one `get_stats` line with the map entries,
-  last reload and DNS cache (snapshots only). On 24.10 and 25.12 qosify reports packets only.
+  last reload and DNS cache (snapshots only). On 24.10 and 25.12 qosify reports packets only per
+  class, so the bars stay in packets there, with a note when Bytes is picked.
 - **DNS Entries** — hits and traffic per `dns:` rule, with a bar each, most traffic first. Only
   on snapshots (qosify `beeb87e`); on 24.10 and 25.12 the running qosify does not report them.
 - **Traffic by DSCP** — traffic per DSCP codepoint from `get_stats`: the codepoints packets
