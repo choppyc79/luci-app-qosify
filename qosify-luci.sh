@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.3"
+VERSION="3.2.4"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2071,16 +2071,49 @@ return view.extend({
 		}
 		return m;
 	},
+	// Flows check_flow() re-marks after their class was counted: one averaging
+	// prio_max_avg_pkt_len bytes or less gets dscp_prio, one over bulk_trigger_pps
+	// dscp_bulk instead. jshn's atoll() reads both triggers; 0 is off. A class named
+	// as a target stands for its ingress and egress codepoints. A target qosify
+	// rejects makes map_parse_flow_config() return before the triggers, leaving the
+	// class without flow detection; an unset one leaves those flows unmarked. The
+	// defaults' flow options only reach tcp_default/udp_default, never marked.
+	// Per class, [kind, ingress, egress] for each target in use.
+	flowMarks:function(){
+		var cls=this.getClasses(),self=this,m={};
+		function cp(v){
+			var c;
+			v=String(v).replace(/^\+/,'');
+			c=cls.filter(function(x){return x.name===v;})[0];
+			if(c)return self.dscpVal(c.ingress)<0||self.dscpVal(c.egress)<0?null:[c.ingress,c.egress];
+			return self.dscpVal(v)<0?null:[v,v];
+		}
+		cls.forEach(function(c){
+			var p=c.dscp_prio?cp(c.dscp_prio):[],b=c.dscp_bulk?cp(c.dscp_bulk):[];
+			m[c.name]=[];
+			if(!p||!b)return;
+			if(p.length&&(parseInt(c.prio_max_avg_pkt_len,10)|0))m[c.name].push(['prio'].concat(p));
+			if(b.length&&(parseInt(c.bulk_trigger_pps,10)|0))m[c.name].push(['bulk'].concat(b));
+		});
+		return m;
+	},
 	// Cumulative totals since the last reload, EF first and bulk last.
 	// Grouped and coloured by the tin the class's egress codepoint lands in under
 	// mode, highest priority tin first as the donut tables are, then by codepoint within
 	// a tin. With no single mode to fold by, codepoint order and a colour per name.
+	// qosify counts a class before check_flow() moves any of its flows, so a folded
+	// row also carries fm, its flow marks, and via, each other tin its ingress
+	// codepoint or a flow mark lands in.
 	classTotals:function(st,mode){
 		var cls=st&&st.classes,k,rows=[],names=[],pk=0,bytes=null,self=this,
-			fold=MODES.indexOf(mode)>=0,rank=this.dscpRanks(),mark=this.dscpMarks(),tin={},def=this.defMarks();
+			fold=MODES.indexOf(mode)>=0,rank=this.dscpRanks(),mark=this.dscpMarks(),tin={},def=this.defMarks(),
+			fm=fold?this.flowMarks():{},via={};
+		function tn(d){var v=self.dscpVal(d);return v<0?-1:+TIN_MAP[mode].charAt(v);}
 		if(fold)this.getClasses().forEach(function(c){
-			var v=self.dscpVal(c.egress||c.ingress);
-			tin[c.name]=v<0?-1:+TIN_MAP[mode].charAt(v);
+			var t=tin[c.name]=tn(c.egress||c.ingress),l=via[c.name]=[];
+			[['ingress',c.ingress]].concat(fm[c.name]).forEach(function(f){
+				f.forEach(function(d,i){var x=tn(d);if(i&&f.indexOf(d)===i&&x>=0&&x!==t)l.push({tin:x,k:f[0],mark:d});});
+			});
 		});
 		for(k in def){
 			var dv=this.dscpVal(def[k]);
@@ -2101,7 +2134,7 @@ return view.extend({
 			var t=tin[n]!=null?tin[n]:-1;
 			rows.push({name:n,pk:v,bytes:cls[n].bytes,tin:t,
 				color:!fold?CN_COLORS[ix%CN_COLORS.length]:t<0?CN_NONE:TIN_COLORS[mode][t],
-				mark:mark[n]||'',rk:rank[n]!=null?rank[n]:-1000});
+				mark:mark[n]||'',rk:rank[n]!=null?rank[n]:-1000,fm:fm[n]||[],via:via[n]||[]});
 		});
 		rows.sort(function(a,b){return b.tin-a.tin||b.rk-a.rk||(a.name<b.name?-1:1);});
 		rows.pk=pk;
@@ -2237,61 +2270,70 @@ return view.extend({
 		if(c.tot.bytes)set(c.tot.bytes,'%1024.2mB'.format(rows.bytes));
 	},
 
-	// Traffic by Class under one CAKE mode: a row per tin with its total, highest
-	// priority first, and under it a row per class with traffic, busiest first,
-	// its bar against the busiest class's. Classes without traffic share one line
-	// under their tin. One auto-layout table, so the names and figures keep their
-	// width and the bars take the rest. Rebuilt only when the tins, the classes,
-	// their order or the unit change; otherwise figures and widths are set in place.
+	// Traffic by Class under one CAKE mode: a heading per tin, highest priority
+	// first, and under it a row per class with traffic, busiest first, its bar
+	// against the busiest class's. A class's figure also covers its traffic that
+	// leaves in other tins, download under another ingress codepoint and prio and
+	// bulk flows, so tins carry no total; a line under each of those tins names the
+	// class, and one the classes without traffic. One auto-layout table, so the
+	// names and figures keep their width and the bars take the rest. Rebuilt only
+	// when the tins, the classes, their order or the unit change; otherwise figures
+	// and widths are set in place.
 	drawGroups:function(box,rows,mode){
-		var grp=[],by={},max=0,c=box.qosChart,sig,n=TIN_COLORS[mode].length,b=rows.unit==='bytes';
+		var grp=[],by={},max=0,c=box.qosChart,sig,n=TIN_COLORS[mode].length,b=rows.unit==='bytes',
+			kind={ingress:[_('Download (ingress)')],prio:[_('Prio flows'),_('prio')],bulk:[_('Bulk flows'),_('bulk')]};
 		function set(el,v){if(el.textContent!==v)el.textContent=v;}
 		function fig(v){return b?'%1024.2mB'.format(v):Number(v).toLocaleString();}
 		function pct(v){return fmtShare(rows.total?v/rows.total*100:0);}
 		function names(l){return l.map(function(r){return r.name;}).join();}
+		function tin(t){if(!by[t])grp.push(by[t]={tin:t,rows:[],via:{}});return by[t];}
+		function line(cl,s,l){
+			return E('tr',{'class':'tr '+cl},E('td',{'class':'td left','colspan':4},[s+': '].concat(l.map(function(r){
+				return E('span',{'class':'qos-chip'},[E('code',{},[r.name]),' '+(r.mark||'')]);}))));
+		}
 		if(!rows.length){box.qosChart=null;dom.content(box,emP(_('No per-class counters.')));return;}
 		rows.forEach(function(r){
-			var g=by[r.tin];
-			if(!g)grp.push(g=by[r.tin]={tin:r.tin,rows:[],v:0});
-			g.rows.push(r);
-			g.v+=r.v;
+			tin(r.tin).rows.push(r);
 			if(r.v>max)max=r.v;
 		});
+		rows.forEach(function(r){
+			if(r.v>0)r.via.forEach(function(x){var g=tin(x.tin);(g.via[x.k]=g.via[x.k]||[]).push({name:r.name,mark:x.mark});});
+		});
+		grp.sort(function(x,y){return y.tin-x.tin;});
 		grp.forEach(function(g){
 			g.on=g.rows.filter(function(r){return r.v>0;}).sort(function(x,y){return y.v-x.v||y.rk-x.rk||(x.name<y.name?-1:1);});
 			g.off=g.rows.filter(function(r){return !r.v;});
 		});
-		sig=['tin',rows.unit].concat(grp.map(function(g){return g.tin+':'+names(g.on)+':'+names(g.off);})).join('\n');
+		sig=['tin',rows.unit].concat(grp.map(function(g){
+			return g.tin+':'+names(g.on)+':'+names(g.off)+':'+Object.keys(kind).map(function(k){return names(g.via[k]||[]);}).join(';');})).join('\n');
 		if(!c||c.sig!==sig){
 			var trs=[E('tr',{'class':'tr table-titles'},[E('th',{'class':'th left'},'tin / class'),E('th',{'class':'th qos-bar'}),
 				E('th',{'class':'th qn'},rows.unit),E('th',{'class':'th qn'},_('share'))])];
 			c=box.qosChart={sig:sig,grp:[]};
 			grp.forEach(function(g){
-				var o={val:E('td',{'class':'td qn'}),share:E('td',{'class':'td qn'}),cls:[]};
+				var o=[];
 				c.grp.push(o);
-				trs.push(E('tr',{'class':'tr qos-grp'},[E('td',{'class':'td left'},[E('span',{'class':'qos-sw','style':'background:'+g.rows[0].color}),g.tin<0?'-':tinName(n,g.tin)]),
-					E('td',{'class':'td qos-bar'}),o.val,o.share]));
+				trs.push(E('tr',{'class':'tr qos-grp'},E('td',{'class':'td left','colspan':4},[E('span',{'class':'qos-sw','style':'background:'+(g.tin<0?CN_NONE:TIN_COLORS[mode][g.tin])}),g.tin<0?'-':tinName(n,g.tin)])));
 				g.on.forEach(function(r){
 					var k={bar:E('div',{'style':'background:'+r.color}),val:E('td',{'class':'td qn'}),share:E('td',{'class':'td qn'})};
-					o.cls.push(k);
-					trs.push(E('tr',{'class':'tr qos-in'},[E('td',{'class':'td left'},[E('code',{},[r.name]),E('span',{'class':'qos-mk'},[' '+(r.mark||'')])]),
+					o.push(k);
+					trs.push(E('tr',{'class':'tr qos-in'},[E('td',{'class':'td left'},[E('code',{},[r.name]),E('span',{'class':'qos-mk'},[' '+(r.mark||'')+r.fm.map(function(f){
+						return ' · '+kind[f[0]][1]+' '+(f[1]===f[2]?f[1]:f[1]+'/'+f[2]);}).join('')])]),
 						E('td',{'class':'td qos-bar'},E('div',{'class':'cbi-progressbar'},k.bar)),k.val,k.share]));
 				});
-				if(g.off.length)trs.push(E('tr',{'class':'tr qos-idle'},E('td',{'class':'td left','colspan':4},[_('No traffic')+': '].concat(g.off.map(function(r){
-					return E('span',{'class':'qos-chip'},[E('code',{},[r.name]),' '+(r.mark||'')]);})))));
+				Object.keys(kind).forEach(function(k){if(g.via[k])trs.push(line('qos-via',kind[k][0],g.via[k]));});
+				if(g.off.length)trs.push(line('qos-idle',_('No traffic'),g.off));
 			});
 			c.tot=E('td',{'class':'td qn'});
 			trs.push(E('tr',{'class':'tr qt'},[E('td',{'class':'td left'},_('total')),E('td',{'class':'td qos-bar'}),c.tot,E('td',{'class':'td qn'},'100%')]));
 			dom.content(box,E('div',{'class':'qbox'},E('table',{'class':'table qos-cls'},trs)));
 		}
 		grp.forEach(function(g,i){
-			var o=c.grp[i];
-			set(o.val,fig(g.v));
-			set(o.share,pct(g.v));
 			g.on.forEach(function(r,j){
-				o.cls[j].bar.style.width=Math.max(r.v/max*100,1).toFixed(2)+'%';
-				set(o.cls[j].val,fig(r.v));
-				set(o.cls[j].share,pct(r.v));
+				var k=c.grp[i][j];
+				k.bar.style.width=Math.max(r.v/max*100,1).toFixed(2)+'%';
+				set(k.val,fig(r.v));
+				set(k.share,pct(r.v));
 			});
 		});
 		set(c.tot,fig(rows.total));
@@ -3614,9 +3656,10 @@ JSEOF
 }
 
 /* Traffic by Class under one mode: tin rows are shaded as the header is. Class
-   rows and the line of classes without traffic sit under the tin name, by the
-   cell padding plus a swatch and its margin; codepoints and that line are muted,
-   and the line wraps. The bars' column takes what the names and figures leave. */
+   rows and the lines naming flows from other tins and classes without traffic sit
+   under the tin name, by the cell padding plus a swatch and its margin; codepoints
+   and those lines are muted, and the lines wrap. The bars' column takes what the
+   names and figures leave. */
 #qos-cn .qos-bar {
 	width: 100%;
 	min-width: 4em;
@@ -3627,6 +3670,7 @@ JSEOF
 }
 
 #qos-cn .qos-cls .qos-in > .td:first-child,
+#qos-cn .qbox .qos-via .td,
 #qos-cn .qbox .qos-idle .td {
 	padding-left: 1.85em;
 }
@@ -3635,6 +3679,7 @@ JSEOF
 	opacity: .75;
 }
 
+#qos-cn .qbox .qos-via .td,
 #qos-cn .qbox .qos-idle .td {
 	white-space: normal;
 	opacity: .75;
