@@ -3,6 +3,14 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.1 — dev (2026-11-03)
+
+Found testing 3.2.0 on 25.12.6. Not upstream yet.
+
+- **Traffic by Class** says why it stays in packets with **Measure** on Bytes: qosify on 24.10
+  and 25.12 reports packets only per class, so a note under the bars says so; it is hidden on
+  snapshots and with Packets picked
+
 ## v3.2.0 — dev (2026-11-03)
 
 Counters tab laid out again. Every figure is still one that `get_stats` or `qosify-status`
