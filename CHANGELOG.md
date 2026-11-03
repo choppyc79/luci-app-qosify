@@ -3,6 +3,19 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.4 — dev (2026-11-03)
+
+Found testing 3.2.3 on a snapshot. Not upstream yet.
+
+- **Traffic by Class** no longer puts all of a class in one tin. qosify counts a class once,
+  where it first matches, before flow detection moves a flow to `dscp_prio` or `dscp_bulk`,
+  so a class whose prio flows leave as AF21 under diffserv8 never showed Tin 4, and the tin
+  totals were not where the traffic went. Tins are now headings without a total. A class row
+  lists its prio and bulk codepoints, and each other tin they reach gets a "Prio flows" or
+  "Bulk flows" line naming the class; a class whose ingress codepoint lands in another tin
+  gets a "Download (ingress)" line there. Only a class's own `prio_max_avg_pkt_len` and
+  `bulk_trigger_pps` count: qosify never applies the ones under `defaults`
+
 ## v3.2.3 — dev (2026-11-03)
 
 Not upstream yet.
