@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.0"
+VERSION="3.2.1"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2010,7 +2010,9 @@ return view.extend({
 				E('select',{'id':'qos-cn-unit','class':'cbi-input-select','change':function(ev){self.cnPk=ev.target.value==='packets';self.redrawCounters();}},
 					[E('option',{'value':'bytes'},_('Bytes')),E('option',{'value':'packets'},_('Packets'))])]),
 			sect(_('Traffic by CAKE Tin'),E('div',{'id':'qos-cn-tins'},emP(_('Loading...'))),{'id':'qos-cn-tin-sect','style':'display:none'}),
-			sect(_('Traffic by Class'),[E('div',{'id':'qos-cn-msg'}),E('div',{'id':'qos-cn-bars'}),E('div',{'id':'qos-cn-info'})]),
+			sect(_('Traffic by Class'),[E('div',{'id':'qos-cn-msg'}),E('div',{'id':'qos-cn-bars'}),
+				E('p',{'id':'qos-cn-note','class':'qos-cn-info','style':'display:none'},[_('This qosify reports packets only per class, so these bars stay in packets.')]),
+				E('div',{'id':'qos-cn-info'})]),
 			sect(_('DNS Entries'),E('div',{'id':'qos-cn-map'},emP(_('Loading...'))),{'id':'qos-cn-map-sect','style':'display:none'}),
 			sect(_('Traffic by DSCP'),E('div',{'id':'qos-cn-dscp'}),{'id':'qos-cn-dscp-sect','style':'display:none'}),
 			E('div',{'class':'cbi-page-actions'},E('button',{'class':'cbi-button cbi-button-negative','id':'qos-btn-cnreset','disabled':'',
@@ -2289,13 +2291,16 @@ return view.extend({
 	drawBars:function(){
 		var st=this._cnStats,box=$('qos-cn-bars'),m=this.cakeModes(),mode=m.length===1?m[0]:null,rows;
 		if(!box)return;
-		var ds=$('qos-cn-dscp'),dss=$('qos-cn-dscp-sect'),dt=st&&st.dscp;
+		var ds=$('qos-cn-dscp'),dss=$('qos-cn-dscp-sect'),dt=st&&st.dscp,note=$('qos-cn-note');
 		if(st){
 			rows=this.classTotals(st,mode);
 			if(MODES.indexOf(mode)>=0)this.drawStack(box,rows,mode);
 			else this.drawChart(box,rows,_('No per-class counters.'),'class');
 		}
 		else{box.qosChart=null;dom.content(box,'');}
+		// 1501e09 (24.10, 25.12) counts packets only per class, so with Bytes picked
+		// the bars stay in packets and the note says why.
+		if(note)note.style.display=rows&&rows.length&&rows.unit!=='bytes'&&!this.cnPk?'':'none';
 		// 1501e09 (24.10, 25.12) has no dscp table, so the section stays hidden there.
 		if(dss)dss.style.display=dt?'':'none';
 		if(ds){if(dt)this.drawChart(ds,this.dscpTotals(dt,mode),_('No DSCP traffic yet.'),'dscp');else{ds.qosChart=null;dom.content(ds,'');}}
