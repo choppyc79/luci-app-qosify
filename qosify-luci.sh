@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.1"
+VERSION="3.2.2"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -2011,7 +2011,7 @@ return view.extend({
 					[E('option',{'value':'bytes'},_('Bytes')),E('option',{'value':'packets'},_('Packets'))])]),
 			sect(_('Traffic by CAKE Tin'),E('div',{'id':'qos-cn-tins'},emP(_('Loading...'))),{'id':'qos-cn-tin-sect','style':'display:none'}),
 			sect(_('Traffic by Class'),[E('div',{'id':'qos-cn-msg'}),E('div',{'id':'qos-cn-bars'}),
-				E('p',{'id':'qos-cn-note','class':'qos-cn-info','style':'display:none'},[_('This qosify reports packets only per class, so these bars stay in packets.')]),
+				E('p',{'id':'qos-cn-note','class':'qos-cn-info','style':'display:none'},[_('qosify reports packets only per class.')]),
 				E('div',{'id':'qos-cn-info'})]),
 			sect(_('DNS Entries'),E('div',{'id':'qos-cn-map'},emP(_('Loading...'))),{'id':'qos-cn-map-sect','style':'display:none'}),
 			sect(_('Traffic by DSCP'),E('div',{'id':'qos-cn-dscp'}),{'id':'qos-cn-dscp-sect','style':'display:none'}),
@@ -2345,9 +2345,8 @@ return view.extend({
 	tinBox:function(rows,named){
 		var svg=svgE('svg',{'viewBox':'0 0 120 120','aria-hidden':'true'}),
 			o={arcs:[],cells:[],tot:E('strong'),unit:E('small'),th:E('th',{'class':'th qn'}),tv:E('td',{'class':'td qn'}),td:E('td',{'class':'td qn'})},
-			cols=[['tin',34],['',24],[_('share'),16],['drops',20]],trs,el;
+			cols=[['tin',34],['',24],[_('share'),16],['drops',20]],trs=[],el;
 		svg.appendChild(svgE('circle',{'class':'qos-ring','cx':60,'cy':60,'r':44}));
-		trs=[E('tr',{'class':'tr table-titles'},[E('th',{'class':'th left'},'tin'),o.th,E('th',{'class':'th qn'},_('share')),E('th',{'class':'th qn'},'drops')])];
 		rows.forEach(function(r){
 			var a=svgE('circle',{'cx':60,'cy':60,'r':44,'transform':'rotate(-90 60 60)'}),
 				c={v:E('td',{'class':'td qn'}),s:E('td',{'class':'td qn'}),d:E('td',{'class':'td qn'})};
@@ -2360,7 +2359,8 @@ return view.extend({
 		});
 		trs.push(E('tr',{'class':'tr qt'},[E('td',{'class':'td left'},_('total')),o.tv,E('td',{'class':'td qn'},'100%'),o.td]));
 		el=E('div',{'class':'qbox'},[
-			E('div',{'class':'qhead qos-tin-head'},[rows.dir==='egress'?_('Upload (egress)'):_('Download (ingress)'),named?' · '+rows.mode:'']),
+			E('div',{'class':'qhead qos-tin-head'},[E('div',{},[rows.dir==='egress'?_('Upload (egress)'):_('Download (ingress)'),named?' · '+rows.mode:'']),
+				colTable(cols,E('tr',{'class':'tr table-titles'},[E('th',{'class':'th left'},'tin'),o.th,E('th',{'class':'th qn'},_('share')),E('th',{'class':'th qn'},'drops')]))]),
 			E('div',{'class':'qos-tin-body'},[E('div',{'class':'qos-donut'},[svg,E('div',{},[o.tot,o.unit])]),colTable(cols,trs)])]);
 		el.qosTin=o;
 		return el;
@@ -3519,7 +3519,9 @@ JSEOF
 }
 
 /* Traffic by CAKE Tin: a box per direction, side by side while they fit. The
-   donut sits beside its table, which drops below it in a narrow box. */
+   banner holds the direction over the donut and the column titles over the
+   table; in a narrow box both wrap, so the titles stay above the table and the
+   donut drops below it. */
 #qos-cn .qos-tins {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(min(100%, 26em), 1fr));
@@ -3534,19 +3536,32 @@ JSEOF
 	margin-top: 0;
 }
 
-#qos-cn .qos-tin-head {
-	padding: var(--qos-pad);
-}
-
+#qos-cn .qos-tin-head,
 #qos-cn .qos-tin-body {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	justify-content: center;
-	gap: var(--qos-gap);
-	padding: var(--qos-gap) 0 0 var(--qos-gap);
 }
 
+#qos-cn .qos-tin-head {
+	column-gap: var(--qos-gap);
+}
+
+/* As wide as the donut and its margin, so the titles sit over their columns. */
+#qos-cn .qos-tin-head > div {
+	flex: none;
+	box-sizing: border-box;
+	width: calc(9.5em + var(--qos-gap));
+	padding: var(--qos-pad);
+	padding-right: 0;
+}
+
+#qos-cn .qos-tin-body {
+	flex-wrap: wrap-reverse;
+	justify-content: center;
+}
+
+#qos-cn .qos-tin-head .table,
 #qos-cn .qos-tin-body .table {
 	flex: 1 1 18em;
 	margin: 0;
@@ -3558,6 +3573,7 @@ JSEOF
 	flex: none;
 	width: 9.5em;
 	height: 9.5em;
+	margin: var(--qos-gap);
 }
 
 #qos-cn .qos-donut svg {
