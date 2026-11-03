@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.1.2** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.2.0** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -127,17 +127,26 @@ refresh interval while the tab is open.
 
 ### Counters
 
-- **Traffic by Class** — packets and bytes per qosify class since the last reload, with bars
-  coloured by CAKE tin, including qosify's `tcp_default`/`udp_default` unless the default names a
-  class. On 24.10 and 25.12 qosify reports packets only.
-- **Traffic by DSCP** — traffic per DSCP codepoint from `get_stats`. Only on snapshots.
-- **Traffic by CAKE Tin** — CAKE's own per-tin packets, bytes and drops, from `qosify-status`.
-- **DNS Entries** — hits and traffic per `dns:` rule. Only on snapshots (qosify `beeb87e`); on
-  24.10 and 25.12 the running qosify does not report them.
+**Measure**, at the top, picks bytes or packets for the donuts, bars and shares.
+
+- **Traffic by CAKE Tin** — CAKE's own counters from `qosify-status`: a donut per direction,
+  upload (egress) and download (ingress), with the total inside and each tin's figure, share and
+  drops beside it; hover a row for its ECN marks. Interfaces running the same mode are added
+  together.
+- **Traffic by Class** — what qosify classified since the last reload: a bar per CAKE tin with a
+  segment per class, placed by the class's egress codepoint, including qosify's
+  `tcp_default`/`udp_default` unless the default names a class. With interfaces in different
+  modes it shows a bar per class instead. Under it, one `get_stats` line with the map entries,
+  last reload and DNS cache (snapshots only). On 24.10 and 25.12 qosify reports packets only.
+- **DNS Entries** — hits and traffic per `dns:` rule, with a bar each, most traffic first. Only
+  on snapshots (qosify `beeb87e`); on 24.10 and 25.12 the running qosify does not report them.
+- **Traffic by DSCP** — traffic per DSCP codepoint from `get_stats`: the codepoints packets
+  really leave the classifier with, flow detection included. Only on snapshots.
 - **Reset counters** — `get_stats` with `reset`; the CAKE tin counters belong to `tc` and are kept.
 
-The two traffic views count different things and are not expected to match. While qosify is
-stopped the tab is cleared rather than showing stale numbers.
+The class and tin views count different things and are not expected to match: qosify counts
+both directions since its last reload, CAKE each direction since its qdisc was created. While
+qosify is stopped the tab is cleared rather than showing stale numbers.
 
 ### Advanced
 
