@@ -3,6 +3,17 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.2 — dev (2026-11-03)
+
+Not upstream yet.
+
+- **Traffic by CAKE Tin** moves the column titles into each box's banner, beside Upload
+  (egress) or Download (ingress) and lined up over their columns, so the table has no title
+  row of its own. In a narrow box the banner wraps with the titles over the table, and the
+  donut sits below the table rather than above it
+- The **Traffic by Class** note on 24.10 and 25.12 now reads "qosify reports packets only per
+  class."
+
 ## v3.2.1 — dev (2026-11-03)
 
 Found testing 3.2.0 on 25.12.6. Not upstream yet.
