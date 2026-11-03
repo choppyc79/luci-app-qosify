@@ -3,6 +3,24 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.0 — dev (2026-11-03)
+
+Counters tab laid out again. Every figure is still one that `get_stats` or `qosify-status`
+reports, and a refresh makes the same calls as before. Not upstream yet.
+
+- **Traffic by CAKE Tin** moves to the top as a donut per direction, upload (egress) and
+  download (ingress), with the total inside and each tin's figure, share and drops beside it;
+  ECN marks stay the row tooltip. The two directions are no longer added together; qdiscs of
+  one direction running the same mode still are
+- **Traffic by Class** stacks the classes by the CAKE tin their codepoint lands in: a bar per
+  tin, linear rather than cube-root, with a segment per class and each class's codepoint and
+  figure under it. With interfaces in different modes it keeps a bar per class. The `get_stats`
+  box becomes one line under it
+- **DNS Entries** gains a bar per entry, lists the most traffic first (file entries still before
+  ones added over ubus) and moves above **Traffic by DSCP**
+- A **Measure** select picks bytes or packets for the donuts, bars and shares. 24.10 and 25.12
+  report class packets only, so the class bars stay in packets there
+
 ## v3.1.2 — dev (2026-10-31)
 
 Second audit, run against the app in a mocked LuCI runtime. Not upstream yet.
