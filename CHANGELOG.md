@@ -3,9 +3,10 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
-## v3.2.5 — dev (2026-11-03)
+## v3.2.5 — 2026-11-04
 
-Not upstream yet.
+`dev` 3.1.0–3.2.5 merged into main. The package changes (3.1.0, 3.1.2, 3.2.0–3.2.5) go upstream
+as one PR; 3.1.1 is installer only.
 
 - **Traffic by Class** goes back to the 3.2.3 layout, a row per tin with its total and its
   classes under it, busiest first, and lists only tins and classes with traffic: the "No
