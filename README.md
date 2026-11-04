@@ -8,7 +8,7 @@ on one page under **Network → qosify**: turn shaping on, set your bandwidth, e
 classification rules, and watch what qosify is doing. Every setting is a real qosify option —
 nothing is added on top.
 
-Current version: **3.0.43** — see [CHANGELOG.md](CHANGELOG.md).
+Current version: **3.2.5** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
@@ -127,17 +127,31 @@ refresh interval while the tab is open.
 
 ### Counters
 
-- **Traffic by Class** — packets and bytes per qosify class since the last reload, with bars
-  coloured by CAKE tin, including qosify's `tcp_default`/`udp_default` unless the default names a
-  class. On 24.10 and 25.12 qosify reports packets only.
-- **Traffic by DSCP** — traffic per DSCP codepoint from `get_stats`. Only on snapshots.
-- **Traffic by CAKE Tin** — CAKE's own per-tin packets, bytes and drops, from `qosify-status`.
-- **DNS Entries** — hits and traffic per `dns:` rule. Only on snapshots (qosify `beeb87e`); on
-  24.10 and 25.12 the running qosify does not report them.
+**Measure**, at the top, picks bytes or packets for the donuts, bars and shares.
+
+- **Traffic by CAKE Tin** — CAKE's own counters from `qosify-status`: a donut per direction,
+  upload (egress) and download (ingress), with the total inside and each tin's figure, share and
+  drops beside it; hover a row for its ECN marks. Interfaces running the same mode are added
+  together.
+- **Traffic by Class** — what qosify classified since the last reload, grouped by the CAKE tin
+  each class's egress codepoint lands in: a row per tin with its total, and under it a row per
+  class, busiest first, with its codepoint and a bar. Only tins and classes with traffic are
+  listed. qosify counts a class before flow detection moves some of its flows to `dscp_prio` or
+  `dscp_bulk`, so such a class is counted in full under its own tin; Traffic by DSCP shows where
+  those flows leave. qosify's `tcp_default`/`udp_default` count as classes unless the
+  default names one. With interfaces in different modes it shows a bar per class instead, and
+  on a phone the bars are left out. Under it, one `get_stats` line with the map entries, last
+  reload and DNS cache (snapshots only). On 24.10 and 25.12 qosify reports packets only per
+  class, so the figures stay in packets there, with a note when Bytes is picked.
+- **DNS Entries** — hits and traffic per `dns:` rule, with a bar each, most traffic first. Only
+  on snapshots (qosify `beeb87e`); on 24.10 and 25.12 the running qosify does not report them.
+- **Traffic by DSCP** — traffic per DSCP codepoint from `get_stats`: the codepoints packets
+  really leave the classifier with, flow detection included. Only on snapshots.
 - **Reset counters** — `get_stats` with `reset`; the CAKE tin counters belong to `tc` and are kept.
 
-The two traffic views count different things and are not expected to match. While qosify is
-stopped the tab is cleared rather than showing stale numbers.
+The class and tin views count different things and are not expected to match: qosify counts
+both directions since its last reload, CAKE each direction since its qdisc was created. While
+qosify is stopped the tab is cleared rather than showing stale numbers.
 
 ### Advanced
 
@@ -161,8 +175,8 @@ call. `/etc/init.d/rpcd reload` usually clears it, without logging anyone out.
 **Stop and uninstall** only remove what qosify created: sections with `disabled 1` are skipped, and
 another shaper such as SQM on the same device is left alone.
 
-**Sysupgrade** — the installer lists its files in `/lib/upgrade/keep.d/luci-app-qosify`, so the app
-survives sysupgrade, attended sysupgrade and owut.
+**Sysupgrade** — the installer lists its files and `/etc/qosify` in `/lib/upgrade/keep.d/luci-app-qosify`,
+so the app and every mapping file survive sysupgrade, attended sysupgrade and owut.
 
 ## Custom firmware
 

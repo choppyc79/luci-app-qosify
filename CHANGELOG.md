@@ -3,6 +3,112 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.5 — dev (2026-11-03)
+
+Not upstream yet.
+
+- **Traffic by Class** goes back to the 3.2.3 layout, a row per tin with its total and its
+  classes under it, busiest first, and lists only tins and classes with traffic: the "No
+  traffic" lines are gone, and so are 3.2.4's prio and bulk flow lines. Until a class has
+  traffic it reads "No class traffic yet." A class with `dscp_prio` or `dscp_bulk` is counted
+  in full under its own tin, as in 3.2.3; Traffic by DSCP shows where those flows leave
+
+## v3.2.4 — dev (2026-11-03)
+
+Found testing 3.2.3 on a snapshot. Not upstream yet.
+
+- **Traffic by Class** no longer puts all of a class in one tin. qosify counts a class once,
+  where it first matches, before flow detection moves a flow to `dscp_prio` or `dscp_bulk`,
+  so a class whose prio flows leave as AF21 under diffserv8 never showed Tin 4, and the tin
+  totals were not where the traffic went. Tins are now headings without a total. A class row
+  lists its prio and bulk codepoints, and each other tin they reach gets a "Prio flows" or
+  "Bulk flows" line naming the class; a class whose ingress codepoint lands in another tin
+  gets a "Download (ingress)" line there. Only a class's own `prio_max_avg_pkt_len` and
+  `bulk_trigger_pps` count: qosify never applies the ones under `defaults`
+
+## v3.2.3 — dev (2026-11-03)
+
+Not upstream yet.
+
+- **Traffic by Class** under one CAKE mode lists the classes under their tin instead of
+  stacking them in one bar: a row per tin with its total, then a row per class with traffic,
+  busiest first, with its codepoint, a bar against the busiest class, its figure and share.
+  Classes without traffic share one line under their tin, so classes in a tin no longer have
+  to be told apart by shades of its colour. On a phone the bars are left out and a long class
+  name wraps
+
+## v3.2.2 — dev (2026-11-03)
+
+Not upstream yet.
+
+- **Traffic by CAKE Tin** moves the column titles into each box's banner, beside Upload
+  (egress) or Download (ingress) and lined up over their columns, so the table has no title
+  row of its own. In a narrow box the banner wraps with the titles over the table, and the
+  donut sits below the table rather than above it
+- The **Traffic by Class** note on 24.10 and 25.12 now reads "qosify reports packets only per
+  class."
+
+## v3.2.1 — dev (2026-11-03)
+
+Found testing 3.2.0 on 25.12.6. Not upstream yet.
+
+- **Traffic by Class** says why it stays in packets with **Measure** on Bytes: qosify on 24.10
+  and 25.12 reports packets only per class, so a note under the bars says so; it is hidden on
+  snapshots and with Packets picked
+
+## v3.2.0 — dev (2026-11-03)
+
+Counters tab laid out again. Every figure is still one that `get_stats` or `qosify-status`
+reports, and a refresh makes the same calls as before. Not upstream yet.
+
+- **Traffic by CAKE Tin** moves to the top as a donut per direction, upload (egress) and
+  download (ingress), with the total inside and each tin's figure, share and drops beside it;
+  ECN marks stay the row tooltip. The two directions are no longer added together; qdiscs of
+  one direction running the same mode still are
+- **Traffic by Class** stacks the classes by the CAKE tin their codepoint lands in: a bar per
+  tin, linear rather than cube-root, with a segment per class and each class's codepoint and
+  figure under it. With interfaces in different modes it keeps a bar per class. The `get_stats`
+  box becomes one line under it
+- **DNS Entries** gains a bar per entry, lists the most traffic first (file entries still before
+  ones added over ubus) and moves above **Traffic by DSCP**
+- A **Measure** select picks bytes or packets for the donuts, bars and shares. 24.10 and 25.12
+  report class packets only, so the class bars stay in packets there
+
+## v3.1.2 — dev (2026-10-31)
+
+Second audit, run against the app in a mocked LuCI runtime. Not upstream yet.
+
+- Config and Rules editors refuse to save over a file they never loaded. When rpcd cannot read
+  it (the rules file is over its 256 KiB read limit, or the read fails) the editor comes up
+  empty, and a Quick Add followed by Save & Apply replaced the whole file. The rules file gets
+  the "could not be read" notice the config already had, and both saves stop with the
+  existing "refusing to overwrite it" message
+- Overview refresh survives a missing `/etc/config/qosify`. `uci.load()` rejects there, so every
+  poll raised an unhandled rejection, the service table stopped updating, and a Start or Stop
+  that worked was reported as "Service action failed"
+
+## v3.1.1 — dev (2026-10-31)
+
+Audit report fixes, installer only. Not upstream yet.
+
+- Installer: a heredoc write that fails (full overlay) stops the install with an error instead
+  of ending with `[OK]` and a truncated `main.js`
+- Sysupgrade keep list carries `/etc/qosify` instead of `00-defaults.conf` alone, so every
+  mapping file the defaults list loads survives an upgrade (sysupgrade expands a directory
+  with `find`)
+
+## v3.1.0 — dev (2026-10-31)
+
+Fidelity audit against qosify `b3ee50e` (master) and `1501e09` (24.10, 25.12), `qosify.init`
+and iproute2: every UCI option, ubus method and reply field checked against the sources. Two
+corrections came out of it; nothing in the app was found without daemon backing. Not upstream yet.
+
+- Rate check no longer takes `unlimited`: qosify passes a set bandwidth to tc as
+  `bandwidth <value>` and `get_rate64()` refuses the word, so no qdisc was created. The warning
+  says to leave the field empty, which is what runs CAKE unlimited
+- Counters: **Traffic by DSCP** lists a value no codepoint names, which `get_stats` keys as
+  `0x%02x`, instead of dropping it from the rows, the total and the shares
+
 ## v3.0.43 — 2026-10-29
 
 `dev` 3.0.41–3.0.43 merged into main. The package changes went upstream in #9164, merged 2026-10-29.
