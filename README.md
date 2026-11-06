@@ -59,9 +59,11 @@ use apk/opkg for it then.
 | 24.10, 25.12 (`1501e09`) | – | – |
 | snapshot before 2026-10-16 (`beeb87e`) | ✓ | – |
 | snapshot from 2026-10-16 (`b3ee50e`) | ✓ | ✓ |
+| snapshot from 2026-11-03 (`143d71d`) | ✓ | ✓ |
 
 `b3ee50e` also takes port 65535 and applies `+` values as documented; the app follows the
-build it finds.
+build it finds. `143d71d` drops a bandwidth, `mode` or CAKE option value with any character
+but letters, digits, spaces, dots, underscores and hyphens; the app refuses those on every build.
 
 The app reads what the running qosify reports and hides what it lacks.
 
@@ -99,8 +101,9 @@ An editor for `/etc/config/qosify` that checks as you type and warns about setti
 quietly ignore — a section with no `name` or a name over 15 characters, more than 16 classes,
 `nat` without `host_isolate`, manual overhead without `overhead_type manual`, an invalid `mode`,
 rate or overhead value, a non-numeric integer key, both directions off, no bandwidth, or
-`option nat 'true'` (qosify reads that as off; use `1`). Shell metacharacters in any value that
-reaches `tc`, the overhead keys included, block the save.
+`option nat 'true'` (qosify reads that as off; use `1`). A value that reaches `tc`, the overhead
+keys included, may hold only letters, digits, spaces, dots, underscores and hyphens; anything
+else blocks the save.
 
 **Quick Add** builds `defaults`, `class`, `alias`, `interface` and `device` sections from
 dropdowns, with each option explained underneath. **Reference** lists your classes, the DSCP
@@ -112,7 +115,7 @@ An editor for `/etc/qosify/00-defaults.conf`, the file that decides which traffi
 class. **Quick Add** builds one rule at a time for any match qosify supports: TCP/UDP ports and
 ranges, IPv4/IPv6 addresses, `dns:` patterns and regex, and `dns_c:` CNAME matches, with an "only
 if unset" option for the `+` prefix. Rules are checked the way qosify reads them: ports 1–65534
-(1–65535 on `b3ee50e`),
+(1–65535 from `b3ee50e`),
 single addresses (no CIDR), and targets that are defined classes or valid DSCP values. A line qosify
 would skip is reported rather than silently saved.
 
