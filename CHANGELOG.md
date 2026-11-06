@@ -3,9 +3,9 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
-## v3.2.6 — dev (2026-11-06)
+## v3.2.6 — 2026-11-06
 
-Not upstream yet; #9190 has the same stylesheet.
+`dev` 3.2.6 merged into main. The stylesheet fix is folded into #9190.
 
 - **Traffic by Class** under Footstrap's top layout (its default), or in a narrow window, drew
   its column titles a top bar's height down, over the first rows, leaving a blank band above.
