@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.8"
+VERSION="3.2.9"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -3841,88 +3841,82 @@ install_status() {
 // SPDX-License-Identifier: MIT
 'use strict';
 'require baseclass';
+'require fs';
 'require rpc';
 'require uci';
 
-// Status > Overview card: three ubus calls a tick and the qosify config, which
-// uci.load() reads once per page, so nothing forks. index.js stops drawing a
-// card whose load() rejects, so each call settles to null, shown as unknown.
+// Status > Overview card: the Service rows of the app's Overview tab, with the
+// shaped rates. Three ubus calls a tick and the qosify config, which uci.load()
+// reads once per page, so nothing forks. index.js stops drawing a card whose
+// load() rejects, so each call settles to null, shown as unknown.
 var callServiceList=rpc.declare({object:'service',method:'list',params:['name'],expect:{'':{}},reject:true});
+// skip_running_check keeps rc.list from forking `qosify running`.
+var callRcList=rpc.declare({object:'rc',method:'list',params:['name','skip_running_check'],expect:{'':{}},reject:true});
 var callQosifyStatus=rpc.declare({object:'qosify',method:'status',expect:{'':{}},reject:true});
-// 1501e09 (24.10, 25.12) returns the classes at the top level, packets only;
-// master nests them under classes with bytes and adds tcp_default/udp_default.
-var callQosifyStats=rpc.declare({object:'qosify',method:'get_stats',expect:{'':{}},reject:true});
 
 function nul(){return null;}
 function tx(v){return typeof v==='string'?[v]:v;}
 function badge(kind,t){return E('span',{'class':'label '+kind},tx(t));}
+function unk(){return badge('warning',_('Unknown'));}
+function kvRow(k,v){return E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},tx(k)),E('td',{'class':'td left'},tx(v))]);}
 function isRunning(r){try{var i=r.qosify.instances;for(var k in i)if(i[k].running)return true;}catch(e){}return false;}
-function share(p){return !p?'0%':p<0.1?'<0.1%':'%s%%'.format(p<10?p.toFixed(1):Math.round(p));}
-// A titles row, which mobile.css hides, then rows: cells it labels with their
-// title on a phone, or rows already built.
-function grid(head,rows,w){
-	return E('table',{'class':'table'},[E('tr',{'class':'tr table-titles'},head.map(function(h,i){return E('th',{'class':'th','width':i?null:w},[h]);}))]
-		.concat(rows.map(function(r){return Array.isArray(r)?E('tr',{'class':'tr'},r.map(function(c,i){return E('td',{'class':'td left','data-title':head[i]},tx(c));})):r;})));
-}
+function runPid(r){try{var i=r.qosify.instances;for(var k in i)if(i[k].running&&i[k].pid)return i[k].pid;}catch(e){}return 0;}
 // The status keys are option name; qosify.init sends no disabled section
 // (config_get_bool) and falls back to bandwidth for an unset direction. A
 // shaped direction without one runs CAKE unlimited.
 function ifSect(type,name){
 	return uci.sections('qosify',type).filter(function(s){return s.name===name&&!/^(1|on|true|yes|enabled)$/.test(s.disabled);})[0]||null;
 }
-function rate(s,on,k){
-	var v=s&&(s['bandwidth_'+k]||s.bandwidth);
-	return !on?E('em',{},_('off')):!s?'-':v?String(v):E('em',{},_('unlimited'));
-}
-// Bytes where the reply has them, else packets. A bar is the class's share of
-// the total, busiest first; classes without traffic are left out. Rows as on
-// the Memory card, so a phone keeps the name and the bar on one line.
-function classRows(st){
-	var cls=st.classes,b=false,tot=0,rows=[],k,v;
-	if(!cls){cls={};for(k in st)if(st[k]&&typeof st[k]==='object'&&(st[k].packets!=null||st[k].bytes!=null))cls[k]=st[k];}
-	for(k in cls)if(cls[k]&&cls[k].bytes!=null)b=true;
-	for(k in cls){v=Number(cls[k]&&(b?cls[k].bytes:cls[k].packets))||0;tot+=v;if(v)rows.push([k,v]);}
-	rows.sort(function(x,y){return y[1]-x[1]||(x[0]<y[0]?-1:1);});
-	return rows.map(function(r){
-		var p=r[1]/tot*100,f=b?'%1024.2mB'.format(r[1]):N_(r[1],'%s packet','%s packets').format(r[1].toLocaleString());
-		return E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},[r[0]]),E('td',{'class':'td left'},
-			E('div',{'class':'cbi-progressbar','title':'%s (%s)'.format(f,share(p))},E('div',{'style':'width:%.2f%%'.format(p)})))]);
-	});
-}
+function rate(s,on,k){return !on?_('no'):!s?_('yes'):s['bandwidth_'+k]||s.bandwidth||_('unlimited');}
 
 return baseclass.extend({
 	title:_('qosify'),
 
 	load:function(){
+		var self=this;
 		return Promise.all([
 			callServiceList('qosify').catch(nul),
+			callRcList('qosify',true).catch(nul),
 			callQosifyStatus().catch(nul),
-			callQosifyStats().catch(nul),
 			uci.load('qosify').catch(nul)
-		]);
+		]).then(function(d){return self.uptime(d[0]).then(function(u){d.push(u);return d;});});
 	},
 
-	// Status as on the app's Overview tab; the qosify object goes with the
-	// daemon, so an unanswered status call only reads unknown while it runs.
+	// As on the Overview tab: service list carries the pid but no start time, so
+	// starttime (field 22 of /proc/<pid>/stat, USER_HZ ticks since boot) is set
+	// against /proc/uptime, once per pid; later ticks add performance.now().
+	uptime:function(r){
+		var self=this,pid=runPid(r);
+		if(!pid){self._up=null;return Promise.resolve(null);}
+		if(self._up&&self._up.pid===pid)return Promise.resolve(self._up.up+(performance.now()-self._up.t)/1000);
+		return Promise.all([fs.read('/proc/'+pid+'/stat'),fs.read('/proc/uptime')]).then(function(d){
+			var st=String(d[0]),f=st.slice(st.lastIndexOf(')')+2).split(' '),up=parseFloat(d[1])-f[19]/100;
+			if(!(up>=0))return null;
+			self._up={pid:pid,up:up,t:performance.now()};
+			return up;
+		}).catch(nul);
+	},
+
+	// The Overview tab's rows and wording, each interface with its rates in place
+	// of yes. The qosify object goes with the daemon, so an unanswered status
+	// call only reads unknown while it runs.
 	render:function(d){
-		var run=d[0]!==null?isRunning(d[0]):null,st=d[1]||(run===false?{}:null),active=st?false:null,ifs=[],out,cls;
+		var run=d[0]!==null?isRunning(d[0]):null,rc=d[1]&&d[1].qosify,st=d[2]||(run===false?{}:null),n=0,ifs=[];
 		if(st)['interfaces','devices'].forEach(function(g){
 			for(var k in st[g]){
-				var e=st[g][k]||{},dev=g==='devices',s=d[3]!==null?ifSect(dev?'device':'interface',k):null;
-				if(e.active)active=true;
-				ifs.push([dev?'-':k,e.ifname||(dev?k:'-'),badge(e.active?'success':'danger',e.active?_('active'):_('inactive')),
-					rate(s,e.egress,'up'),rate(s,e.ingress,'down')]);
+				var e=st[g][k]||{},s=d[3]!==null?ifSect(g==='devices'?'device':'interface',k):null;
+				if(e.active)n++;
+				ifs.push(kvRow((g==='devices'?_('device %s'):_('interface %s')).format(k),[badge(e.active?'success':'danger',e.active?_('active'):_('inactive')),' ',
+					_('device: %s, ingress: %s, egress: %s').format(e.ifname||'-',rate(s,e.ingress,'down'),rate(s,e.egress,'up'))]));
 			}
 		});
-		out=[E('table',{'class':'table'},E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},[_('Status')]),E('td',{'class':'td left'},
-			run==null?badge('warning',_('Unknown')):run&&active==null?badge('warning',_('Running — Shaping Unknown')):
-			run&&active?badge('success',_('Running & Shaping')):run?badge('warning',_('Running — Not Shaping')):badge('danger',_('Not Running')))]))];
-		if(ifs.length)out.push(grid([_('Interface'),_('Device'),_('Shaping'),_('Upload (egress)'),_('Download (ingress)')],ifs));
-		if(run&&d[2]){
-			cls=classRows(d[2]);
-			out.push(cls.length?grid([_('Class'),_('Traffic')],cls,'33%'):E('p',{},E('em',{},[_('No class traffic yet.')])));
-		}
-		return E(out);
+		return E('table',{'class':'table'},[
+			kvRow(_('Status'),run==null?unk():run&&!st?badge('warning',_('Running — Shaping Unknown')):run&&n?badge('success',_('Running & Shaping')):
+				run?badge('warning',_('Running — Not Shaping')):badge('danger',_('Not Running'))),
+			kvRow(_('Uptime'),d[4]!=null?'%t'.format(Math.floor(d[4])):'-'),
+			kvRow(_('Autostart'),d[1]===null?unk():rc&&rc.enabled?badge('success',_('Enabled')):badge('danger',_('Disabled'))),
+			kvRow(_('Shaping'),!st?unk():n?N_(n,'%d interface','%d interfaces').format(n):E('em',{},_('none')))
+		].concat(ifs));
 	}
 });
 JSEOF
