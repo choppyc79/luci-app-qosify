@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.10"
+VERSION="3.2.11"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -3853,6 +3853,12 @@ var callServiceList=rpc.declare({object:'service',method:'list',params:['name'],
 // skip_running_check keeps rc.list from forking `qosify running`.
 var callRcList=rpc.declare({object:'rc',method:'list',params:['name','skip_running_check'],expect:{'':{}},reject:true});
 var callQosifyStatus=rpc.declare({object:'qosify',method:'status',expect:{'':{}},reject:true});
+// Bootstrap and OpenWrt 2020 have no .label.danger; the app's own rule from
+// qosify.css. Footstrap drops the row lines of a two-cell table on this page:
+// a rule outside its layers draws them, and :where() keeps it under any theme's
+// .table .td, so bootstrap and its phone layout keep their own lines.
+var STYLE='.qos-ov .label.danger{background-color:var(--error-color-high,#e8210d);color:var(--on-error-color,#fff)}'+
+	':where(.qos-ov .tr+.tr)>.td{border-top:1px solid var(--border-color-medium,rgba(128,128,128,.35))}';
 
 function nul(){return null;}
 function tx(v){return typeof v==='string'?[v]:v;}
@@ -3910,12 +3916,12 @@ return baseclass.extend({
 					_('device: %s, ingress: %s, egress: %s').format(e.ifname||'-',rate(s,e.ingress,'down'),rate(s,e.egress,'up'))]));
 			}
 		});
-		return E('table',{'class':'table'},[
+		return E([E('style',{},[STYLE]),E('table',{'class':'table qos-ov'},[
 			kvRow(_('Status'),run==null?unk():run&&!st?badge('warning',_('Running — Shaping Unknown')):run&&n?badge('success',_('Running & Shaping')):
 				run?badge('warning',_('Running — Not Shaping')):badge('danger',_('Not Running'))),
 			kvRow(_('Uptime'),d[4]!=null?'%t'.format(Math.floor(d[4])):'-'),
 			kvRow(_('Autostart'),d[1]===null?unk():rc&&rc.enabled?badge('success',_('Enabled')):badge('danger',_('Disabled')))
-		].concat(ifs));
+		].concat(ifs))]);
 	}
 });
 JSEOF
