@@ -40,16 +40,19 @@ define Build/Compile
 		MENU_DIR=$$R/usr/share/luci/menu.d; \
 		ACL_DIR=$$R/usr/share/rpcd/acl.d; \
 		VIEW_DIR=$$R/www/luci-static/resources/view/qosify; \
+		STATUS_DIR=$$R/www/luci-static/resources/view/status/include; \
 		TPL_DIR=$$R/usr/share/qosify-luci; \
 		install_templates >/dev/null; \
 		install_menu >/dev/null; \
 		install_acl >/dev/null; \
-		install_view >/dev/null )
+		install_view >/dev/null; \
+		install_status >/dev/null )
 endef
 
 define Package/luci-app-qosify/install
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d $(1)/usr/share/rpcd/acl.d \
-		$(1)/usr/share/qosify-luci $(1)/www/luci-static/resources/view/qosify
+		$(1)/usr/share/qosify-luci $(1)/www/luci-static/resources/view/qosify \
+		$(1)/www/luci-static/resources/view/status/include
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/share/luci/menu.d/luci-app-qosify.json $(1)/usr/share/luci/menu.d/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/share/rpcd/acl.d/luci-app-qosify.json $(1)/usr/share/rpcd/acl.d/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/share/qosify-luci/qosify $(1)/usr/share/qosify-luci/
@@ -57,6 +60,7 @@ define Package/luci-app-qosify/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/share/qosify-luci/cleanup $(1)/usr/share/qosify-luci/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/www/luci-static/resources/view/qosify/main.js $(1)/www/luci-static/resources/view/qosify/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/www/luci-static/resources/view/qosify/qosify.css $(1)/www/luci-static/resources/view/qosify/
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/www/luci-static/resources/view/status/include/75_qosify.js $(1)/www/luci-static/resources/view/status/include/
 endef
 
 define Package/luci-app-qosify/postinst
