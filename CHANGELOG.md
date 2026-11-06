@@ -3,6 +3,17 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.9 — dev (2026-11-06)
+
+For testing. Not on main or upstream yet.
+
+- **Status → Overview** card cut down to a snapshot in the Overview tab's own rows and words:
+  Status, Uptime, Autostart, Shaping, and a row per interface or device with its device and its
+  ingress and egress rate (*unlimited* with no bandwidth set, *no* for a direction that is not
+  shaped). The per-class bars and their `get_stats` call are gone. Autostart comes from `rc list`
+  with `skip_running_check`, and the uptime from `/proc/<pid>/stat` and `/proc/uptime`, read once
+  per qosify start. Still three ubus calls a refresh, no forks and nothing new in the ACL
+
 ## v3.2.8 — dev (2026-11-06)
 
 For testing. Not on main or upstream yet.
