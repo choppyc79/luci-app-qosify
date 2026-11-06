@@ -166,11 +166,11 @@ qosify is stopped the tab is cleared rather than showing stale numbers.
 
 ## Status → Overview
 
-A **qosify** card joins LuCI's Status → Overview page: the service status, a row per interface
-or device with its device, shaping state and upload and download rate (*unlimited* with no
-bandwidth set, *off* for a direction that is not shaped), and a bar per class with its share of
-what qosify has classified, busiest first — bytes on snapshots, packets on 24.10 and 25.12. It
-refreshes with the page at three ubus calls and no forks, and hides with the card's **Hide**.
+A **qosify** card joins LuCI's Status → Overview page with the Overview tab's service rows: status,
+uptime, autostart, how many interfaces are shaping, and a row per interface or device with its
+device and its ingress and egress rate (*unlimited* with no bandwidth set, *no* for a direction
+that is not shaped). It refreshes with the page at three ubus calls and no forks, and hides with
+the card's **Hide**.
 
 ## Good to know
 
