@@ -1,9 +1,10 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.7"
+VERSION="3.2.8"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
+STATUS_DIR="/www/luci-static/resources/view/status/include"
 TPL_DIR="/usr/share/qosify-luci"
 CONFIG_DIR="/etc/qosify"
 UCI_CONFIG="/etc/config/qosify"
@@ -3833,6 +3834,101 @@ CSSEOF
 	[ -s "$VIEW_DIR/qosify.css" ] || { echo "[ERROR] Failed writing $VIEW_DIR/qosify.css"; exit 1; }
 }
 
+install_status() {
+	echo "[*] Writing Status Overview card..."
+	mkdir -p "$STATUS_DIR"
+	cat > "$STATUS_DIR/75_qosify.js" << 'JSEOF' || fail "$STATUS_DIR/75_qosify.js"
+// SPDX-License-Identifier: MIT
+'use strict';
+'require baseclass';
+'require rpc';
+'require uci';
+
+// Status > Overview card: three ubus calls a tick and the qosify config, which
+// uci.load() reads once per page, so nothing forks. index.js stops drawing a
+// card whose load() rejects, so each call settles to null, shown as unknown.
+var callServiceList=rpc.declare({object:'service',method:'list',params:['name'],expect:{'':{}},reject:true});
+var callQosifyStatus=rpc.declare({object:'qosify',method:'status',expect:{'':{}},reject:true});
+// 1501e09 (24.10, 25.12) returns the classes at the top level, packets only;
+// master nests them under classes with bytes and adds tcp_default/udp_default.
+var callQosifyStats=rpc.declare({object:'qosify',method:'get_stats',expect:{'':{}},reject:true});
+
+function nul(){return null;}
+function tx(v){return typeof v==='string'?[v]:v;}
+function badge(kind,t){return E('span',{'class':'label '+kind},tx(t));}
+function isRunning(r){try{var i=r.qosify.instances;for(var k in i)if(i[k].running)return true;}catch(e){}return false;}
+function share(p){return !p?'0%':p<0.1?'<0.1%':'%s%%'.format(p<10?p.toFixed(1):Math.round(p));}
+// A titles row, which mobile.css hides, then rows: cells it labels with their
+// title on a phone, or rows already built.
+function grid(head,rows,w){
+	return E('table',{'class':'table'},[E('tr',{'class':'tr table-titles'},head.map(function(h,i){return E('th',{'class':'th','width':i?null:w},[h]);}))]
+		.concat(rows.map(function(r){return Array.isArray(r)?E('tr',{'class':'tr'},r.map(function(c,i){return E('td',{'class':'td left','data-title':head[i]},tx(c));})):r;})));
+}
+// The status keys are option name; qosify.init sends no disabled section
+// (config_get_bool) and falls back to bandwidth for an unset direction. A
+// shaped direction without one runs CAKE unlimited.
+function ifSect(type,name){
+	return uci.sections('qosify',type).filter(function(s){return s.name===name&&!/^(1|on|true|yes|enabled)$/.test(s.disabled);})[0]||null;
+}
+function rate(s,on,k){
+	var v=s&&(s['bandwidth_'+k]||s.bandwidth);
+	return !on?E('em',{},_('off')):!s?'-':v?String(v):E('em',{},_('unlimited'));
+}
+// Bytes where the reply has them, else packets. A bar is the class's share of
+// the total, busiest first; classes without traffic are left out. Rows as on
+// the Memory card, so a phone keeps the name and the bar on one line.
+function classRows(st){
+	var cls=st.classes,b=false,tot=0,rows=[],k,v;
+	if(!cls){cls={};for(k in st)if(st[k]&&typeof st[k]==='object'&&(st[k].packets!=null||st[k].bytes!=null))cls[k]=st[k];}
+	for(k in cls)if(cls[k]&&cls[k].bytes!=null)b=true;
+	for(k in cls){v=Number(cls[k]&&(b?cls[k].bytes:cls[k].packets))||0;tot+=v;if(v)rows.push([k,v]);}
+	rows.sort(function(x,y){return y[1]-x[1]||(x[0]<y[0]?-1:1);});
+	return rows.map(function(r){
+		var p=r[1]/tot*100,f=b?'%1024.2mB'.format(r[1]):N_(r[1],'%s packet','%s packets').format(r[1].toLocaleString());
+		return E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},[r[0]]),E('td',{'class':'td left'},
+			E('div',{'class':'cbi-progressbar','title':'%s (%s)'.format(f,share(p))},E('div',{'style':'width:%.2f%%'.format(p)})))]);
+	});
+}
+
+return baseclass.extend({
+	title:_('qosify'),
+
+	load:function(){
+		return Promise.all([
+			callServiceList('qosify').catch(nul),
+			callQosifyStatus().catch(nul),
+			callQosifyStats().catch(nul),
+			uci.load('qosify').catch(nul)
+		]);
+	},
+
+	// Status as on the app's Overview tab; the qosify object goes with the
+	// daemon, so an unanswered status call only reads unknown while it runs.
+	render:function(d){
+		var run=d[0]!==null?isRunning(d[0]):null,st=d[1]||(run===false?{}:null),active=st?false:null,ifs=[],out,cls;
+		if(st)['interfaces','devices'].forEach(function(g){
+			for(var k in st[g]){
+				var e=st[g][k]||{},dev=g==='devices',s=d[3]!==null?ifSect(dev?'device':'interface',k):null;
+				if(e.active)active=true;
+				ifs.push([dev?'-':k,e.ifname||(dev?k:'-'),badge(e.active?'success':'danger',e.active?_('active'):_('inactive')),
+					rate(s,e.egress,'up'),rate(s,e.ingress,'down')]);
+			}
+		});
+		out=[E('table',{'class':'table'},E('tr',{'class':'tr'},[E('td',{'class':'td left','width':'33%'},[_('Status')]),E('td',{'class':'td left'},
+			run==null?badge('warning',_('Unknown')):run&&active==null?badge('warning',_('Running — Shaping Unknown')):
+			run&&active?badge('success',_('Running & Shaping')):run?badge('warning',_('Running — Not Shaping')):badge('danger',_('Not Running')))]))];
+		if(ifs.length)out.push(grid([_('Interface'),_('Device'),_('Shaping'),_('Upload (egress)'),_('Download (ingress)')],ifs));
+		if(run&&d[2]){
+			cls=classRows(d[2]);
+			out.push(cls.length?grid([_('Class'),_('Traffic')],cls,'33%'):E('p',{},E('em',{},[_('No class traffic yet.')])));
+		}
+		return E(out);
+	}
+});
+JSEOF
+	[ -s "$STATUS_DIR/75_qosify.js" ] || { echo "[ERROR] Failed writing $STATUS_DIR/75_qosify.js"; exit 1; }
+}
+
 install_keepd() {
 	echo "[*] Writing sysupgrade keep list..."
 	mkdir -p /lib/upgrade/keep.d
@@ -3848,6 +3944,7 @@ install_keepd() {
 /usr/share/qosify-luci/cleanup
 /www/luci-static/resources/view/qosify/main.js
 /www/luci-static/resources/view/qosify/qosify.css
+/www/luci-static/resources/view/status/include/75_qosify.js
 EOF
 }
 
@@ -3868,6 +3965,7 @@ install_files() {
 	install_menu
 	install_acl
 	install_view
+	install_status
 	install_keepd
 	save_installer
 	logger -t qosify-luci "LuCI app files installed v$VERSION"
@@ -3884,6 +3982,7 @@ install_all() {
 	install_menu
 	install_acl
 	install_view
+	install_status
 	install_keepd
 	save_installer
 	qosify_apply
@@ -3905,6 +4004,7 @@ uninstall_all() {
 	rm -f "$UCI_CONFIG" "$DEFAULTS_FILE"
 	rmdir "$CONFIG_DIR" 2>/dev/null
 	rm -rf "$VIEW_DIR" "$TPL_DIR"
+	rm -f "$STATUS_DIR/75_qosify.js"
 	rm -f "$MENU_DIR/luci-app-qosify.json"
 	rm -f "$ACL_DIR/luci-app-qosify.json"
 	rm -f /lib/upgrade/keep.d/luci-app-qosify
@@ -3927,6 +4027,7 @@ migrate_pkg() {
 	echo "[*] Removing script-installed app files (configs preserved)..."
 	rm -f "$MENU_DIR/luci-app-qosify.json" "$ACL_DIR/luci-app-qosify.json"
 	rm -rf "$VIEW_DIR" "$TPL_DIR"
+	rm -f "$STATUS_DIR/75_qosify.js"
 	rm -f /lib/upgrade/keep.d/luci-app-qosify
 	clean_legacy
 	echo "[*] Installing luci-app-qosify..."
