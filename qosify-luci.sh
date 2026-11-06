@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.9"
+VERSION="3.2.10"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -3914,8 +3914,7 @@ return baseclass.extend({
 			kvRow(_('Status'),run==null?unk():run&&!st?badge('warning',_('Running — Shaping Unknown')):run&&n?badge('success',_('Running & Shaping')):
 				run?badge('warning',_('Running — Not Shaping')):badge('danger',_('Not Running'))),
 			kvRow(_('Uptime'),d[4]!=null?'%t'.format(Math.floor(d[4])):'-'),
-			kvRow(_('Autostart'),d[1]===null?unk():rc&&rc.enabled?badge('success',_('Enabled')):badge('danger',_('Disabled'))),
-			kvRow(_('Shaping'),!st?unk():n?N_(n,'%d interface','%d interfaces').format(n):E('em',{},_('none')))
+			kvRow(_('Autostart'),d[1]===null?unk():rc&&rc.enabled?badge('success',_('Enabled')):badge('danger',_('Disabled')))
 		].concat(ifs));
 	}
 });
