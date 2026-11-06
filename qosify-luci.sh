@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.6"
+VERSION="3.2.7"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -840,8 +840,9 @@ function dscpNum(v){
 	return null;
 }
 // NQB is in qosify from 298754f, the get_stats "classes" table from 0edbc51 two
-// commits on. OpenWrt went from 1501e09 (24.10, 25.12) to b3ee50e (master), so a
-// reply with "classes" means NQB is known, one without it means not; null is unknown.
+// commits on. OpenWrt went from 1501e09 (24.10, 25.12) to b3ee50e, now 143d71d
+// (master), so a reply with "classes" means NQB is known, one without it means not;
+// null is unknown.
 var NQB_OK=null;
 function nqbSeen(st){if(st)NQB_OK=!!st.classes;}
 function dscpList(){return NQB_OK===false?DSCP.filter(function(d){return d!=='NQB';}):DSCP;}
@@ -896,7 +897,11 @@ function ruleWarn(txt,names){
 // return before the interfaces are applied; the rest is dropped quietly.
 // cmd_add_qdisc() pastes bandwidth, mode and the options unquoted into a tc
 // command run with sh -c as root, and qosify.init folds overhead, overhead_encap
-// and overhead_mpu into options, so a shell metacharacter in any of them is refused.
+// and overhead_mpu into options. From qosify 143d71d (master) check_str() drops a
+// value with any byte outside TCV, a mode falling back to diffserv4; 1501e09
+// (24.10, 25.12) refuses only a quote. No tc rate or CAKE keyword needs more, so
+// TCV holds on every build, a list checked as config_get joins it, with spaces.
+var TCV=/^[A-Za-z0-9._ -]*$/;
 // The integer keys go through jshn's atoll(), which keeps only leading digits.
 var INTK=['timeout','prio_max_avg_pkt_len','bulk_trigger_pps','bulk_trigger_timeout'];
 function cfgLint(secs){
@@ -917,7 +922,7 @@ function cfgLint(secs){
 		});
 		if(t==='interface'||t==='device'){
 			['bandwidth_up','bandwidth_down','bandwidth','mode','ingress_options','egress_options','options','overhead','overhead_encap','overhead_mpu'].forEach(function(k){
-				if(s[k]&&/['"`$;&|<>(){}\\\n#*?[\]~]/.test(String(s[k])))w.push({hard:true,t:_('%s: %s contains shell metacharacters — qosify runs the tc command with sh -c as root, so they would break it or be executed').format(n,k)});
+				if(s[k]&&!TCV.test([].concat(s[k]).join(' ')))w.push({hard:true,t:_('%s: %s may only contain letters, digits, spaces, dots, underscores and hyphens — qosify 143d71d (snapshots) drops it otherwise, and 24.10 and 25.12 paste it into a tc command run with sh -c as root').format(n,k)});
 			});
 		}
 		else if(t==='defaults'){
@@ -2566,9 +2571,8 @@ return view.extend({
 		var bwUp=bw(get('bw_up')),bwDn=bw(get('bw_down'));
 		var ovh=get('overhead'),mode=get('mode'),mpu=trim(get('overhead_mpu')),vlan=get('overhead_vlan'),ob=trim(get('ovh_bytes'));
 		var iopts=trim(get('ing_opts')),eopts=trim(get('egr_opts')),gopts=trim(get('opts'));
-		var safe=/^[\w\s.:-]*$/;
-		if(!safe.test(iopts)||!safe.test(eopts)||!safe.test(gopts)||!safe.test(bwUp)||!safe.test(bwDn)){
-			notify(_('Error: invalid characters in bandwidth or options fields. Use alphanumeric, spaces, hyphens, dots, colons only.'),'danger');
+		if(!TCV.test(iopts)||!TCV.test(eopts)||!TCV.test(gopts)||!TCV.test(bwUp)||!TCV.test(bwDn)){
+			notify(_('Error: invalid characters in bandwidth or options fields. Use letters, digits, spaces, dots, underscores and hyphens only.'),'danger');
 			return;
 		}
 		if(bwUp&&!RATE.test(bwUp))notify(_('bandwidth_up does not look like a tc rate (100mbit, 12MBps; leave empty for unlimited) — passing it through anyway'),'warning');
