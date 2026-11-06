@@ -3,6 +3,13 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.10 — dev (2026-11-06)
+
+For testing. Not on main or upstream yet.
+
+- **Status → Overview** card drops the Shaping row; the interface rows already show what is
+  shaping
+
 ## v3.2.9 — dev (2026-11-06)
 
 For testing. Not on main or upstream yet.
