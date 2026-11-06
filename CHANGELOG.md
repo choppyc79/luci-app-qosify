@@ -3,6 +3,15 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.11 — dev (2026-11-06)
+
+For testing. Not on main or upstream yet.
+
+- **Status → Overview** card: Not Running, Disabled and inactive are red on bootstrap and OpenWrt
+  2020 too, which have no `.label.danger`; the card carries the app's own rule from `qosify.css`.
+  Footstrap drops the row lines of two-column tables on this page, so the card draws its own there,
+  in the theme's border colour; on bootstrap the lines are unchanged
+
 ## v3.2.10 — dev (2026-11-06)
 
 For testing. Not on main or upstream yet.
