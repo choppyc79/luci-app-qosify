@@ -164,6 +164,14 @@ qosify is stopped the tab is cleared rather than showing stale numbers.
   a restart.
 - **Defaults** — reset both files to qosify defaults, after a confirmation.
 
+## Status → Overview
+
+A **qosify** card joins LuCI's Status → Overview page: the service status, a row per interface
+or device with its device, shaping state and upload and download rate (*unlimited* with no
+bandwidth set, *off* for a direction that is not shaped), and a bar per class with its share of
+what qosify has classified, busiest first — bytes on snapshots, packets on 24.10 and 25.12. It
+refreshes with the page at three ubus calls and no forks, and hides with the card's **Hide**.
+
 ## Good to know
 
 **Read-only users** get a read-only page: editors, Quick Add and service buttons are disabled.
@@ -215,6 +223,7 @@ Translations are done on Weblate and ship as
 | `/etc/qosify/00-defaults.conf` | Classification rules |
 | `/www/luci-static/resources/view/qosify/main.js` | The page |
 | `/www/luci-static/resources/view/qosify/qosify.css` | Its stylesheet |
+| `/www/luci-static/resources/view/status/include/75_qosify.js` | The Status → Overview card |
 | `/usr/share/luci/menu.d/luci-app-qosify.json` | Menu entry |
 | `/usr/share/rpcd/acl.d/luci-app-qosify.json` | Access rights |
 | `/usr/share/qosify-luci/` | Default configs and the cleanup helper |
