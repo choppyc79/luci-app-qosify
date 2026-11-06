@@ -1,6 +1,6 @@
 #!/bin/sh
 # qosify-luci.sh — LuCI App for qosify (modern JS, ash-compatible)
-VERSION="3.2.5"
+VERSION="3.2.6"
 MENU_DIR="/usr/share/luci/menu.d"
 ACL_DIR="/usr/share/rpcd/acl.d"
 VIEW_DIR="/www/luci-static/resources/view/qosify"
@@ -3623,6 +3623,12 @@ JSEOF
 
 #qos-cn .qbox .qos-grp .td {
 	background: var(--qos-hd);
+}
+
+/* Footstrap pins a table's titles under its top bar while the page scrolls.
+   In this clipped box they would pin to the box and cover the first rows. */
+#qos-cn .qos-cls .th {
+	position: static;
 }
 
 #qos-cn .qos-cls .qos-in > .td:first-child {
