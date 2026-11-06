@@ -167,10 +167,9 @@ qosify is stopped the tab is cleared rather than showing stale numbers.
 ## Status → Overview
 
 A **qosify** card joins LuCI's Status → Overview page with the Overview tab's service rows: status,
-uptime, autostart, how many interfaces are shaping, and a row per interface or device with its
-device and its ingress and egress rate (*unlimited* with no bandwidth set, *no* for a direction
-that is not shaped). It refreshes with the page at three ubus calls and no forks, and hides with
-the card's **Hide**.
+uptime and autostart, then a row per interface or device with its device and its ingress and
+egress rate (*unlimited* with no bandwidth set, *no* for a direction that is not shaped). It
+refreshes with the page at three ubus calls and no forks, and hides with the card's **Hide**.
 
 ## Good to know
 
