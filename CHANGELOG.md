@@ -3,6 +3,17 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.8 — dev (2026-11-06)
+
+For testing. Not on main or upstream yet.
+
+- **Status → Overview** gets a qosify card (`view/status/include/75_qosify.js`): the service
+  status as the Overview tab words it, a row per interface or device with its device, shaping
+  state and upload and download rate, and a bar per class with its share of what qosify has
+  classified, busiest first (bytes on snapshots, packets on 24.10 and 25.12). Each refresh is
+  three ubus calls the ACL already grants, with no forks. The installer writes it, lists it for
+  sysupgrade and removes it on uninstall and migrate; the `Makefile` packages it
+
 ## v3.2.7 — dev (2026-11-06)
 
 OpenWrt master moved to qosify `143d71d` on 2026-11-03. Not on main or upstream yet.
