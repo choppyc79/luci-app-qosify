@@ -3,6 +3,18 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
+## v3.2.7 — dev (2026-11-06)
+
+OpenWrt master moved to qosify `143d71d` on 2026-11-03. Not on main or upstream yet.
+
+- Quick settings, the Config save and Restore take only letters, digits, spaces, dots,
+  underscores and hyphens in bandwidth, `mode`, the CAKE options and the overhead keys, and page
+  load warns about any other character already in the file. From `143d71d` qosify drops such a
+  value, so CAKE ran unlimited or without its options, or `mode` fell back to `diffserv4`;
+  quick settings let `:` and tabs through, and the Config save and Restore stopped only shell
+  metacharacters. One rule for every build: no tc rate or CAKE keyword needs another character
+- Comment: master pins qosify `143d71d`, which includes `b3ee50e`
+
 ## v3.2.6 — 2026-11-06
 
 `dev` 3.2.6 merged into main. The stylesheet fix is folded into #9190.
