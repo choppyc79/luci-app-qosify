@@ -5,7 +5,8 @@ PR numbers are on openwrt/luci.
 
 ## v3.2.11 — 2026-11-06
 
-`dev` 3.2.7–3.2.11 merged into main on 2026-11-07 and folded into #9190 (still one commit).
+`dev` 3.2.7–3.2.11 merged into main on 2026-11-07. The package changes went upstream in #9190,
+merged 2026-11-07.
 
 - **Status → Overview** card: Not Running, Disabled and inactive are red on bootstrap and OpenWrt
   2020 too, which have no `.label.danger`; the card carries the app's own rule from `qosify.css`.
@@ -49,7 +50,7 @@ OpenWrt master moved to qosify `143d71d` on 2026-11-03.
 
 ## v3.2.6 — 2026-11-06
 
-`dev` 3.2.6 merged into main. The stylesheet fix is folded into #9190.
+`dev` 3.2.6 merged into main. The stylesheet fix went upstream in #9190.
 
 - **Traffic by Class** under Footstrap's top layout (its default), or in a narrow window, drew
   its column titles a top bar's height down, over the first rows, leaving a blank band above.
@@ -58,8 +59,8 @@ OpenWrt master moved to qosify `143d71d` on 2026-11-03.
 
 ## v3.2.5 — 2026-11-04
 
-`dev` 3.1.0–3.2.5 merged into main. The package changes (3.1.0, 3.1.2, 3.2.0–3.2.5) go upstream
-as #9190; 3.1.1 is installer only.
+`dev` 3.1.0–3.2.5 merged into main. The package changes (3.1.0, 3.1.2, 3.2.0–3.2.5) went upstream
+in #9190; 3.1.1 is installer only.
 
 - **Traffic by Class** goes back to the 3.2.3 layout, a row per tin with its total and its
   classes under it, busiest first, and lists only tins and classes with traffic: the "No
@@ -67,9 +68,9 @@ as #9190; 3.1.1 is installer only.
   traffic it reads "No class traffic yet." A class with `dscp_prio` or `dscp_bulk` is counted
   in full under its own tin, as in 3.2.3; Traffic by DSCP shows where those flows leave
 
-## v3.2.4 — dev (2026-11-03)
+## v3.2.4 — 2026-11-03
 
-Found testing 3.2.3 on a snapshot. Not upstream yet.
+Found testing 3.2.3 on a snapshot.
 
 - **Traffic by Class** no longer puts all of a class in one tin. qosify counts a class once,
   where it first matches, before flow detection moves a flow to `dscp_prio` or `dscp_bulk`,
@@ -80,9 +81,7 @@ Found testing 3.2.3 on a snapshot. Not upstream yet.
   gets a "Download (ingress)" line there. Only a class's own `prio_max_avg_pkt_len` and
   `bulk_trigger_pps` count: qosify never applies the ones under `defaults`
 
-## v3.2.3 — dev (2026-11-03)
-
-Not upstream yet.
+## v3.2.3 — 2026-11-03
 
 - **Traffic by Class** under one CAKE mode lists the classes under their tin instead of
   stacking them in one bar: a row per tin with its total, then a row per class with traffic,
@@ -91,9 +90,7 @@ Not upstream yet.
   to be told apart by shades of its colour. On a phone the bars are left out and a long class
   name wraps
 
-## v3.2.2 — dev (2026-11-03)
-
-Not upstream yet.
+## v3.2.2 — 2026-11-03
 
 - **Traffic by CAKE Tin** moves the column titles into each box's banner, beside Upload
   (egress) or Download (ingress) and lined up over their columns, so the table has no title
@@ -102,18 +99,18 @@ Not upstream yet.
 - The **Traffic by Class** note on 24.10 and 25.12 now reads "qosify reports packets only per
   class."
 
-## v3.2.1 — dev (2026-11-03)
+## v3.2.1 — 2026-11-03
 
-Found testing 3.2.0 on 25.12.6. Not upstream yet.
+Found testing 3.2.0 on 25.12.6.
 
 - **Traffic by Class** says why it stays in packets with **Measure** on Bytes: qosify on 24.10
   and 25.12 reports packets only per class, so a note under the bars says so; it is hidden on
   snapshots and with Packets picked
 
-## v3.2.0 — dev (2026-11-03)
+## v3.2.0 — 2026-11-03
 
 Counters tab laid out again. Every figure is still one that `get_stats` or `qosify-status`
-reports, and a refresh makes the same calls as before. Not upstream yet.
+reports, and a refresh makes the same calls as before.
 
 - **Traffic by CAKE Tin** moves to the top as a donut per direction, upload (egress) and
   download (ingress), with the total inside and each tin's figure, share and drops beside it;
@@ -128,9 +125,9 @@ reports, and a refresh makes the same calls as before. Not upstream yet.
 - A **Measure** select picks bytes or packets for the donuts, bars and shares. 24.10 and 25.12
   report class packets only, so the class bars stay in packets there
 
-## v3.1.2 — dev (2026-10-31)
+## v3.1.2 — 2026-10-31
 
-Second audit, run against the app in a mocked LuCI runtime. Not upstream yet.
+Second audit, run against the app in a mocked LuCI runtime.
 
 - Config and Rules editors refuse to save over a file they never loaded. When rpcd cannot read
   it (the rules file is over its 256 KiB read limit, or the read fails) the editor comes up
@@ -141,9 +138,9 @@ Second audit, run against the app in a mocked LuCI runtime. Not upstream yet.
   poll raised an unhandled rejection, the service table stopped updating, and a Start or Stop
   that worked was reported as "Service action failed"
 
-## v3.1.1 — dev (2026-10-31)
+## v3.1.1 — 2026-10-31
 
-Audit report fixes, installer only. Not upstream yet.
+Audit report fixes, installer only.
 
 - Installer: a heredoc write that fails (full overlay) stops the install with an error instead
   of ending with `[OK]` and a truncated `main.js`
@@ -151,11 +148,11 @@ Audit report fixes, installer only. Not upstream yet.
   mapping file the defaults list loads survives an upgrade (sysupgrade expands a directory
   with `find`)
 
-## v3.1.0 — dev (2026-10-31)
+## v3.1.0 — 2026-10-31
 
 Fidelity audit against qosify `b3ee50e` (master) and `1501e09` (24.10, 25.12), `qosify.init`
 and iproute2: every UCI option, ubus method and reply field checked against the sources. Two
-corrections came out of it; nothing in the app was found without daemon backing. Not upstream yet.
+corrections came out of it; nothing in the app was found without daemon backing.
 
 - Rate check no longer takes `unlimited`: qosify passes a set bandwidth to tc as
   `bandwidth <value>` and `get_rate64()` refuses the word, so no qdisc was created. The warning
@@ -200,7 +197,7 @@ dev 3.0.38 merged into main, plus the fixes below. The package changes went upst
 - Installer: `migrate` returns early when luci-app-qosify is already a package; rpcd is
   reloaded instead of restarted, so nobody is logged out
 
-## v3.0.38 — dev (2026-10-17)
+## v3.0.38 — 2026-10-17
 
 main 3.0.36 plus support for qosify `b3ee50e` (openwrt/openwrt#25696).
 
