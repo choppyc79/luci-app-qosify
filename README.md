@@ -209,8 +209,8 @@ takes its version from `VERSION=`.
 
 `luci-app-qosify` is in [openwrt/luci](https://github.com/openwrt/luci/tree/master/applications/luci-app-qosify)
 master and ships in snapshots. Master is installer 3.0.43 file for file, apart from the
-installer's `?v=<VERSION>` stylesheet suffix; 3.1.0–3.2.5 (Counters layout, editor and rate-check
-fixes) is submitted upstream (#9190). It is not in the 24.10 or 25.12 release branches.
+installer's `?v=<VERSION>` stylesheet suffix; 3.1.0–3.2.11 (Counters layout, Status → Overview card,
+editor, rate and value-check fixes) is submitted upstream (#9190). It is not in the 24.10 or 25.12 release branches.
 Merged PRs: #8833, #9019, #9054, #9067, #9082, #9131, #9164.
 
 Translations are done on Weblate and ship as
