@@ -3,25 +3,21 @@
 All notable changes to `luci-app-qosify`. Versions are the `VERSION=` constant in `qosify-luci.sh`.
 PR numbers are on openwrt/luci.
 
-## v3.2.11 — dev (2026-11-06)
+## v3.2.11 — 2026-11-06
 
-For testing. Not on main or upstream yet.
+`dev` 3.2.7–3.2.11 merged into main on 2026-11-07 and folded into #9190 (still one commit).
 
 - **Status → Overview** card: Not Running, Disabled and inactive are red on bootstrap and OpenWrt
   2020 too, which have no `.label.danger`; the card carries the app's own rule from `qosify.css`.
   Footstrap drops the row lines of two-column tables on this page, so the card draws its own there,
   in the theme's border colour; on bootstrap the lines are unchanged
 
-## v3.2.10 — dev (2026-11-06)
-
-For testing. Not on main or upstream yet.
+## v3.2.10 — 2026-11-06
 
 - **Status → Overview** card drops the Shaping row; the interface rows already show what is
   shaping
 
-## v3.2.9 — dev (2026-11-06)
-
-For testing. Not on main or upstream yet.
+## v3.2.9 — 2026-11-06
 
 - **Status → Overview** card cut down to a snapshot in the Overview tab's own rows and words:
   Status, Uptime, Autostart, Shaping, and a row per interface or device with its device and its
@@ -30,9 +26,7 @@ For testing. Not on main or upstream yet.
   with `skip_running_check`, and the uptime from `/proc/<pid>/stat` and `/proc/uptime`, read once
   per qosify start. Still three ubus calls a refresh, no forks and nothing new in the ACL
 
-## v3.2.8 — dev (2026-11-06)
-
-For testing. Not on main or upstream yet.
+## v3.2.8 — 2026-11-06
 
 - **Status → Overview** gets a qosify card (`view/status/include/75_qosify.js`): the service
   status as the Overview tab words it, a row per interface or device with its device, shaping
@@ -41,9 +35,9 @@ For testing. Not on main or upstream yet.
   three ubus calls the ACL already grants, with no forks. The installer writes it, lists it for
   sysupgrade and removes it on uninstall and migrate; the `Makefile` packages it
 
-## v3.2.7 — dev (2026-11-06)
+## v3.2.7 — 2026-11-06
 
-OpenWrt master moved to qosify `143d71d` on 2026-11-03. Not on main or upstream yet.
+OpenWrt master moved to qosify `143d71d` on 2026-11-03.
 
 - Quick settings, the Config save and Restore take only letters, digits, spaces, dots,
   underscores and hyphens in bandwidth, `mode`, the CAKE options and the overhead keys, and page
